@@ -30,7 +30,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     githubToken: env.GITHUB_TOKEN || null,
     timelockMs: env.TIMELOCK_MS ? Number(env.TIMELOCK_MS) : provider === "sim" ? DEMO_TIMELOCK_MS : PRODUCTION_TIMELOCK_MS,
     devWallet,
-    agentApiKey: env.AGENT_API_KEY || null,
+    agentApiKey: env.NEAR_INTENTS_AGENT_API_KEY || env.AGENT_API_KEY || null,
     agentApiBaseUrl: env.AGENT_API_BASE_URL || null,
   };
 
@@ -39,7 +39,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (!LIVE_PROVIDER_READY) throw new Error("PROVIDER=live is not wired yet. It lands after spikes SP0-SP4 (docs/spikes.md).");
     if (cfg.devWallet) throw new Error("The demo wallet can never run with PROVIDER=live.");
     if (!cfg.secretKey) throw new Error("PROVIDER=live needs SECRET_KEY (32 bytes hex) to encrypt the grant credential.");
-    if (!cfg.agentApiKey) throw new Error("PROVIDER=live needs AGENT_API_KEY.");
+    if (!cfg.agentApiKey) throw new Error("PROVIDER=live needs NEAR_INTENTS_AGENT_API_KEY.");
     if (cfg.dbPath === ":memory:") throw new Error("PROVIDER=live needs a DB_PATH on disk.");
   }
   if (cfg.evidence !== "fake" && cfg.evidence !== "github") throw new Error("GITHUB must be fake or github");
