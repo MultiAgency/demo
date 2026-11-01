@@ -1,6 +1,8 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
+import { Icon, type IconName } from "./components/icons";
+import { PageLoading } from "./components/ui";
 import { ContractPage } from "./pages/Contract";
 import { ContractorSign } from "./pages/ContractorSign";
 import { GuidePage } from "./pages/Guide";
@@ -27,6 +29,15 @@ function useHashRoute() {
   return route;
 }
 
+function NavItem({ href, icon, label, active }: { href: string; icon: IconName; label: string; active: boolean }) {
+  return (
+    <a href={href} className={`nav-item${active ? " is-active" : ""}`}>
+      <Icon name={icon} size={17} />
+      <span>{label}</span>
+    </a>
+  );
+}
+
 function App() {
   const { path, query } = useHashRoute();
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -36,42 +47,71 @@ function App() {
     api<AppConfig>("GET", "/config").then(setConfig, (e: Error) => setError(e.message));
   }, []);
 
-  let page: React.ReactNode;
   const m = path.match(/^\/c\/([\w-]+)(\/(sign|verify))?$/);
-  if (!config) page = error ? <p className="container">Can't reach the server: {error}</p> : <p className="container muted">Loading…</p>;
-  else if (path === "/new") page = <NewContract />;
+  // Contractor-facing pages stand alone, without the company's app chrome.
+  const standalone = !!m && (m[3] === "sign" || m[3] === "verify");
+
+  let page: React.ReactNode;
+  if (!config) page = error ? <div className="page"><p>Can't reach the server: {error}</p></div> : <PageLoading />;
+  else if (path === "/new") page = <NewContract config={config} />;
   else if (path === "/guide") page = <GuidePage />;
   else if (m && m[3] === "sign") page = <ContractorSign id={m[1]!} token={query.get("t")} config={config} />;
   else if (m && m[3] === "verify") page = <VerifyPage id={m[1]!} />;
   else if (m) page = <ContractPage key={m[1]} id={m[1]!} config={config} />;
   else page = <Home />;
 
-  return (
-    <>
-      {config?.provider === "sim" ? (
-        <div className="sim-strip" role="note">
-          SIMULATED · no real funds, no network · the demo wallet signs for <code>acme.demo</code> and <code>maria.demo</code>
-        </div>
-      ) : null}
-      <header className="topbar">
-        <div className="container topbar-inner">
-          <a href="#/" className="brand">
-            <span className="logo" aria-hidden>
-              ✓
+  if (standalone)
+    return (
+      <div className="standalone">
+        <header className="standalone-bar">
+          <span className="brand">
+            <span className="brand-mark">
+              <Icon name="check" size={14} strokeWidth={2.6} />
             </span>
             Covenant
-          </a>
-          <nav>
-            <a href="#/new">New contract</a>
-            <a href="#/guide">Guide</a>
-          </nav>
+          </span>
+          {config?.provider === "sim" ? <span className="env-chip">Simulator</span> : null}
+        </header>
+        {page}
+      </div>
+    );
+
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <a href="#/" className="brand">
+          <span className="brand-mark">
+            <Icon name="check" size={14} strokeWidth={2.6} />
+          </span>
+          Covenant
+        </a>
+        <nav className="nav">
+          <NavItem href="#/" icon="grid" label="Contracts" active={path === "/" || (!!m && !standalone)} />
+          <NavItem href="#/new" icon="plus" label="New contract" active={path === "/new"} />
+          <NavItem href="#/guide" icon="book" label="How it works" active={path === "/guide"} />
+        </nav>
+        <div className="sidebar-foot">
+          {config?.provider === "sim" ? (
+            <div className="env">
+              <span className="env-dot" />
+              <div>
+                <strong>Simulator</strong>
+                <span>No real funds · demo wallet</span>
+              </div>
+            </div>
+          ) : config ? (
+            <div className="env env-live">
+              <span className="env-dot" />
+              <div>
+                <strong>NEAR mainnet</strong>
+                <span>Real funds</span>
+              </div>
+            </div>
+          ) : null}
         </div>
-      </header>
-      <main>{page}</main>
-      <footer className="footer">
-        <div className="container">Covenant · the contract is the spending limit · built on the NEAR Intents Agent API · MIT</div>
-      </footer>
-    </>
+      </aside>
+      <main className="main">{page}</main>
+    </div>
   );
 }
 

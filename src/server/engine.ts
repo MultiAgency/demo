@@ -95,7 +95,19 @@ export class Covenant {
     const rows = this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all() as ContractRow[];
     return rows.map((r) => {
       const terms = JSON.parse(r.terms) as Terms;
-      return { id: r.id, company: terms.company, contractor: terms.contractor.name, cap: terms.monthly_cap_usd, end: terms.end, stage: this.stageOf(r) };
+      const cap = toAtomic(terms.monthly_cap_usd, USDC_DECIMALS);
+      const used = cap - this.remainingCap(r.id, terms, this.period(terms).month);
+      return {
+        id: r.id,
+        company: terms.company,
+        contractor: terms.contractor.name,
+        payee: terms.payee.address,
+        cap: terms.monthly_cap_usd,
+        used: fromAtomic(used, USDC_DECIMALS),
+        start: terms.start,
+        end: terms.end,
+        stage: this.stageOf(r),
+      };
     });
   }
 
@@ -407,10 +419,12 @@ export class Covenant {
       { id: "applied", label: "Policy is applied and synced at the provider", ok: !!policy && policy.status === "APPLIED" && policy.synced },
       { id: "policy", label: "Live policy equals the policy compiled from these terms", ok: !!policy?.equal },
       { id: "grant", label: "The agent's permission expires exactly at the contract end", ok: !!grant && grant.matches_end && !grant.revoked },
-      { id: "funded", label: "The wallet holds enough USDC for this month's remaining cap", ok: !!funds?.covers_cap },
+      // Informational: funding is not a mismatch with the signed terms, so it never turns the verdict red.
+      { id: "funded", label: "The wallet holds enough USDC for this month's remaining cap", ok: !!funds?.covers_cap, info: true },
     ];
-    const overall = checks.every((c) => c.ok) ? "green" : !row.agent_id || !row.grant_id ? "incomplete" : "red";
-    return { id, hash: row.hash, terms, compiled, checks, overall, signatures, policy, grant, funds, frozen: funds?.frozen ?? false };
+    const matches = checks.filter((c) => !("info" in c));
+    const overall = !row.agent_id || !row.grant_id ? "incomplete" : matches.every((c) => c.ok) ? "green" : "red";
+    return { id, hash: row.hash, terms, compiled, checks, overall, signatures, policy, grant, funds, agent_id: row.agent_id, frozen: funds?.frozen ?? false };
   }
 
   // ================= "compromised server" attack panel =================

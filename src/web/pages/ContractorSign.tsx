@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, signMessage } from "../api";
-import { Banner, Button, Card, ErrorText, GuidePanel, KV, usdText, when } from "../components/ui";
+import { Icon } from "../components/icons";
+import { Alert, Avatar, Button, dateText, Disclosure, Mono, PageLoading, short, timeText, usd } from "../components/ui";
 import type { AppConfig, ContractView } from "../types";
 
-/** The contractor's own view: plain-language terms and a sign button. No company controls here. */
+/** The contractor's page: what they're agreeing to, and one button. */
 export function ContractorSign({ id, token, config }: { id: string; token: string | null; config: AppConfig }) {
   const [c, setC] = useState<ContractView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -12,7 +13,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
     api<ContractView>("GET", `/contracts/${id}`).then(setC, (e: Error) => setError(e.message));
   }, [id]);
 
-  if (!c) return <div className="container">{error ? <Banner tone="bad">{error}</Banner> : <p className="muted">Loading…</p>}</div>;
+  if (!c) return error ? <div className="narrow"><Alert tone="danger">{error}</Alert></div> : <PageLoading />;
   const t = c.terms;
   const signed = c.signatures.contractor;
 
@@ -28,41 +29,90 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
   }
 
   return (
-    <div className="container wizard-layout">
-      <div className="wizard-main">
-        <p className="eyebrow">Work order from {t.company}</p>
-        <h1>Hi {t.contractor.name.split(" ")[0]}, please review and sign</h1>
-        <Card title="In plain language">
-          <p>
-            {t.company} will pay <strong>{usdText(t.rate_per_accepted_pr_usd)}</strong> for each of your pull requests that someone else merges in{" "}
-            <strong>{t.repos.join(", ")}</strong>, up to <strong>{usdText(t.monthly_cap_usd)} per month</strong>, from {t.start} to {t.end}.
-          </p>
-          <p>
-            Payments go in USDC to <code>{t.payee.address}</code> on NEAR, from a wallet that exists only for this contract. Its limits are set from these
-            terms and enforced by NEAR Intents.
-          </p>
-          <KV rows={[["Scope", t.scope], ["Your NEAR account", <code>{t.contractor.near_account}</code>], ["Your GitHub", `@${t.contractor.github}`], ["Terms hash", <code>{c.hash}</code>]]} />
-        </Card>
-        <ErrorText error={error} />
-        {signed ? (
-          <Card title="Signed">
-            <p>You signed on {when(signed.signed_at)}.</p>
-            <a className="btn btn-primary" href={`#/c/${id}/verify`}>
-              Verify your contract wallet →
-            </a>
-          </Card>
-        ) : !token ? (
-          <Banner tone="warn">This link is missing its signing token. Ask {t.company} to send the full link.</Banner>
-        ) : (
-          <div className="form-actions">
-            <Button onClick={sign}>{config.provider === "sim" ? `Sign as ${t.contractor.near_account} (demo wallet)` : "Sign with my NEAR wallet"}</Button>
+    <div className="narrow">
+      <div className="doc">
+        <div className="doc-head">
+          <Avatar name={t.company} tone="accent" />
+          <div>
+            <div className="doc-kicker">Work order from {t.company}</div>
+            <h1>{signed ? "You signed this contract" : `${t.contractor.name.split(" ")[0]}, review and sign`}</h1>
           </div>
+        </div>
+
+        <div className="doc-tiles">
+          <div className="doc-tile">
+            <span>Per merged PR</span>
+            <strong>{usd(t.rate_per_accepted_pr_usd)}</strong>
+          </div>
+          <div className="doc-tile">
+            <span>Monthly limit</span>
+            <strong>{usd(t.monthly_cap_usd)}</strong>
+          </div>
+          <div className="doc-tile">
+            <span>Term</span>
+            <strong>
+              {dateText(t.start)} – {dateText(t.end)}
+            </strong>
+          </div>
+        </div>
+
+        <ul className="doc-list">
+          <li>
+            <Icon name="user" size={15} />
+            <span>Paid to</span>
+            <strong>{t.payee.address}</strong>
+            <em>USDC on NEAR</em>
+          </li>
+          <li>
+            <Icon name="pr" size={15} />
+            <span>For</span>
+            <strong>PRs by @{t.contractor.github}</strong>
+            <em>merged by someone else in {t.repos.join(", ")}</em>
+          </li>
+          <li>
+            <Icon name="shieldCheck" size={15} />
+            <span>Enforced</span>
+            <strong>By NEAR Intents</strong>
+            <em>a wallet just for this contract</em>
+          </li>
+        </ul>
+
+        <Disclosure label="Scope and details">
+          <p className="muted">{t.scope}</p>
+          <div className="kv-line">
+            <span>Terms hash</span>
+            <Mono copy={c.hash}>{short(c.hash, 12, 6)}</Mono>
+          </div>
+          <div className="kv-line">
+            <span>Your account</span>
+            <Mono>{t.contractor.near_account}</Mono>
+          </div>
+        </Disclosure>
+
+        {error ? <Alert tone="danger">{error}</Alert> : null}
+
+        {signed ? (
+          <div className="doc-done">
+            <span className="done-mark">
+              <Icon name="check" size={18} strokeWidth={2.6} />
+            </span>
+            <div>
+              <strong>Signed {timeText(signed.signed_at)}</strong>
+              <span>You can check the contract wallet at any time.</span>
+            </div>
+            <a className="btn btn-primary btn-md" href={`#/c/${id}/verify`}>
+              <Icon name="shieldCheck" /> <span>Verify wallet</span>
+            </a>
+          </div>
+        ) : !token ? (
+          <Alert tone="warning">This link is missing its signing token. Ask {t.company} for the full link.</Alert>
+        ) : (
+          <Button icon="pen" full onClick={sign}>
+            {config.provider === "sim" ? `Sign as ${t.contractor.near_account} (demo wallet)` : "Sign with NEAR wallet"}
+          </Button>
         )}
-        <p className="hint">
-          <a href={`#/c/${id}`}>Back to the company view</a>
-        </p>
+        <p className="doc-foot">Signing is free and off-chain. It doesn't move any money.</p>
       </div>
-      <GuidePanel step="contractor-sign" />
     </div>
   );
 }

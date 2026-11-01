@@ -77,7 +77,8 @@ export interface VerifyReport {
   hash: string;
   terms: Terms;
   compiled: ContractView["compiled"];
-  checks: { id: string; label: string; ok: boolean }[];
+  checks: { id: string; label: string; ok: boolean; info?: boolean }[];
+  agent_id: string | null;
   overall: "green" | "red" | "incomplete";
   policy: { status: string; synced: boolean; equal: boolean; diffs: { path: string; expected: unknown; actual: unknown }[]; policy_hash: string } | null;
   grant: { expires_at: string; matches_end: boolean; revoked: boolean } | null;

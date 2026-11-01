@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { DEMO_TERMS } from "../../shared/demo";
 import { api, links } from "../api";
-import { Button, ErrorText, GuidePanel } from "../components/ui";
+import { Icon } from "../components/icons";
+import { PolicyCard } from "../components/PolicyCard";
+import { Alert, Button } from "../components/ui";
+import type { AppConfig } from "../types";
 
 interface Form {
   company: string;
@@ -18,13 +21,14 @@ interface Form {
   scope: string;
 }
 
-/** Demo dates relative to today: from the 1st of this month to the last day of next month (UTC). */
-function demoDates(now = new Date()): { start: string; end: string } {
+/** Demo dates relative to today: the 1st of this month to the last day of next month (UTC). */
+function demoDates(now = new Date()) {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth();
-  const start = new Date(Date.UTC(y, m, 1));
-  const end = new Date(Date.UTC(y, m + 2, 0));
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  return {
+    start: new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10),
+    end: new Date(Date.UTC(y, m + 2, 0)).toISOString().slice(0, 10),
+  };
 }
 
 const initial: Form = {
@@ -41,10 +45,21 @@ const initial: Form = {
   scope: DEMO_TERMS.scope,
 };
 
-export function NewContract() {
+function Field(props: { label: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <label className={`field${props.wide ? " field-wide" : ""}`}>
+      <span className="field-label">{props.label}</span>
+      {props.children}
+      {props.hint ? <span className="field-hint">{props.hint}</span> : null}
+    </label>
+  );
+}
+
+export function NewContract({ config }: { config: AppConfig }) {
   const [f, setF] = useState<Form>(initial);
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+  const repos = f.repos.split(/[\s,]+/).filter(Boolean);
 
   async function submit() {
     setError(null);
@@ -60,7 +75,7 @@ export function NewContract() {
         rate_per_accepted_pr_usd: f.rate,
         start: f.start,
         end: f.end,
-        repos: f.repos.split(/[\s,]+/).filter(Boolean),
+        repos,
         scope: f.scope,
         acceptance: "merged_to_default_branch_by_other",
       });
@@ -72,11 +87,18 @@ export function NewContract() {
   }
 
   return (
-    <div className="container wizard-layout">
-      <div className="wizard-main">
-        <p className="eyebrow">Step 1 of 9</p>
-        <h1>Draft the work order</h1>
-        <p className="muted">The demo values are filled in. Change anything you like; the simulator's demo wallet can sign for acme.demo and maria.demo.</p>
+    <div className="page">
+      <header className="page-header">
+        <div>
+          <a href="#/" className="crumb">
+            <Icon name="chevronLeft" size={14} /> Contracts
+          </a>
+          <h1>New contract</h1>
+          <p className="page-sub">Fill in the terms. The preview shows the wallet they compile to.</p>
+        </div>
+      </header>
+
+      <div className="split">
         <form
           className="form"
           onSubmit={(e) => {
@@ -84,80 +106,100 @@ export function NewContract() {
             void submit();
           }}
         >
-          <fieldset>
-            <legend>Company</legend>
-            <label>
-              Company name
-              <input value={f.company} onChange={set("company")} required />
-            </label>
-            <label>
-              Representative's NEAR account <small>signs the terms and owns the contract wallet</small>
-              <input value={f.rep} onChange={set("rep")} required />
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>Contractor</legend>
-            <label>
-              Name
-              <input value={f.contractorName} onChange={set("contractorName")} required />
-            </label>
-            <div className="row2">
-              <label>
-                GitHub username <small>whose merged PRs count</small>
-                <input value={f.github} onChange={set("github")} required />
-              </label>
-              <label>
-                NEAR account <small>signs the terms</small>
+          <section className="form-section">
+            <h2>
+              <Icon name="building" /> Parties
+            </h2>
+            <div className="grid2">
+              <Field label="Company">
+                <input value={f.company} onChange={set("company")} required />
+              </Field>
+              <Field label="Representative" hint="NEAR account that signs and owns the wallet">
+                <input value={f.rep} onChange={set("rep")} required />
+              </Field>
+              <Field label="Contractor">
+                <input value={f.contractorName} onChange={set("contractorName")} required />
+              </Field>
+              <Field label="Contractor's NEAR account">
                 <input value={f.contractorAccount} onChange={set("contractorAccount")} required />
-              </label>
+              </Field>
             </div>
-            <label>
-              Payee (NEAR account that receives USDC) <small>the only address the wallet can ever pay</small>
-              <input value={f.payee} onChange={set("payee")} required />
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>Money and term</legend>
-            <div className="row2">
-              <label>
-                Monthly cap (USD) <small>the most it can pay in a month</small>
-                <input value={f.cap} onChange={set("cap")} inputMode="decimal" required />
-              </label>
-              <label>
-                Rate per accepted PR (USD)
-                <input value={f.rate} onChange={set("rate")} inputMode="decimal" required />
-              </label>
-            </div>
-            <div className="row2">
-              <label>
-                Start date
+          </section>
+
+          <section className="form-section">
+            <h2>
+              <Icon name="coins" /> Payment
+            </h2>
+            <div className="grid2">
+              <Field label="Payee" hint="The only account this wallet can pay" wide>
+                <div className="input-affix">
+                  <input value={f.payee} onChange={set("payee")} required />
+                  <span>USDC · NEAR</span>
+                </div>
+              </Field>
+              <Field label="Monthly limit">
+                <div className="input-affix prefix">
+                  <span>$</span>
+                  <input value={f.cap} onChange={set("cap")} inputMode="decimal" required />
+                </div>
+              </Field>
+              <Field label="Per merged PR">
+                <div className="input-affix prefix">
+                  <span>$</span>
+                  <input value={f.rate} onChange={set("rate")} inputMode="decimal" required />
+                </div>
+              </Field>
+              <Field label="Start">
                 <input type="date" value={f.start} onChange={set("start")} required />
-              </label>
-              <label>
-                End date <small>after this, the agent's permission expires</small>
+              </Field>
+              <Field label="End" hint="The agent's permission expires then">
                 <input type="date" value={f.end} onChange={set("end")} required />
-              </label>
+              </Field>
             </div>
-          </fieldset>
-          <fieldset>
-            <legend>Work</legend>
-            <label>
-              Repositories <small>owner/name, comma separated</small>
-              <input value={f.repos} onChange={set("repos")} required />
-            </label>
-            <label>
-              Scope of work <small>what the agent's reviewer judges PRs against</small>
-              <textarea rows={3} value={f.scope} onChange={set("scope")} required />
-            </label>
-            <p className="hint">Acceptance rule: a PR counts when someone other than its author merges it into the default branch.</p>
-          </fieldset>
-          <ErrorText error={error} />
+          </section>
+
+          <section className="form-section">
+            <h2>
+              <Icon name="pr" /> Work
+            </h2>
+            <div className="grid2">
+              <Field label="GitHub username">
+                <div className="input-affix prefix">
+                  <span>@</span>
+                  <input value={f.github} onChange={set("github")} required />
+                </div>
+              </Field>
+              <Field label="Repositories" hint="owner/name, comma separated">
+                <input value={f.repos} onChange={set("repos")} required />
+              </Field>
+              <Field label="Scope" wide>
+                <textarea rows={2} value={f.scope} onChange={set("scope")} required />
+              </Field>
+            </div>
+            <p className="field-hint">A PR counts when someone other than its author merges it.</p>
+          </section>
+
+          {error ? <Alert tone="danger">{error}</Alert> : null}
           <div className="form-actions">
-            <Button type="submit">Create draft and continue →</Button>
+            <a className="btn btn-ghost btn-md" href="#/">
+              Cancel
+            </a>
+            <Button type="submit" icon="arrowRight">
+              Create draft
+            </Button>
           </div>
         </form>
+
+        <aside className="split-side">
+          <div className="sticky">
+            <div className="side-label">Live preview</div>
+            <PolicyCard payee={f.payee} cap={f.cap} rate={f.rate} start={f.start} end={f.end} repos={repos} timelockMinutes={Math.round(config.timelock_ms / 60000)} />
+            <p className="side-note">
+              <Icon name="info" size={14} /> Locked rows are enforced by NEAR Intents. Nothing is created until both parties sign.
+            </p>
+          </div>
+        </aside>
       </div>
-      <GuidePanel step="draft" />
     </div>
   );
 }

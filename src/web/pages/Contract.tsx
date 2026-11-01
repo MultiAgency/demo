@@ -1,26 +1,43 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, links, ownerAction, signMessage } from "../api";
-import { Banner, Button, Card, ErrorText, GuidePanel, Json, KV, Pill, shortHash, usdText, when } from "../components/ui";
-import { STEPS, type StepId } from "../guide";
+import { Icon, type IconName } from "../components/icons";
+import { PolicyCard } from "../components/PolicyCard";
+import {
+  Alert,
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  dateText,
+  Empty,
+  Json,
+  Mono,
+  PageLoading,
+  Progress,
+  short,
+  Stat,
+  Tabs,
+  timeText,
+  type Tone,
+  usd,
+} from "../components/ui";
+import { PHASES, SETUP, type StepId } from "../guide";
 import type { AppConfig, AttackResult, ContractView, Payout, VerifyReport } from "../types";
+import { STAGES } from "./Home";
 
-interface Props {
-  id: string;
-  config: AppConfig;
-}
+type Act = (fn: () => Promise<unknown>) => Promise<void>;
 
-export function ContractPage({ id, config }: Props) {
+export function ContractPage({ id, config }: { id: string; config: AppConfig }) {
   const [c, setC] = useState<ContractView | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyReport | null>(null);
-  const [attacks, setAttacks] = useState<Record<string, AttackResult>>({});
-  const [step, setStep] = useState<StepId | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const next = await api<ContractView>("GET", `/contracts/${id}`);
       setC(next);
-      if (next.grant) setVerify(await api<VerifyReport>("GET", `/contracts/${id}/verify`));
+      setVerify(next.grant ? await api<VerifyReport>("GET", `/contracts/${id}/verify`) : null);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -31,464 +48,527 @@ export function ContractPage({ id, config }: Props) {
     void load();
   }, [load]);
 
-  // Poll while a payout waits out its timelock.
   useEffect(() => {
     if (!c?.payouts.some((p) => p.status === "queued")) return;
     const t = setInterval(() => void load(), 5000);
     return () => clearInterval(t);
   }, [c, load]);
 
-  const done = useMemo(() => {
-    const d: Partial<Record<StepId, boolean>> = { draft: true };
-    if (!c) return d;
-    d["rep-sign"] = !!c.signatures.representative;
-    d["contractor-sign"] = !!c.signatures.contractor;
-    d.wallet = !!c.agent;
-    d.grant = !!c.grant;
-    d.fund = !!c.agent && (Number(c.agent.available_usd) > 0 || c.payouts.length > 0);
-    d.pay = c.payouts.some((p) => p.status === "paid");
-    d.verify = verify?.overall === "green" || (d.pay && verify?.checks.filter((x) => x.id !== "funded").every((x) => x.ok));
-    d.attack = Object.values(attacks).some((a) => a.outcome);
-    return d;
-  }, [c, verify, attacks]);
-
-  const current: StepId = STEPS.find((s) => !done[s.id])?.id ?? "attack";
-  const active = step ?? current;
-
-  if (!c) return <div className="container">{error ? <Banner tone="bad">{error}</Banner> : <p className="muted">Loading…</p>}</div>;
-
-  const act = async (fn: () => Promise<unknown>) => {
+  const act: Act = async (fn) => {
     setError(null);
     try {
       await fn();
-      await load();
-      setStep(null);
     } catch (e) {
       setError((e as Error).message);
     }
+    await load();
   };
 
+  if (!c) return error ? <div className="page"><Alert tone="danger">{error}</Alert></div> : <PageLoading />;
+
+  const setup = c.stage.startsWith("needs_");
+  const stage = STAGES[c.stage] ?? { label: c.stage, tone: "neutral" as Tone };
+  const verifyLink = `${window.location.origin}/#/c/${c.id}/verify`;
+
   return (
-    <div className="container">
-      <header className="contract-head">
+    <div className="page">
+      <header className="page-header">
         <div>
-          <p className="eyebrow">Contract {c.id}</p>
-          <h1>
-            {c.terms.company} → {c.terms.contractor.name}
-          </h1>
-          <p className="muted">
-            {usdText(c.terms.rate_per_accepted_pr_usd)} per accepted PR · cap {usdText(c.terms.monthly_cap_usd)}/month · {c.terms.start} → {c.terms.end} · terms{" "}
-            <code title={c.hash}>{shortHash(c.hash)}</code>
-          </p>
+          <a href="#/" className="crumb">
+            <Icon name="chevronLeft" size={14} /> Contracts
+          </a>
+          <div className="title-row">
+            <Avatar name={c.terms.contractor.name} tone="accent" />
+            <div>
+              <h1>{c.terms.contractor.name}</h1>
+              <p className="page-sub">
+                {c.terms.company} · {usd(c.terms.rate_per_accepted_pr_usd)} per PR · up to {usd(c.terms.monthly_cap_usd)}/mo
+              </p>
+            </div>
+            <Badge tone={stage.tone} dot>
+              {stage.label}
+            </Badge>
+          </div>
         </div>
-        <StagePill stage={c.stage} />
+        <div className="header-actions">
+          <Mono copy={c.hash}>{`terms ${short(c.hash, 6, 4)}`}</Mono>
+          {c.grant ? <Mono copy={verifyLink}>Copy verify link</Mono> : null}
+          {c.agent && !c.agent.frozen && c.stage !== "ended" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="snowflake"
+              onClick={() => {
+                if (window.confirm("Freeze this contract wallet? It will not be able to pay anything again.")) return act(() => ownerAction(config.provider, c.id, "agent_freeze"));
+              }}
+            >
+              Freeze
+            </Button>
+          ) : null}
+        </div>
       </header>
 
-      {config.provider === "sim" ? <SimControls c={c} config={config} onChange={load} /> : null}
+      {config.provider === "sim" ? <SimBar c={c} config={config} reload={load} /> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <div className="wizard-layout three">
-        <nav className="stepper" aria-label="Steps">
-          <ol>
-            {STEPS.map((s) => (
-              <li key={s.id}>
-                <button className={`step${active === s.id ? " is-active" : ""}${done[s.id] ? " is-done" : ""}`} onClick={() => setStep(s.id)}>
-                  <span className="step-n">{done[s.id] ? "✓" : s.n}</span>
-                  <span className="step-t">{s.title}</span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </nav>
-
-        <div className="wizard-main">
-          <ErrorText error={error} />
-          <StepBody step={active} c={c} config={config} verify={verify} attacks={attacks} setAttacks={setAttacks} act={act} reload={load} />
-          {active !== current && !done[active] ? (
-            <p className="hint">
-              This step comes later. <button className="link" onClick={() => setStep(null)}>Go to the current step</button>
-            </p>
-          ) : null}
-          <Activity events={c.events} />
-        </div>
-
-        <GuidePanel step={active} />
-      </div>
+      {setup ? <Setup c={c} config={config} act={act} /> : <Dashboard c={c} config={config} verify={verify} act={act} reload={load} />}
     </div>
   );
 }
 
-function StagePill({ stage }: { stage: ContractView["stage"] }) {
-  const map: Record<ContractView["stage"], [string, "ok" | "warn" | "bad" | "muted"]> = {
-    needs_signatures: ["Waiting for signatures", "warn"],
-    needs_wallet: ["Needs its wallet", "warn"],
-    needs_grant: ["Needs agent permission", "warn"],
-    needs_funding: ["Needs funding", "warn"],
-    active: ["Active", "ok"],
-    ended: ["Ended", "muted"],
-    frozen: ["Frozen", "bad"],
-  };
-  const [label, tone] = map[stage];
-  return <Pill tone={tone}>{label}</Pill>;
-}
+/* ------------------------------------------------------------------ setup */
 
-interface BodyProps {
-  step: StepId;
-  c: ContractView;
-  config: AppConfig;
-  verify: VerifyReport | null;
-  attacks: Record<string, AttackResult>;
-  setAttacks: (fn: (a: Record<string, AttackResult>) => Record<string, AttackResult>) => void;
-  act: (fn: () => Promise<unknown>) => Promise<void>;
-  reload: () => Promise<void>;
-}
-
-function StepBody(p: BodyProps) {
-  switch (p.step) {
-    case "draft":
-      return <DraftStep {...p} />;
+function stepDone(c: ContractView, s: StepId): boolean {
+  switch (s) {
     case "rep-sign":
-      return <SignStep {...p} role="representative" />;
+      return !!c.signatures.representative;
     case "contractor-sign":
-      return <SignStep {...p} role="contractor" />;
+      return !!c.signatures.contractor;
     case "wallet":
-      return <WalletStep {...p} />;
+      return !!c.agent;
     case "grant":
-      return <GrantStep {...p} />;
+      return !!c.grant;
     case "fund":
-      return <FundStep {...p} />;
-    case "pay":
-      return <PayStep {...p} />;
-    case "verify":
-      return <VerifyStep {...p} />;
-    case "attack":
-      return <AttackStep {...p} />;
+      return !!c.agent && Number(c.agent.available_usd) > 0;
   }
 }
 
-function TermsSummary({ c }: { c: ContractView }) {
-  const t = c.terms;
+function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
+  const current = SETUP.find((s) => !stepDone(c, s.id))?.id;
+  const currentPhase = SETUP.find((s) => s.id === current)?.phase ?? "live";
+  const doneCount = SETUP.filter((s) => stepDone(c, s.id)).length;
+
   return (
-    <KV
-      rows={[
-        ["Payee", <code>{t.payee.address}</code>],
-        ["Monthly cap", usdText(t.monthly_cap_usd)],
-        ["Rate", `${usdText(t.rate_per_accepted_pr_usd)} per accepted pull request`],
-        ["Term", `${t.start} → ${t.end} (inclusive, UTC)`],
-        ["Repositories", t.repos.join(", ")],
-        ["Scope", t.scope],
-        ["Representative", <code>{t.representative.near_account}</code>],
-        ["Contractor", <>{t.contractor.name} · <code>{t.contractor.near_account}</code> · GitHub @{t.contractor.github}</>],
-      ]}
-    />
+    <div className="split">
+      <div className="stack">
+        <div className="phases">
+          {PHASES.map((p, i) => {
+            const idx = PHASES.findIndex((x) => x.id === currentPhase);
+            const state = i < idx ? "done" : i === idx ? "current" : "todo";
+            return (
+              <div key={p.id} className={`phase phase-${state}`}>
+                <span className="phase-n">{state === "done" ? <Icon name="check" size={13} strokeWidth={2.6} /> : i + 1}</span>
+                {p.label}
+              </div>
+            );
+          })}
+        </div>
+
+        <Card pad={false}>
+          <div className="card-pad-x">
+            <CardHeader title="Set up this contract" sub={`${doneCount} of ${SETUP.length} done`} />
+            <Progress value={doneCount} max={SETUP.length} />
+          </div>
+          <ol className="checklist">
+            {SETUP.map((s) => (
+              <SetupRow key={s.id} step={s} c={c} config={config} act={act} state={stepDone(c, s.id) ? "done" : s.id === current ? "current" : "todo"} />
+            ))}
+          </ol>
+        </Card>
+      </div>
+
+      <aside className="split-side">
+        <div className="sticky">
+          <div className="side-label">Wallet policy</div>
+          <PolicyCard
+            payee={c.terms.payee.address}
+            cap={c.terms.monthly_cap_usd}
+            rate={c.terms.rate_per_accepted_pr_usd}
+            start={c.terms.start}
+            end={c.terms.end}
+            repos={c.terms.repos}
+            timelockMinutes={Math.round(c.compiled.policy.timelock_ms / 60000)}
+            status={c.agent ? "live" : "draft"}
+            agentId={c.agent?.agent_id}
+          />
+          <Json value={c.compiled} label="Compiled policy" />
+        </div>
+      </aside>
+    </div>
   );
 }
 
-function DraftStep({ c }: BodyProps) {
+function SetupRow({ step, c, config, act, state }: { step: (typeof SETUP)[number]; c: ContractView; config: AppConfig; act: Act; state: "done" | "current" | "todo" }) {
+  const [help, setHelp] = useState(false);
+  const sim = config.provider === "sim";
+  const n = SETUP.findIndex((s) => s.id === step.id) + 1;
+
+  const detail = (() => {
+    if (state !== "done") return step.short;
+    switch (step.id) {
+      case "rep-sign":
+        return `Signed by ${c.signatures.representative!.account_id} · ${timeText(c.signatures.representative!.signed_at)}`;
+      case "contractor-sign":
+        return `Signed by ${c.signatures.contractor!.account_id} · ${timeText(c.signatures.contractor!.signed_at)}`;
+      case "wallet":
+        return `Agent ${c.agent!.agent_id}`;
+      case "grant":
+        return `Expires ${timeText(c.grant!.expires_at)}`;
+      case "fund":
+        return `Balance ${usd(c.agent!.available_usd)}`;
+    }
+  })();
+
   return (
-    <Card title="Draft created">
-      <TermsSummary c={c} />
-      <p className="hint">
-        Terms hash <code>{c.hash}</code>. This is what both parties sign. Any change to the terms means a new draft.
-      </p>
-    </Card>
+    <li className={`check-row is-${state}`}>
+      <span className="check-icon">{state === "done" ? <Icon name="check" size={14} strokeWidth={2.6} /> : <Icon name={step.icon} size={15} />}</span>
+      <div className="check-body">
+        <div className="check-head">
+          <div>
+            <div className="check-title">
+              <span className="check-n">{n}</span>
+              {step.title}
+            </div>
+            <div className="check-sub">{detail}</div>
+          </div>
+          <button className="icon-btn" onClick={() => setHelp(!help)} aria-label={`About ${step.title}`} aria-expanded={help}>
+            <Icon name="info" />
+          </button>
+        </div>
+        {help ? (
+          <ul className="check-help">
+            {step.help.map((h) => (
+              <li key={h}>{h}</li>
+            ))}
+          </ul>
+        ) : null}
+        {state === "current" ? <StepAction step={step.id} c={c} sim={sim} config={config} act={act} /> : null}
+      </div>
+    </li>
   );
 }
 
-function SignStep({ c, config, act, role }: BodyProps & { role: "representative" | "contractor" }) {
-  const signed = c.signatures[role];
-  const account = role === "representative" ? c.terms.representative.near_account : c.terms.contractor.near_account;
+function StepAction({ step, c, sim, config, act }: { step: StepId; c: ContractView; sim: boolean; config: AppConfig; act: Act }) {
+  const [amount, setAmount] = useState(String(Math.ceil(Number(c.terms.monthly_cap_usd) * 1.2)));
   const token = links.get(c.id);
-  const contractorLink = token ? `${window.location.origin}/#/c/${c.id}/sign?t=${token}` : null;
 
-  const sign = () =>
+  const signTerms = (role: "representative" | "contractor") =>
     act(async () => {
       const req = await api("GET", `/contracts/${c.id}/signing-request?role=${role}`);
       const s = await signMessage(config.provider, req);
       await api("POST", `/contracts/${c.id}/signatures`, { role, signed: s, contractor_token: token });
     });
 
-  if (signed)
-    return (
-      <Card title={`${role === "representative" ? "Representative" : "Contractor"} signed`}>
-        <KV rows={[["Account", <code>{signed.account_id}</code>], ["Key", <code>{shortHash(signed.public_key, 14)}</code>], ["Signed", when(signed.signed_at)]]} />
-        <Banner tone="ok">Signature verified against a full-access key of {signed.account_id}.</Banner>
-      </Card>
-    );
-
-  return (
-    <Card title={role === "representative" ? "Sign as the representative" : "Get the contractor's signature"}>
-      <p>
-        {account} signs this message with their NEAR wallet (NEP-413, no gas):
-      </p>
-      <pre className="message">Covenant work order sha256:{c.hash}</pre>
-      {role === "contractor" ? (
-        contractorLink ? (
-          <>
-            <p>Send the contractor their private signing link. They see the terms in plain language and sign with their own wallet.</p>
-            <div className="copy-row">
-              <input readOnly value={contractorLink} onFocus={(e) => e.currentTarget.select()} aria-label="Contractor signing link" />
-              <Button kind="secondary" small onClick={() => navigator.clipboard?.writeText(contractorLink)}>
-                Copy
-              </Button>
-              <a className="btn btn-secondary btn-small" href={`#/c/${c.id}/sign?t=${token}`}>
-                Open as contractor
+  switch (step) {
+    case "rep-sign":
+      return (
+        <div className="check-action">
+          <code className="mono message">Covenant work order sha256:{short(c.hash, 10, 6)}</code>
+          <Button icon="pen" onClick={() => signTerms("representative")}>
+            {sim ? `Sign as ${c.terms.representative.near_account}` : "Sign with wallet"}
+          </Button>
+        </div>
+      );
+    case "contractor-sign": {
+      const link = token ? `${window.location.origin}/#/c/${c.id}/sign?t=${token}` : null;
+      return (
+        <div className="check-action col">
+          {link ? (
+            <div className="share">
+              <Icon name="link" size={14} />
+              <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Contractor signing link" />
+              <Mono copy={link}>Copy</Mono>
+              <a className="btn btn-ghost btn-sm" href={`#/c/${c.id}/sign?t=${token}`} target="_blank" rel="noreferrer">
+                <Icon name="external" /> <span>Open</span>
               </a>
             </div>
-          </>
-        ) : (
-          <Banner tone="warn">This browser doesn't have the contractor link. It is shown only to whoever created the draft.</Banner>
-        )
-      ) : null}
-      <div className="form-actions">
-        {role === "representative" || (config.provider === "sim" && token) ? (
-          <Button onClick={sign}>
-            {config.provider === "sim" ? `Sign as ${account} (demo wallet)` : `Sign with wallet as ${account}`}
+          ) : (
+            <Alert tone="warning">The signing link is only shown in the browser that created the draft.</Alert>
+          )}
+          {sim && token ? (
+            <Button variant="secondary" icon="pen" onClick={() => signTerms("contractor")}>
+              Sign as {c.terms.contractor.near_account} (demo shortcut)
+            </Button>
+          ) : null}
+        </div>
+      );
+    }
+    case "wallet":
+      return (
+        <div className="check-action">
+          <Button icon="wallet" onClick={() => act(() => ownerAction(config.provider, c.id, "agent_create"))}>
+            {sim ? "Create wallet (demo wallet signs)" : "Create wallet"}
           </Button>
-        ) : null}
-      </div>
-      {role === "contractor" && config.provider === "sim" ? <p className="hint">Demo shortcut: the button above signs as the contractor from here.</p> : null}
-    </Card>
-  );
+        </div>
+      );
+    case "grant":
+      return (
+        <div className="check-action">
+          <span className="muted small">Expires {timeText(c.compiled.grant.expires_at)}</span>
+          <Button icon="key" onClick={() => act(() => ownerAction(config.provider, c.id, "grant_issue"))}>
+            {sim ? "Issue grant (demo wallet signs)" : "Issue grant"}
+          </Button>
+        </div>
+      );
+    case "fund":
+      return sim ? (
+        <div className="check-action">
+          <div className="input-affix prefix compact">
+            <span>$</span>
+            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" aria-label="Amount in USDC" />
+          </div>
+          <Button icon="coins" onClick={() => act(() => api("POST", "/sim/fund", { agent_id: c.agent!.agent_id, usd: amount }))}>
+            Deposit (simulated)
+          </Button>
+        </div>
+      ) : (
+        <div className="check-action">
+          <Mono copy={c.agent!.deposit_address}>{short(c.agent!.deposit_address, 10, 6)}</Mono>
+          <span className="muted small">Send USDC on NEAR to this address.</span>
+        </div>
+      );
+  }
 }
 
-function PolicyPreview({ c }: { c: ContractView }) {
-  const p = c.compiled.policy;
-  const cap = p.limits.monthly?.[c.terms.asset];
+/* -------------------------------------------------------------- dashboard */
+
+type TabId = "payouts" | "security" | "policy" | "activity";
+
+function Dashboard({ c, config, verify, act, reload }: { c: ContractView; config: AppConfig; verify: VerifyReport | null; act: Act; reload: () => Promise<void> }) {
+  const [tab, setTab] = useState<TabId>("payouts");
+  const cap = Number(c.terms.monthly_cap_usd);
+  const used = cap - Number(c.remaining_cap_usd);
+  const daysLeft = Math.ceil((Date.parse(`${c.terms.end}T23:59:59Z`) - Date.parse(c.now)) / 86_400_000);
+  const queued = c.payouts.find((p) => p.status === "queued");
+
   return (
     <>
-      <ul className="clauses">
-        <li>
-          <strong>Payee clause</strong> → destinations: <em>only</em> <code>{p.destinations.list.map((d) => d.address).join(", ")}</code> on NEAR
-        </li>
-        <li>
-          <strong>Cap clause</strong> → per payment and per month at most {cap ? `${Number(cap) / 1e6} USDC` : "—"}; USD budget backstop {usdText(p.budget.monthly_usd ?? "0")}
-        </li>
-        <li>
-          <strong>Payment clause</strong> → actions: {p.actions.join(", ")}; assets: USDC only; owner approval {p.owner_approval ? "on" : "off"}
-        </li>
-        <li>
-          <strong>Cancel window</strong> → timelock {Math.round(p.timelock_ms / 60000)} minutes; at most {p.max_actions_per_hour} payouts per hour
-        </li>
-        <li>
-          <strong>Term clause</strong> → grant expires {when(c.compiled.grant.expires_at)}
-        </li>
-      </ul>
-      <Json value={c.compiled} label="Show the compiled policy (JSON)" />
+      {c.stage === "frozen" ? <Alert tone="danger" icon="snowflake">This wallet is frozen. It can't pay anything.</Alert> : null}
+      {c.stage === "ended" ? <Alert tone="info" icon="calendar">This contract ended on {dateText(c.terms.end)}. The agent's permission has expired.</Alert> : null}
+
+      <div className="stats-row four">
+        <Stat label="Wallet balance" icon="wallet" value={usd(c.agent?.available_usd ?? "0")} sub="USDC" />
+        <Stat label="Used this month" icon="coins" value={usd(used)} sub={`of ${usd(cap)} limit`}>
+          <Progress value={used} max={cap} tone={used >= cap ? "warning" : "accent"} />
+        </Stat>
+        <Stat label="Contract ends" icon="calendar" value={dateText(c.terms.end)} sub={daysLeft > 0 ? `${daysLeft} days left` : "Ended"} />
+        <Stat label="Next payout" icon="clock" value={queued ? usd(queued.amount_usd) : "—"} sub={queued ? `dispatches ${timeText(queued.dispatch_at)}` : "Run the agent at period end"} />
+      </div>
+
+      <Tabs<TabId>
+        value={tab}
+        onChange={setTab}
+        items={[
+          { id: "payouts", label: "Payouts", icon: "coins", count: c.payouts.length },
+          { id: "security", label: "Security test", icon: "shield" },
+          { id: "policy", label: "Policy & verify", icon: "shieldCheck" },
+          { id: "activity", label: "Activity", icon: "activity" },
+        ]}
+      />
+
+      {tab === "payouts" ? <PayoutsTab c={c} config={config} act={act} /> : null}
+      {tab === "security" ? <SecurityTab c={c} config={config} reload={reload} /> : null}
+      {tab === "policy" ? <PolicyTab c={c} verify={verify} /> : null}
+      {tab === "activity" ? <ActivityTab c={c} /> : null}
     </>
   );
 }
 
-function WalletStep({ c, config, act }: BodyProps) {
-  if (c.agent)
-    return (
-      <Card title="Contract wallet created">
-        <KV rows={[["Agent", <code>{c.agent.agent_id}</code>], ["Name", c.compiled.name], ["Frozen", c.agent.frozen ? "yes" : "no"]]} />
-        <PolicyPreview c={c} />
-      </Card>
-    );
-  const ready = !!c.signatures.representative && !!c.signatures.contractor;
-  return (
-    <Card title="Create this contract's wallet">
-      <p>These signed terms compile into the policy below. The representative's wallet signs agent_create; Covenant never holds the owner key.</p>
-      <PolicyPreview c={c} />
-      {!ready ? <Banner tone="warn">Both parties must sign first.</Banner> : null}
-      <div className="form-actions">
-        <Button disabled={!ready} onClick={() => act(() => ownerAction(config.provider, c.id, "agent_create"))}>
-          {config.provider === "sim" ? `Sign agent_create as ${c.terms.representative.near_account} (demo wallet)` : "Sign agent_create with wallet"}
-        </Button>
-      </div>
-    </Card>
-  );
-}
+const PAYOUT_STATUS: Record<Payout["status"], { label: string; tone: Tone }> = {
+  paid: { label: "Paid", tone: "success" },
+  queued: { label: "In timelock", tone: "info" },
+  persisted: { label: "Sending", tone: "info" },
+  escalated: { label: "Needs review", tone: "warning" },
+  rejected: { label: "Rejected", tone: "neutral" },
+  cancelled: { label: "Cancelled", tone: "neutral" },
+  refused: { label: "Refused by NEAR", tone: "danger" },
+  failed: { label: "Failed", tone: "danger" },
+  needs_review: { label: "Outcome unknown", tone: "danger" },
+};
 
-function GrantStep({ c, config, act }: BodyProps) {
-  if (c.grant)
-    return (
-      <Card title="Agent permission issued">
-        <KV rows={[["Grant", <code>{c.grant.grant_id}</code>], ["Expires", when(c.grant.expires_at)], ["Contract end", `${c.terms.end} 23:59:59 UTC`]]} />
-        <Banner tone="ok">The grant expires exactly at the contract end. After that, the provider refuses every payout request from the agent.</Banner>
-      </Card>
-    );
+function PayoutsTab({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
+  const canRun = c.stage === "active";
   return (
-    <Card title="Give the agent its permission">
-      <p>
-        The grant is the agent's only credential. Its expiry is set to the contract end: <strong>{when(c.compiled.grant.expires_at)}</strong>.
-      </p>
-      <div className="form-actions">
-        <Button disabled={!c.agent} onClick={() => act(() => ownerAction(config.provider, c.id, "grant_issue"))}>
-          {config.provider === "sim" ? "Sign grant_issue (demo wallet)" : "Sign grant_issue with wallet"}
-        </Button>
+    <Card pad={false}>
+      <div className="card-pad-x">
+        <CardHeader
+          title="Payouts"
+          sub={`Period ${c.period.month} · ${usd(c.remaining_cap_usd)} left under the limit`}
+          actions={
+            <Button icon="play" disabled={!canRun} onClick={() => act(() => api("POST", `/contracts/${c.id}/run`))}>
+              Run agent
+            </Button>
+          }
+        />
       </div>
-    </Card>
-  );
-}
-
-function FundStep({ c, config, act }: BodyProps) {
-  const [amount, setAmount] = useState("60");
-  if (!c.agent) return <Card title="Fund the wallet"><Banner tone="warn">Create the wallet first.</Banner></Card>;
-  return (
-    <Card title="Fund the wallet">
-      <KV rows={[["Balance", usdText(c.agent.available_usd)], ["Monthly cap", usdText(c.terms.monthly_cap_usd)], ["Deposit address", <code>{c.agent.deposit_address}</code>]]} />
-      {config.provider === "sim" ? (
-        <div className="inline-form">
-          <label>
-            Amount (USDC)
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
-          </label>
-          <Button onClick={() => act(() => api("POST", "/sim/fund", { agent_id: c.agent!.agent_id, usd: amount }))}>Deposit (simulated)</Button>
-        </div>
+      {c.payouts.length === 0 ? (
+        <Empty icon="bot" title="No payouts yet" sub="The agent reviews merged PRs for this period and pays inside the limits." />
       ) : (
-        <p>Send USDC on NEAR to the deposit address above, then refresh.</p>
+        <ul className="payouts">
+          {c.payouts.map((p) => (
+            <PayoutItem key={p.id} p={p} c={c} config={config} act={act} />
+          ))}
+        </ul>
       )}
     </Card>
   );
 }
 
-function PayoutRow({ p, c, config, act }: { p: Payout } & Pick<BodyProps, "c" | "config" | "act">) {
-  const tone = { paid: "ok", queued: "info", escalated: "warn", persisted: "info", cancelled: "muted", rejected: "muted", refused: "bad", failed: "bad", needs_review: "bad" } as const;
+function PayoutItem({ p, c, config, act }: { p: Payout; c: ContractView; config: AppConfig; act: Act }) {
+  const [open, setOpen] = useState(p.status === "escalated" || p.status === "queued");
+  const accepted = p.score.prs.filter((x) => x.accepted).length;
+  const rejected = p.score.prs.length - accepted;
+  const st = PAYOUT_STATUS[p.status];
+  const total = c.compiled.policy.timelock_ms;
+  const left = p.dispatch_at ? Math.max(0, Date.parse(p.dispatch_at) - Date.parse(c.now)) : 0;
+
   return (
-    <div className="payout">
-      <div className="payout-head">
-        <strong>{usdText(p.amount_usd)}</strong> <Pill tone={tone[p.status]}>{p.status.replace("_", " ")}</Pill>
-        <span className="muted"> · {p.period} · {p.score.summary}</span>
-      </div>
-      <table className="prs">
-        <tbody>
-          {p.score.prs.map((pr) => (
-            <tr key={pr.key}>
-              <td>{pr.accepted ? "✓" : pr.flags.length ? "⚠" : "✗"}</td>
-              <td>
-                <a href={pr.url} target="_blank" rel="noreferrer">
-                  {pr.key}
-                </a>{" "}
-                {pr.title}
-              </td>
-              <td className="muted">{pr.reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <li className="payout">
+      <button className="payout-row" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="payout-amount num">{usd(p.amount_usd)}</span>
+        <span className="payout-meta">
+          <span className="pill-mini ok">
+            <Icon name="check" size={12} /> {accepted} accepted
+          </span>
+          {rejected ? (
+            <span className="pill-mini">
+              <Icon name="x" size={12} /> {rejected} not counted
+            </span>
+          ) : null}
+          <span className="muted small hide-sm">{timeText(p.created_at)}</span>
+        </span>
+        <Badge tone={st.tone} dot>
+          {st.label}
+        </Badge>
+        <Icon name="chevronRight" className={`chev-rot${open ? " is-open" : ""}`} />
+      </button>
+
       {p.status === "queued" ? (
-        <div className="payout-actions">
-          <span>Dispatches {when(p.dispatch_at)} unless cancelled.</span>
-          <Button kind="danger" small onClick={() => act(() => ownerAction(config.provider, c.id, "execution_cancel", p.id))}>
+        <div className="timelock">
+          <div className="timelock-text">
+            <Icon name="clock" size={14} /> Dispatches {timeText(p.dispatch_at)} unless you cancel
+          </div>
+          <Progress value={total - left} max={total} />
+          <Button variant="danger" size="sm" icon="ban" onClick={() => act(() => ownerAction(config.provider, c.id, "execution_cancel", p.id))}>
             Cancel payout
           </Button>
         </div>
       ) : null}
+
       {p.status === "escalated" ? (
-        <div className="payout-actions">
-          <span>The agent escalated instead of paying. Flagged PRs stay excluded if you approve.</span>
-          <Button small onClick={() => act(() => api("POST", `/payouts/${p.id}/approve`))}>
-            Approve {usdText(p.amount_usd)}
+        <div className="escalation">
+          <Icon name="alert" size={16} />
+          <span>{p.score.summary} Flagged PRs stay excluded.</span>
+          <Button size="sm" icon="check" onClick={() => act(() => api("POST", `/payouts/${p.id}/approve`))}>
+            Approve {usd(p.amount_usd)}
           </Button>
-          <Button kind="secondary" small onClick={() => act(() => api("POST", `/payouts/${p.id}/reject`))}>
+          <Button size="sm" variant="secondary" onClick={() => act(() => api("POST", `/payouts/${p.id}/reject`))}>
             Reject
           </Button>
         </div>
       ) : null}
-      {p.tx_hash ? (
-        <p className="hint">
-          Tx <code>{p.tx_hash}</code>
-        </p>
+
+      {open ? (
+        <div className="payout-detail">
+          <ul className="prs">
+            {p.score.prs.map((pr) => (
+              <li key={pr.key} className={pr.accepted ? "ok" : pr.flags.length ? "warn" : "no"}>
+                <Icon name={pr.accepted ? "check" : pr.flags.length ? "alert" : "x"} size={14} />
+                <a href={pr.url} target="_blank" rel="noreferrer" className="pr-key">
+                  {pr.key}
+                </a>
+                <span className="pr-title">{pr.title}</span>
+                {!pr.accepted ? <span className="pr-reason">{pr.reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+          {p.tx_hash ? (
+            <div className="kv-line">
+              <span>Transaction</span>
+              <Mono copy={p.tx_hash}>{short(p.tx_hash, 14, 6)}</Mono>
+            </div>
+          ) : null}
+          {p.error ? <Json value={p.error} label="Provider response" /> : null}
+        </div>
       ) : null}
-      {p.error ? <Json value={p.error} label="Provider response" /> : null}
-    </div>
+    </li>
   );
 }
 
-function PayStep(p: BodyProps) {
-  const { c, act } = p;
-  const ready = c.stage === "active";
-  return (
-    <Card title="The agent pays">
-      <KV rows={[["Pay period", `${c.period.month} (${c.period.since.slice(0, 10)} → ${c.period.until.slice(0, 10)})`], ["Left under the cap", usdText(c.remaining_cap_usd)], ["Evidence", p.config.evidence === "fake" ? "seeded demo pull requests" : "GitHub"]]} />
-      <div className="form-actions">
-        <Button disabled={!ready} onClick={() => act(() => api("POST", `/contracts/${c.id}/run`))}>
-          Run the agent now
-        </Button>
-      </div>
-      {!ready ? <Banner tone="warn">The wallet must be created, granted and funded, and the contract active.</Banner> : null}
-      {c.payouts.length ? <h3 className="sub">Payouts</h3> : null}
-      {c.payouts.map((po) => (
-        <PayoutRow key={po.id} p={po} c={c} config={p.config} act={act} />
-      ))}
-    </Card>
-  );
-}
-
-function VerifyStep({ c, verify }: BodyProps) {
-  return (
-    <Card title="Contractor verifies" actions={<a className="btn btn-secondary btn-small" href={`#/c/${c.id}/verify`}>Open the Verify page</a>}>
-      {!verify ? (
-        <Banner tone="warn">Verification starts once the wallet exists and has its grant.</Banner>
-      ) : (
-        <ul className="checks">
-          {verify.checks.map((ch) => (
-            <li key={ch.id} className={ch.ok ? "ok" : "bad"}>
-              <span aria-hidden>{ch.ok ? "✓" : "✗"}</span> {ch.label}
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="hint">Share the Verify page with the contractor. It needs no wallet and no login.</p>
-    </Card>
-  );
-}
-
-const SCENARIOS: { id: string; title: string; text: string }[] = [
-  { id: "overpay", title: "Overpay", text: "Pay $1 more than the monthly cap." },
-  { id: "redirect", title: "Redirect", text: "Send $1 to attacker.near instead of the payee." },
-  { id: "injected", title: "Prompt-injected PR", text: "A PR tells the AI reviewer to pay $5,000. Suppose it works." },
-  { id: "after_end", title: "After the end date", text: "Pay $1 after the contract has ended." },
+const ATTACKS: { id: string; icon: IconName; title: string; text: string }[] = [
+  { id: "overpay", icon: "coins", title: "Overpay", text: "Pay $1 more than the limit" },
+  { id: "redirect", icon: "send", title: "Redirect", text: "Pay attacker.near instead" },
+  { id: "injected", icon: "bot", title: "Prompt injection", text: "A PR tricks the AI into $5,000" },
+  { id: "after_end", icon: "calendar", title: "After the end", text: "Pay after the contract ended" },
 ];
 
-function AttackStep({ c, config, attacks, setAttacks, reload }: BodyProps) {
+function SecurityTab({ c, config, reload }: { c: ContractView; config: AppConfig; reload: () => Promise<void> }) {
+  const [results, setResults] = useState<Record<string, AttackResult>>({});
+  const [mode, setMode] = useState<"dry" | "live">("dry");
   const [error, setError] = useState<string | null>(null);
-  const [live, setLive] = useState(false);
+
   const run = async (id: string) => {
     setError(null);
     try {
-      const r = await api<AttackResult>("POST", `/contracts/${c.id}/attacks/${id}?mode=${live ? "live" : "dry"}`);
-      setAttacks((a) => ({ ...a, [id]: r }));
-      await reload();
+      const r = await api<AttackResult>("POST", `/contracts/${c.id}/attacks/${id}?mode=${mode}`);
+      setResults((x) => ({ ...x, [id]: r }));
     } catch (e) {
       setError((e as Error).message);
     }
   };
+  const runAll = async () => {
+    for (const a of ATTACKS) await run(a.id);
+    await reload();
+  };
+
   return (
-    <Card title="Compromised server: try to break it">
-      <p>
-        App-side checks are <strong>off</strong>. Each request goes straight to NEAR Intents with this contract's real grant.
-      </p>
-      {config.provider === "sim" ? (
-        <label className="toggle">
-          <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> Send for real (simulated provider), not a dry run
-        </label>
-      ) : null}
-      <ErrorText error={error} />
+    <Card>
+      <CardHeader
+        icon="shield"
+        title="Compromised-server test"
+        sub="Covenant's own checks are off. Each request goes straight to NEAR with the agent's real grant."
+        actions={
+          <>
+            {config.provider === "sim" ? (
+              <div className="segmented" role="radiogroup" aria-label="Mode">
+                <button className={mode === "dry" ? "is-active" : ""} onClick={() => setMode("dry")} role="radio" aria-checked={mode === "dry"}>
+                  Dry run
+                </button>
+                <button className={mode === "live" ? "is-active" : ""} onClick={() => setMode("live")} role="radio" aria-checked={mode === "live"}>
+                  Send
+                </button>
+              </div>
+            ) : null}
+            <Button icon="zap" onClick={runAll} disabled={!c.grant}>
+              Run all
+            </Button>
+          </>
+        }
+      />
+      {error ? <Alert tone="danger">{error}</Alert> : null}
       <div className="attacks">
-        {SCENARIOS.map((s) => {
-          const r = attacks[s.id];
+        {ATTACKS.map((a) => {
+          const r = results[a.id];
+          const blocked = r?.outcome && r.outcome !== "allowed";
           return (
-            <div className={`attack${r?.outcome ? (r.outcome === "allowed" ? " is-bad" : " is-ok") : ""}`} key={s.id}>
-              <h3>{s.title}</h3>
-              <p className="muted">{s.text}</p>
-              <Button small kind="secondary" disabled={!c.grant} onClick={() => run(s.id)}>
-                Try it
-              </Button>
-              {r && !r.ready ? <Banner tone="info">{r.hint}</Banner> : null}
+            <div key={a.id} className={`attack${r?.outcome ? (blocked ? " is-blocked" : " is-allowed") : ""}`}>
+              <div className="attack-top">
+                <span className="icon-tile">
+                  <Icon name={a.icon} />
+                </span>
+                <div className="attack-copy">
+                  <h3>{a.title}</h3>
+                  <p>{a.text}</p>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => run(a.id)} disabled={!c.grant}>
+                  Run
+                </Button>
+              </div>
+              {r && !r.ready ? <div className="attack-note"><Icon name="info" size={14} /> {r.hint}</div> : null}
               {r?.outcome ? (
                 <div className="attack-result">
-                  <strong>{r.outcome === "allowed" ? "NOT STOPPED" : r.outcome === "refused" ? "Refused" : "Would be refused"}</strong>
-                  <ul>
-                    {r.findings?.map((f) => (
-                      <li key={f.code}>
-                        <code>{f.code}</code> <span className="muted">({f.layer})</span> → <strong>{f.clause.title}</strong>: {f.clause.text}
-                      </li>
+                  <div className="attack-verdict">
+                    <Icon name={blocked ? "shieldCheck" : "shieldX"} size={18} />
+                    {blocked ? (r.outcome === "refused" ? "Blocked by NEAR" : "Would be blocked") : "Not blocked"}
+                  </div>
+                  <div className="chips">
+                    {r.findings?.slice(0, 2).map((f) => (
+                      <span key={f.code} className="chip" title={f.clause.text}>
+                        <Icon name="lock" size={12} /> {f.clause.title.replace(" clause", "")} · <code>{f.code}</code>
+                      </span>
                     ))}
-                  </ul>
-                  {r.fooled_ai_output ? <p className="hint">{r.fooled_ai_output.label}: accepted {r.fooled_ai_output.accepted_prs} PRs, asked for {usdText(r.fooled_ai_output.amount_usd)}.</p> : null}
+                    {(r.findings?.length ?? 0) > 2 ? <span className="chip muted">+{r.findings!.length - 2} more</span> : null}
+                  </div>
                   <Json value={r.raw} label="Provider response" />
                 </div>
               ) : null}
@@ -500,35 +580,107 @@ function AttackStep({ c, config, attacks, setAttacks, reload }: BodyProps) {
   );
 }
 
-function SimControls({ c, config, onChange }: { c: ContractView; config: AppConfig; onChange: () => Promise<void> }) {
-  const after = new Date(Date.parse(`${c.terms.end}T00:00:00Z`) + 36 * 3600_000).toISOString();
+function PolicyTab({ c, verify }: { c: ContractView; verify: VerifyReport | null }) {
   return (
-    <div className="simbar">
-      <span>
-        Simulated clock: <strong>{when(c.now)}</strong>
-      </span>
-      <Button kind="ghost" small onClick={async () => { await api("POST", "/sim/advance", { ms: config.timelock_ms + 1000 }); await onChange(); }}>
-        Skip the {Math.round(config.timelock_ms / 60000)}-min timelock
-      </Button>
-      <Button kind="ghost" small onClick={async () => { await api("POST", "/sim/advance", { to: after }); await onChange(); }}>
-        Jump past the end date
-      </Button>
+    <div className="split even">
+      <div className="stack">
+        <PolicyCard
+          payee={c.terms.payee.address}
+          cap={c.terms.monthly_cap_usd}
+          rate={c.terms.rate_per_accepted_pr_usd}
+          start={c.terms.start}
+          end={c.terms.end}
+          repos={c.terms.repos}
+          timelockMinutes={Math.round(c.compiled.policy.timelock_ms / 60000)}
+          status={c.stage === "frozen" ? "frozen" : c.stage === "ended" ? "ended" : "live"}
+          agentId={c.agent?.agent_id}
+        />
+        <Json value={c.compiled} label="Compiled policy" />
+      </div>
+      <Card>
+        <CardHeader
+          icon="shieldCheck"
+          title="Verification"
+          sub="The live wallet against the signed terms"
+          actions={
+            <a className="btn btn-secondary btn-sm" href={`#/c/${c.id}/verify`} target="_blank" rel="noreferrer">
+              <Icon name="external" /> <span>Open</span>
+            </a>
+          }
+        />
+        {verify ? (
+          <ul className="checks">
+            {verify.checks.map((x) => (
+              <li key={x.id} className={x.ok ? "ok" : x.info ? "warn" : "bad"}>
+                <Icon name={x.ok ? "check" : x.info ? "alert" : "x"} size={14} strokeWidth={2.4} />
+                {x.label}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">Available once the grant is issued.</p>
+        )}
+      </Card>
     </div>
   );
 }
 
-function Activity({ events }: { events: ContractView["events"] }) {
-  if (!events.length) return null;
+function ActivityTab({ c }: { c: ContractView }) {
+  const icon: Record<string, IconName> = {
+    draft: "file",
+    signed: "pen",
+    wallet: "wallet",
+    grant: "key",
+    run: "bot",
+    sent: "send",
+    paid: "check",
+    cancel: "ban",
+    freeze: "snowflake",
+    escalate: "alert",
+    approve: "check",
+    reject: "x",
+    refused: "shieldCheck",
+    review: "alert",
+    attack: "shield",
+  };
   return (
-    <details className="activity" open>
-      <summary>Activity</summary>
-      <ol>
-        {events.map((e) => (
+    <Card>
+      <ol className="timeline">
+        {c.events.map((e) => (
           <li key={e.id}>
-            <span className="muted">{when(e.at)}</span> {e.text}
+            <span className="tl-icon">
+              <Icon name={icon[e.kind] ?? "activity"} size={14} />
+            </span>
+            <div>
+              <div className="tl-text">{e.text}</div>
+              <div className="tl-time">{timeText(e.at)}</div>
+            </div>
           </li>
         ))}
       </ol>
-    </details>
+    </Card>
+  );
+}
+
+/* ---------------------------------------------------------------- sim bar */
+
+function SimBar({ c, config, reload }: { c: ContractView; config: AppConfig; reload: () => Promise<void> }) {
+  const after = new Date(Date.parse(`${c.terms.end}T00:00:00Z`) + 36 * 3600_000).toISOString();
+  const go = async (body: unknown) => {
+    await api("POST", "/sim/advance", body);
+    await reload();
+  };
+  return (
+    <div className="simbar">
+      <span className="simbar-label">
+        <Icon name="clock" size={14} /> Simulated time <strong>{timeText(c.now)}</strong>
+      </span>
+      <button className="simbar-btn" onClick={() => go({ ms: config.timelock_ms + 1000 })}>
+        <Icon name="fastForward" size={13} /> Skip timelock
+      </button>
+      <button className="simbar-btn" onClick={() => go({ to: after })}>
+        <Icon name="fastForward" size={13} /> Jump past end date
+      </button>
+    </div>
   );
 }

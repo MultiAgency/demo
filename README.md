@@ -27,16 +27,16 @@ Requires Bun 1.4+.
 
 | Do | See |
 |---|---|
-| `bun run demo`, open http://localhost:3000, click **Start the wizard** | A form prefilled with a demo work order (Acme Labs → Maria, $10/PR, $50/month cap) |
-| **Create draft and continue** | Step 2 with the terms hash both parties will sign |
-| **Sign as acme.demo**, then **Sign as maria.demo** | Both NEP-413 signatures verified against full-access keys |
-| **Sign agent_create** | The compiled policy: only the payee, per-payment and monthly limit = cap, 10-minute timelock |
-| **Sign grant_issue** | The agent's grant, expiring at the contract end (23:59:59 UTC on the end date) |
-| **Deposit (simulated)** | Balance $60 |
-| **Run the agent now** | 4 of 6 PRs accepted (one self-merged, one outside the contract's repos), $40 queued behind the timelock, with a **Cancel payout** button |
-| **Skip the 10-min timelock** | Status `paid`, tx `SIMULATED-…` |
-| Step 8, **Open the Verify page** | Every check green: the live policy equals the policy compiled from the signed terms |
-| Step 9, **Try it** on each card (use **Jump past the end date** for the last one) | Every bad payout refused, each next to the clause it enforces |
+| `bun run demo`, open http://localhost:3000, click **Create a contract** | A form prefilled with a demo work order (Acme Labs → Maria, $10/PR, $50/month limit) and a live preview of the wallet it compiles to |
+| **Create draft** | The setup checklist: 5 steps, the current one highlighted |
+| **Sign as acme.demo**, then **Sign as maria.demo** | Both NEP-413 signatures verified against full-access keys. The contractor's own signing page is behind **Open** |
+| **Create wallet** | The wallet policy card goes live: only the payee, at most the limit, 10-minute cancel window |
+| **Issue grant** | The agent's permission, expiring at the contract end (23:59:59 UTC on the end date) |
+| **Deposit (simulated)** | The contract dashboard: balance, used this month, end date |
+| **Run agent** | 4 of 6 PRs accepted (one self-merged, one outside the contract's repos), $40 in its timelock with a **Cancel payout** button |
+| **Skip timelock** | Status **Paid**, tx `SIMULATED-…` |
+| **Security test** tab → **Run all** (then **Jump past end date** and run **After the end**) | Every bad payout blocked, each tagged with the clause it enforces |
+| **Policy & verify** tab → **Open** | The contractor's Verify page: "Matches what you signed" |
 
 ## How it works
 
@@ -64,7 +64,7 @@ What NEAR Intents enforces: payee, cap, end date (through grant expiry), timeloc
 |---|---|
 | Terms, hashing, NEP-413 verification, compiler, policy diff | Done, tested |
 | Payout engine (persist-then-send, idempotency, timelock, cancel, escalation, freeze) | Done, tested against the simulator |
-| Wizard UI with a guide for every step, Verify page, attack panel | Done |
+| UI: setup checklist, contract dashboard, contractor signing page, Verify page, security test | Done |
 | Keyless headless demo (`demo:e2e`) | Done |
 | Live adapter for the NEAR Intents Agent API (mainnet) | Next: after spikes SP0–SP4, see [docs/spikes.md](docs/spikes.md) |
 | Browser wallet signing (near-connect) | Next, with the live adapter |
