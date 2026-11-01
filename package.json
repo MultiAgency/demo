@@ -1,0 +1,31 @@
+{
+  "name": "covenant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Covenant: every signed contract becomes its own NEAR Intents agent wallet. The contract is the spending limit.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "PROVIDER=sim bun --hot src/server/index.ts",
+    "demo": "PROVIDER=sim bun src/server/index.ts",
+    "demo:e2e": "bun scripts/demo-e2e.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@near-intents-agent-api/sdk": "0.7.3",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@scure/base": "^2.4.0",
+    "hono": "4",
+    "react": "19",
+    "react-dom": "19",
+    "zod": "4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}
