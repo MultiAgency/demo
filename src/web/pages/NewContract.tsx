@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DEMO_TERMS } from "../../shared/demo";
 import { api, links } from "../api";
 import { Icon } from "../components/icons";
 import { PolicyCard } from "../components/PolicyCard";
+import { SignInGate } from "../components/Account";
+import { useSession } from "../session";
 import { Alert, Button } from "../components/ui";
 import type { AppConfig } from "../types";
 
@@ -58,6 +60,11 @@ function Field(props: { label: string; hint?: string; children: React.ReactNode;
 export function NewContract({ config }: { config: AppConfig }) {
   const [f, setF] = useState<Form>(initial);
   const [error, setError] = useState<string | null>(null);
+  const session = useSession();
+  // The signed-in NEAR account is the representative by default.
+  useEffect(() => {
+    if (session.account) setF((x) => ({ ...x, rep: session.account! }));
+  }, [session.account]);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const repos = f.repos.split(/[\s,]+/).filter(Boolean);
 
@@ -179,6 +186,7 @@ export function NewContract({ config }: { config: AppConfig }) {
             <p className="field-hint">A PR counts when someone other than its author merges it.</p>
           </section>
 
+          <SignInGate account={f.rep} role="representative" />
           {error ? <Alert tone="danger">{error}</Alert> : null}
           <div className="form-actions">
             <a className="btn btn-ghost btn-md" href="#/">

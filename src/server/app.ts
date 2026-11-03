@@ -3,6 +3,7 @@ import { z } from "zod";
 import { DEMO_TIMELOCK_MS } from "../shared/compile";
 import { toAtomic } from "../shared/money";
 import { USDC_DECIMALS } from "../shared/terms";
+import { type Auth, createAuth, type SessionInfo, sessionFrom } from "./auth";
 import type { Config } from "./config";
 import { SecretBox } from "./crypto";
 import { openDb } from "./db";
@@ -19,8 +20,9 @@ export const DEMO_ACCOUNTS = {
 } as const;
 
 export interface Runtime {
-  app: Hono;
+  app: Hono<{ Variables: { session: SessionInfo | null } }>;
   covenant: Covenant;
+  auth: Auth;
   sim: SimProvider | null;
   wallet: DevWallet | null;
   config: Config;
@@ -28,12 +30,20 @@ export interface Runtime {
 
 export async function createRuntime(config: Config, opts: { clockStart?: number } = {}): Promise<Runtime> {
   if (config.provider !== "sim") throw new Error("Only PROVIDER=sim is available until the live adapter lands.");
+  const db = openDb(config.dbPath);
   const keys = new SimKeyRegistry();
   const wallet = new DevWallet();
   for (const account of Object.values(DEMO_ACCOUNTS)) keys.register(account, wallet.addAccount(account));
   const sim = new SimProvider(keys, opts.clockStart);
+  const auth = await createAuth({
+    db,
+    secret: config.auth.secret ?? crypto.randomUUID() + crypto.randomUUID(),
+    baseURL: config.auth.publicUrl,
+    recipient: config.auth.recipient,
+    trustedOrigins: [config.auth.publicUrl],
+  });
   const covenant = new Covenant({
-    db: openDb(config.dbPath),
+    db,
     provider: sim,
     keys,
     evidence: config.evidence === "fake" ? new FakeEvidence(() => sim.now()) : new GitHubEvidence(config.githubToken ?? undefined),
@@ -41,20 +51,38 @@ export async function createRuntime(config: Config, opts: { clockStart?: number 
     box: config.secretKey ? await SecretBox.fromHex(config.secretKey) : await SecretBox.random(),
     config,
   });
-  return { app: buildApp({ covenant, sim, wallet, config }), covenant, sim, wallet, config };
+  return { app: buildApp({ covenant, auth, sim, wallet, config }), covenant, auth, sim, wallet, config };
 }
 
 const signedBody = z.object({ account_id: z.string(), public_key: z.string(), signature: z.string(), nonce: z.string() });
 const intentBody = z.object({ type: z.enum(["agent_create", "grant_issue", "execution_cancel", "agent_freeze"]), payout_id: z.string().optional() });
 
-export function buildApp(rt: Omit<Runtime, "app">): Hono {
-  const { covenant, sim, wallet, config } = rt;
-  const app = new Hono().basePath("/api");
+export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session: SessionInfo | null } }> {
+  const { covenant, auth, sim, wallet, config } = rt;
+  const app = new Hono<{ Variables: { session: SessionInfo | null } }>().basePath("/api");
 
   app.onError((err, c) => {
     const e = toUserError(err);
     return c.json({ error: e.message }, e.status as 400);
   });
+
+  // Sign in with NEAR: Better-Auth + better-near-auth (SIWN), as in everything.dev apps.
+  app.on(["GET", "POST"], "/auth/*", (c) => auth.handler(c.req.raw));
+
+  // Resolve the session once per request.
+  app.use("*", async (c, next) => {
+    c.set("session", c.req.path.startsWith("/api/auth/") ? null : await sessionFrom(auth, c.req.raw.headers));
+    await next();
+  });
+
+  /** When auth is required, the signed-in NEAR account must be `account`. */
+  const requireAccount = (session: SessionInfo | null, account: string, role: string) => {
+    if (!config.auth.required) return;
+    if (!session) throw new UserError(`Sign in with NEAR as ${account} to act as the ${role}.`, 401);
+    if (session.accountId !== account) throw new UserError(`You're signed in as ${session.accountId}. Only ${account} can act as the ${role}.`, 403);
+  };
+  const asRepresentative = (session: SessionInfo | null, contractId: string) =>
+    requireAccount(session, covenant.parties(contractId).representative, "representative");
 
   app.get("/config", (c) =>
     c.json({
@@ -65,13 +93,22 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono {
       demo_accounts: wallet ? DEMO_ACCOUNTS : null,
       now: sim?.now().toISOString() ?? new Date().toISOString(),
       demo_timelock: config.timelockMs === DEMO_TIMELOCK_MS,
+      auth: { required: config.auth.required, recipient: config.auth.recipient, network: "mainnet" },
     }),
   );
 
-  app.get("/contracts", (c) => c.json(covenant.listContracts()));
+  app.get("/me", (c) => c.json({ session: c.get("session") }));
+
+  app.get("/contracts", (c) => {
+    const s = c.get("session");
+    return c.json(covenant.listContracts(config.auth.required ? (s?.accountId ?? "\u0000") : undefined));
+  });
 
   app.post("/contracts", async (c) => {
-    const { id, contractorToken } = covenant.createContract(await c.req.json());
+    const body = await c.req.json();
+    const rep = String(body?.representative?.near_account ?? "").toLowerCase();
+    requireAccount(c.get("session"), rep, "representative");
+    const { id, contractorToken } = covenant.createContract(body);
     return c.json({ id, contractor_link: `/#/c/${id}/sign?t=${contractorToken}`, contractor_token: contractorToken }, 201);
   });
 
@@ -84,33 +121,52 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono {
   });
 
   app.post("/contracts/:id/signatures", async (c) => {
+    const id = c.req.param("id");
     const body = await c.req.json();
     const role = body.role as Role;
     if (role !== "representative" && role !== "contractor") throw new UserError("role must be representative or contractor");
+    requireAccount(c.get("session"), covenant.parties(id)[role], role);
     const signed = signedBody.parse(body.signed);
-    return c.json(await covenant.addSignature(c.req.param("id"), role, signed, body.contractor_token));
+    return c.json(await covenant.addSignature(id, role, signed, body.contractor_token));
   });
 
   app.post("/contracts/:id/intents", async (c) => {
+    const id = c.req.param("id");
+    asRepresentative(c.get("session"), id);
     const body = intentBody.parse(await c.req.json());
-    return c.json(await covenant.prepareIntent(c.req.param("id"), body.type, body.payout_id));
+    return c.json(await covenant.prepareIntent(id, body.type, body.payout_id));
   });
 
+  // The wallet signature is the authority here; the provider checks it against the owner key.
   app.post("/intents/:cid/submit", async (c) => {
     const body = z.object({ public_key: z.string(), signature: z.string() }).parse(await c.req.json());
     return c.json(await covenant.submitIntent(c.req.param("cid"), body));
   });
 
-  app.post("/contracts/:id/run", async (c) => c.json(await covenant.run(c.req.param("id"))));
-  app.post("/payouts/:pid/approve", async (c) => c.json(await covenant.resolveEscalation(c.req.param("pid"), true)));
-  app.post("/payouts/:pid/reject", async (c) => c.json(await covenant.resolveEscalation(c.req.param("pid"), false)));
+  app.post("/contracts/:id/run", async (c) => {
+    const id = c.req.param("id");
+    asRepresentative(c.get("session"), id);
+    return c.json(await covenant.run(id));
+  });
+  app.post("/payouts/:pid/approve", async (c) => {
+    asRepresentative(c.get("session"), covenant.payoutContract(c.req.param("pid")));
+    return c.json(await covenant.resolveEscalation(c.req.param("pid"), true));
+  });
+  app.post("/payouts/:pid/reject", async (c) => {
+    asRepresentative(c.get("session"), covenant.payoutContract(c.req.param("pid")));
+    return c.json(await covenant.resolveEscalation(c.req.param("pid"), false));
+  });
+
+  // Public: anyone with the link can verify a contract wallet.
   app.get("/contracts/:id/verify", async (c) => c.json(await covenant.verify(c.req.param("id"))));
 
   app.post("/contracts/:id/attacks/:scenario", async (c) => {
+    const id = c.req.param("id");
+    asRepresentative(c.get("session"), id);
     const scenario = c.req.param("scenario") as Scenario;
     if (!["overpay", "redirect", "after_end", "injected"].includes(scenario)) throw new UserError("Unknown scenario", 404);
     const mode = c.req.query("mode") === "live" ? "live" : "dry";
-    return c.json(await covenant.attack(c.req.param("id"), scenario, mode));
+    return c.json(await covenant.attack(id, scenario, mode));
   });
 
   // ---------- simulator-only helpers (keyless demo) ----------

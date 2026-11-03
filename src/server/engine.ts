@@ -91,8 +91,25 @@ export class Covenant {
     return { id, contractorToken };
   }
 
-  listContracts() {
-    const rows = this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all() as ContractRow[];
+  /** Who may act on a contract: the representative (company side) and the contractor. */
+  parties(id: string): { representative: string; contractor: string } {
+    const t = this.terms(this.row(id));
+    return { representative: t.representative.near_account, contractor: t.contractor.near_account };
+  }
+
+  payoutContract(payoutId: string): string {
+    return this.payout(payoutId).contract_id;
+  }
+
+  /** All contracts, or only those where `account` is a party. */
+  listContracts(account?: string) {
+    const all = this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all() as ContractRow[];
+    const rows = account
+      ? all.filter((r) => {
+          const t = this.terms(r);
+          return t.representative.near_account === account || t.contractor.near_account === account;
+        })
+      : all;
     return rows.map((r) => {
       const terms = JSON.parse(r.terms) as Terms;
       const cap = toAtomic(terms.monthly_cap_usd, USDC_DECIMALS);

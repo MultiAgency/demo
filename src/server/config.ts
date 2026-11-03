@@ -13,6 +13,15 @@ export interface Config {
   devWallet: boolean;
   agentApiKey: string | null;
   agentApiBaseUrl: string | null;
+  /** Sign in with NEAR (Better-Auth + better-near-auth). */
+  auth: {
+    secret: string | null;
+    publicUrl: string;
+    /** NEP-413 recipient for sign-in. Defaults to the MultiAgency account, like its everything.dev apps. */
+    recipient: string;
+    /** When true, company actions need the representative signed in, and contractor actions the contractor. */
+    required: boolean;
+  };
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -32,6 +41,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     devWallet,
     agentApiKey: env.NEAR_INTENTS_AGENT_API_KEY || env.AGENT_API_KEY || null,
     agentApiBaseUrl: env.AGENT_API_BASE_URL || null,
+    auth: {
+      secret: env.BETTER_AUTH_SECRET || null,
+      publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
+      recipient: env.SIWN_RECIPIENT || "multiagentic.near",
+      required: provider === "live" || env.REQUIRE_AUTH === "true",
+    },
   };
 
   if (cfg.provider === "live") {
@@ -41,6 +56,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (!cfg.secretKey) throw new Error("PROVIDER=live needs SECRET_KEY (32 bytes hex) to encrypt the grant credential.");
     if (!cfg.agentApiKey) throw new Error("PROVIDER=live needs NEAR_INTENTS_AGENT_API_KEY.");
     if (cfg.dbPath === ":memory:") throw new Error("PROVIDER=live needs a DB_PATH on disk.");
+    if (!cfg.auth.secret) throw new Error("PROVIDER=live needs BETTER_AUTH_SECRET (openssl rand -base64 32).");
   }
   if (cfg.evidence !== "fake" && cfg.evidence !== "github") throw new Error("GITHUB must be fake or github");
   return cfg;

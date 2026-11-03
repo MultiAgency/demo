@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, links, ownerAction, signMessage } from "../api";
 import { Icon, type IconName } from "../components/icons";
 import { PolicyCard } from "../components/PolicyCard";
+import { SignInGate } from "../components/Account";
 import {
   Alert,
   Avatar,
@@ -108,6 +109,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
         </div>
       </header>
 
+      <SignInGate account={c.terms.representative.near_account} role="representative" />
       {config.provider === "sim" ? <SimBar c={c} config={config} reload={load} /> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
 

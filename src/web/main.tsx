@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
+import { AccountBox } from "./components/Account";
 import { Icon, type IconName } from "./components/icons";
 import { PageLoading } from "./components/ui";
 import { ContractPage } from "./pages/Contract";
@@ -9,6 +10,7 @@ import { GuidePage } from "./pages/Guide";
 import { Home } from "./pages/Home";
 import { NewContract } from "./pages/NewContract";
 import { VerifyPage } from "./pages/Verify";
+import { SessionProvider } from "./session";
 import type { AppConfig } from "./types";
 
 function useHashRoute() {
@@ -38,14 +40,8 @@ function NavItem({ href, icon, label, active }: { href: string; icon: IconName; 
   );
 }
 
-function App() {
+function Shell({ config, error }: { config: AppConfig | null; error: string | null }) {
   const { path, query } = useHashRoute();
-  const [config, setConfig] = useState<AppConfig | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api<AppConfig>("GET", "/config").then(setConfig, (e: Error) => setError(e.message));
-  }, []);
 
   const m = path.match(/^\/c\/([\w-]+)(\/(sign|verify))?$/);
   // Contractor-facing pages stand alone, without the company's app chrome.
@@ -70,7 +66,10 @@ function App() {
             </span>
             Covenant
           </span>
-          {config?.provider === "sim" ? <span className="env-chip">Simulator</span> : null}
+          <div className="row gap">
+            {config?.provider === "sim" ? <span className="env-chip">Simulator</span> : null}
+            {config ? <AccountBox compact /> : null}
+          </div>
         </header>
         {page}
       </div>
@@ -91,6 +90,7 @@ function App() {
           <NavItem href="#/guide" icon="book" label="How it works" active={path === "/guide"} />
         </nav>
         <div className="sidebar-foot">
+          {config ? <AccountBox /> : null}
           {config?.provider === "sim" ? (
             <div className="env">
               <span className="env-dot" />
@@ -112,6 +112,20 @@ function App() {
       </aside>
       <main className="main">{page}</main>
     </div>
+  );
+}
+
+function App() {
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<AppConfig>("GET", "/config").then(setConfig, (e: Error) => setError(e.message));
+  }, []);
+  if (!config) return <Shell config={null} error={error} />;
+  return (
+    <SessionProvider config={config}>
+      <Shell config={config} error={null} />
+    </SessionProvider>
   );
 }
 

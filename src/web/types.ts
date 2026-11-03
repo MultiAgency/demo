@@ -70,6 +70,7 @@ export interface AppConfig {
   demo_wallet: boolean;
   demo_accounts: { representative: string; contractor: string } | null;
   now: string;
+  auth: { required: boolean; recipient: string; network: "mainnet" | "testnet" };
 }
 
 export interface VerifyReport {

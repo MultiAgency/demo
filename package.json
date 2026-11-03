@@ -13,10 +13,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@better-auth/core": "1.7.14",
     "@near-intents-agent-api/sdk": "0.7.3",
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@scure/base": "^2.4.0",
+    "better-auth": "1.7.14",
+    "better-near-auth": "2.0.0-rc.6",
     "hono": "4",
     "react": "19",
     "react-dom": "19",

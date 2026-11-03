@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, signMessage } from "../api";
+import { SignInGate } from "../components/Account";
 import { Icon } from "../components/icons";
 import { Alert, Avatar, Button, dateText, Disclosure, Mono, PageLoading, short, timeText, usd } from "../components/ui";
 import type { AppConfig, ContractView } from "../types";
@@ -90,6 +91,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
         </Disclosure>
 
         {error ? <Alert tone="danger">{error}</Alert> : null}
+        {!signed ? <SignInGate account={t.contractor.near_account} role="contractor" /> : null}
 
         {signed ? (
           <div className="doc-done">

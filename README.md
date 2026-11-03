@@ -38,6 +38,18 @@ Requires Bun 1.4+.
 | **Security test** tab → **Run all** (then **Jump past end date** and run **After the end**) | Every bad payout blocked, each tagged with the clause it enforces |
 | **Policy & verify** tab → **Open** | The contractor's Verify page: "Matches what you signed" |
 
+## Sign in with NEAR
+
+Covenant uses the same sign-in as everything.dev apps: [Better-Auth](https://better-auth.com) with the `siwn` plugin from [better-near-auth](https://www.npmjs.com/package/better-near-auth). The wallet signs `Sign in to multiagentic.near` (NEP-413); the server verifies it, checks the key is a full-access key, and sets a session cookie. Routes live under `/api/auth/*` (`src/server/auth.ts`).
+
+| Action | Who must be signed in |
+|---|---|
+| Create a contract, set up its wallet, run the agent, approve, cancel, freeze, security test | The representative named in the terms |
+| Sign as contractor | The contractor named in the terms (plus their private link) |
+| Verify page | Nobody: it's public |
+
+Sign-in is always required with `PROVIDER=live`. The keyless simulator leaves it optional (set `REQUIRE_AUTH=true` to try it). `bos.app.ts` registers the app on everything.dev, extending `bos://dev.everything.near/dev.everything.dev` under `multiagentic.near`.
+
 ## How it works
 
 ```
