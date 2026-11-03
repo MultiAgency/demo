@@ -1,6 +1,6 @@
 import type { Policy } from "@near-intents-agent-api/sdk";
 import { fromAtomic, normalizeDecimal, toAtomic } from "./money";
-import { endInstant, type Terms, USDC_DECIMALS } from "./terms";
+import { endInstant, largestDeliverable, scopeTotal, type Terms, USDC_DECIMALS } from "./terms";
 
 export type { Policy };
 
@@ -24,17 +24,18 @@ export interface CompileOptions {
  * Terms -> one agent's policy + grant expiry. Pure function.
  *
  * Every clause the provider can enforce is compiled in:
- *  - payee clause   -> destinations: only [payee]
- *  - cap clause     -> limits.per_transaction = limits.monthly = cap (exact, atomic USDC)
- *                      budget.monthly_usd = cap + 5% (USD backstop; USDC can trade slightly under $1)
- *  - term clause    -> grant.expires_at = end of the end date (the server's only credential stops working)
- *  - withdraw only  -> actions: ["withdraw"], assets: [USDC]
- * Scope, rate and acceptance rules are NOT provider-enforced; the app checks them before sending.
+ *  - payee clause    -> destinations: only [payee]
+ *  - scope clause    -> limits.per_transaction = the largest deliverable (one payment per deliverable)
+ *                       limits.monthly = the scope total; budget.monthly_usd = total + 5% (USD backstop)
+ *                       and the wallet is funded with the total, so it can never pay more than that
+ *  - term clause     -> grant.expires_at = end of the end date (the server's only credential stops working)
+ *  - withdraw only   -> actions: ["withdraw"], assets: [USDC]
+ * Which deliverables are done is judged by Covenant's agent; the provider bounds whatever it decides.
  */
 export function compileContract(terms: Terms, hash: string, opts: CompileOptions): CompiledContract {
-  const cap = toAtomic(terms.monthly_cap_usd, USDC_DECIMALS);
-  const capAtomic = cap.toString();
-  const budget = fromAtomic((cap * 105n) / 100n, USDC_DECIMALS);
+  const total = toAtomic(scopeTotal(terms), USDC_DECIMALS);
+  const largest = toAtomic(largestDeliverable(terms), USDC_DECIMALS);
+  const budget = fromAtomic((total * 105n) / 100n, USDC_DECIMALS);
   const short = hash.slice(0, 8);
 
   const policy: Policy = {
@@ -44,10 +45,10 @@ export function compileContract(terms: Terms, hash: string, opts: CompileOptions
     owner_approval: false,
     assets: [terms.asset],
     limits: {
-      per_transaction: { [terms.asset]: capAtomic },
-      monthly: { [terms.asset]: capAtomic },
+      per_transaction: { [terms.asset]: largest.toString() },
+      monthly: { [terms.asset]: total.toString() },
     },
-    max_actions_per_hour: 2,
+    max_actions_per_hour: Math.min(terms.scope.length + 2, 12),
     destinations: {
       mode: "only",
       list: [{ action: "withdraw", chain: terms.payee.chain, address: terms.payee.address, memo: null }],

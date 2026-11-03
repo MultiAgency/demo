@@ -35,8 +35,8 @@ export const SETUP: SetupStep[] = [
     phase: "wallet",
     icon: "wallet",
     title: "Create the contract wallet",
-    short: "One agent wallet whose policy is compiled from these terms.",
-    help: ["Only the payee, at most the cap, with a cancel window. Never edited later.", "Your wallet signs it. Covenant never holds the owner key."],
+    short: "One agent wallet whose policy is compiled from the signed scope.",
+    help: ["Only the payee; no payment above the largest deliverable; a cancel window on every payment. Never edited later.", "Your wallet signs it. Covenant never holds the owner key."],
   },
   {
     id: "grant",
@@ -51,8 +51,8 @@ export const SETUP: SetupStep[] = [
     phase: "wallet",
     icon: "coins",
     title: "Fund the wallet",
-    short: "Deposit at least one month's cap in USDC.",
-    help: ["Funds sit in this contract's wallet only.", "However much it holds, it can never pay more than the policy allows."],
+    short: "Deposit the scope total in USDC.",
+    help: ["Funds sit in this contract's wallet only, so it can never pay more than the scope.", "Each merge pays the deliverable's value × completion, minus what was already paid."],
   },
 ];
 

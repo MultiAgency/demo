@@ -1,5 +1,5 @@
 import { usd } from "./money";
-import type { Terms } from "./terms";
+import { largestDeliverable, scopeTotal, type Terms } from "./terms";
 
 export type Layer = "request" | "auth" | "grant" | "policy" | "budget" | "balance" | "provider" | "api";
 
@@ -15,7 +15,8 @@ export interface Clause {
  * either as a specific code or as a generic policy_denied.
  */
 export function clauseFor(code: string, layer: Layer | undefined, terms: Terms): Clause {
-  const cap = usd(terms.monthly_cap_usd);
+  const largest = usd(largestDeliverable(terms));
+  const total = usd(scopeTotal(terms));
   if (code === "policy_destination_denied" || code === "invalid_address")
     return { id: "payee", title: "Payee clause", text: `Payments go only to ${terms.payee.address} on ${terms.payee.chain}.` };
   if (
@@ -25,7 +26,7 @@ export function clauseFor(code: string, layer: Layer | undefined, terms: Terms):
     code === "policy_denied" ||
     layer === "budget"
   )
-    return { id: "cap", title: "Cap clause", text: `At most ${cap} per month.` };
+    return { id: "cap", title: "Scope clause", text: `No payment above ${largest} (the largest deliverable); ${total} in total.` };
   if (layer === "grant" || layer === "auth" || code.startsWith("grant_"))
     return { id: "term", title: "Term clause", text: `The contract ends ${terms.end}. After that the agent's permission has expired.` };
   if (code === "agent_frozen" || code === "wallet_frozen")

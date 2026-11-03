@@ -8,10 +8,10 @@ import type { Config } from "./config";
 import { SecretBox } from "./crypto";
 import { openDb } from "./db";
 import { Covenant, type Role, type Scenario, toUserError, UserError } from "./engine";
-import { FakeEvidence, GitHubEvidence } from "./evidence/github";
+import { type EvidenceSource, FakeEvidence, GitHubEvidence } from "./evidence/github";
 import { DevWallet, nonceFromString } from "./nep413";
 import { SimKeyRegistry, SimProvider } from "./provider/sim";
-import { DeterministicScorer } from "./scorer";
+import { NearAiJudge, RulesJudge } from "./judge";
 
 /** Accounts the keyless demo can sign for. Clearly fake names so nobody mistakes them for real accounts. */
 export const DEMO_ACCOUNTS = {
@@ -26,6 +26,7 @@ export interface Runtime {
   sim: SimProvider | null;
   wallet: DevWallet | null;
   config: Config;
+  evidence: EvidenceSource;
 }
 
 export async function createRuntime(config: Config, opts: { clockStart?: number } = {}): Promise<Runtime> {
@@ -42,23 +43,24 @@ export async function createRuntime(config: Config, opts: { clockStart?: number 
     recipient: config.auth.recipient,
     trustedOrigins: [config.auth.publicUrl],
   });
+  const evidence = config.evidence === "fake" ? new FakeEvidence(() => sim.now()) : new GitHubEvidence(config.githubToken ?? undefined);
   const covenant = new Covenant({
     db,
     provider: sim,
     keys,
-    evidence: config.evidence === "fake" ? new FakeEvidence(() => sim.now()) : new GitHubEvidence(config.githubToken ?? undefined),
-    scorer: new DeterministicScorer(),
+    evidence,
+    judge: config.judge.kind === "near-ai" && config.judge.apiKey ? new NearAiJudge(config.judge.apiKey, config.judge.model, config.judge.baseUrl) : new RulesJudge(),
     box: config.secretKey ? await SecretBox.fromHex(config.secretKey) : await SecretBox.random(),
     config,
   });
-  return { app: buildApp({ covenant, auth, sim, wallet, config }), covenant, auth, sim, wallet, config };
+  return { app: buildApp({ covenant, auth, sim, wallet, config, evidence }), covenant, auth, sim, wallet, config, evidence };
 }
 
 const signedBody = z.object({ account_id: z.string(), public_key: z.string(), signature: z.string(), nonce: z.string() });
 const intentBody = z.object({ type: z.enum(["agent_create", "grant_issue", "execution_cancel", "agent_freeze"]), payout_id: z.string().optional() });
 
 export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session: SessionInfo | null } }> {
-  const { covenant, auth, sim, wallet, config } = rt;
+  const { covenant, auth, sim, wallet, config, evidence } = rt;
   const app = new Hono<{ Variables: { session: SessionInfo | null } }>().basePath("/api");
 
   app.onError((err, c) => {
@@ -93,6 +95,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
       demo_accounts: wallet ? DEMO_ACCOUNTS : null,
       now: sim?.now().toISOString() ?? new Date().toISOString(),
       demo_timelock: config.timelockMs === DEMO_TIMELOCK_MS,
+      judge: { kind: config.judge.kind, model: config.judge.kind === "near-ai" ? config.judge.model : null },
       auth: { required: config.auth.required, recipient: config.auth.recipient, network: "mainnet" },
     }),
   );
@@ -179,6 +182,13 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     app.post("/sim/fund", async (c) => {
       const body = z.object({ agent_id: z.string(), usd: z.string() }).parse(await c.req.json());
       return c.json(sim.fund(body.agent_id, toAtomic(body.usd, USDC_DECIMALS)));
+    });
+    // Simulate the contractor's next PR being merged on GitHub (demo evidence only).
+    app.post("/sim/merge", async (c) => {
+      if (!(evidence instanceof FakeEvidence)) throw new UserError("Only available with the demo evidence source.");
+      const body = z.object({ contract_id: z.string() }).parse(await c.req.json());
+      const pr = evidence.mergeNext((await covenant.getContract(body.contract_id)).terms);
+      return c.json({ merged: pr });
     });
     app.post("/sim/advance", async (c) => {
       const body = z.object({ ms: z.number().int().positive().optional(), to: z.string().datetime().optional() }).parse(await c.req.json());

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { canonicalJson, sha256Hex } from "./canonical";
-import { isDecimal, normalizeDecimal } from "./money";
+import { fromAtomic, isDecimal, normalizeDecimal, toAtomic } from "./money";
 
 /**
  * USDC on NEAR as a NEAR Intents asset id (native Circle USDC, 6 decimals).
@@ -32,9 +32,18 @@ const repo = z
   .toLowerCase()
   .regex(/^[a-z\d][a-z\d-]*\/[a-z\d._-]+$/, "Use owner/name");
 
+const deliverable = z
+  .object({
+    id: z.string().regex(/^d([1-9]|10)$/, "Deliverable ids are d1 to d10"),
+    title: z.string().trim().min(3).max(120),
+    criteria: z.string().trim().min(3).max(400),
+    value_usd: usdAmount,
+  })
+  .strict();
+
 export const termsSchema = z
   .object({
-    v: z.literal(1),
+    v: z.literal(2),
     company: z.string().trim().min(1).max(80),
     representative: z.object({ near_account: nearAccount }),
     contractor: z.object({
@@ -44,17 +53,17 @@ export const termsSchema = z
     }),
     payee: z.object({ chain: z.literal("near"), address: nearAccount }),
     asset: z.literal(USDC_NEAR),
-    monthly_cap_usd: usdAmount,
-    rate_per_accepted_pr_usd: usdAmount,
+    /** The signed scope: what the work is, and what each part is worth. */
+    scope: z.array(deliverable).min(1).max(10),
     start: isoDate,
     end: isoDate,
     repos: z.array(repo).min(1).max(10),
-    scope: z.string().trim().min(10).max(1000),
     acceptance: z.literal("merged_to_default_branch_by_other"),
   })
   .strict()
   .refine((t) => t.start <= t.end, { message: "End date must be on or after the start date", path: ["end"] })
-  .refine((t) => daysBetween(t.start, t.end) <= 365, { message: "Contracts can last at most 365 days", path: ["end"] });
+  .refine((t) => daysBetween(t.start, t.end) <= 365, { message: "Contracts can last at most 365 days", path: ["end"] })
+  .refine((t) => new Set(t.scope.map((d) => d.id)).size === t.scope.length, { message: "Deliverable ids must be unique", path: ["scope"] });
 
 export type Terms = z.infer<typeof termsSchema>;
 export type TermsInput = z.input<typeof termsSchema>;
@@ -62,6 +71,16 @@ export type TermsInput = z.input<typeof termsSchema>;
 export function parseTerms(input: unknown): Terms {
   const terms = termsSchema.parse(input);
   return { ...terms, repos: [...new Set(terms.repos)].sort() };
+}
+
+/** Total value of the scope, as a decimal string. */
+export function scopeTotal(terms: Pick<Terms, "scope">): string {
+  return fromAtomic(terms.scope.reduce((n, d) => n + toAtomic(d.value_usd, USDC_DECIMALS), 0n), USDC_DECIMALS);
+}
+
+/** Largest single deliverable: the most any one payment can be. */
+export function largestDeliverable(terms: Pick<Terms, "scope">): string {
+  return fromAtomic(terms.scope.reduce((m, d) => (toAtomic(d.value_usd, USDC_DECIMALS) > m ? toAtomic(d.value_usd, USDC_DECIMALS) : m), 0n), USDC_DECIMALS);
 }
 
 export function termsHash(terms: Terms): string {

@@ -20,4 +20,17 @@ if (import.meta.main) {
   const server = await startServer(rt, config.port);
   const banner = config.provider === "sim" ? "SIMULATED (no real funds, no network)" : "LIVE MAINNET";
   console.log(`\nCovenant · ${banner}\n→ ${server.url}\n`);
+  // Pays when a PR is merged: check every active contract for new merges on a timer.
+  if (config.pollMs > 0) {
+    setInterval(async () => {
+      for (const id of rt.covenant.activeContractIds()) {
+        try {
+          await rt.covenant.run(id);
+        } catch (err) {
+          console.error(`merge watcher: ${id}: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+    }, config.pollMs);
+    console.log(`Merge watcher on: every ${Math.round(config.pollMs / 1000)}s`);
+  }
 }

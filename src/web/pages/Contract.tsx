@@ -83,7 +83,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
             <div>
               <h1>{c.terms.contractor.name}</h1>
               <p className="page-sub">
-                {c.terms.company} · {usd(c.terms.rate_per_accepted_pr_usd)} per PR · up to {usd(c.terms.monthly_cap_usd)}/mo
+                {c.terms.company} · {c.terms.scope.length} deliverables · {usd(c.total_usd)} scope
               </p>
             </div>
             <Badge tone={stage.tone} dot>
@@ -174,8 +174,8 @@ function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Ac
           <div className="side-label">Wallet policy</div>
           <PolicyCard
             payee={c.terms.payee.address}
-            cap={c.terms.monthly_cap_usd}
-            rate={c.terms.rate_per_accepted_pr_usd}
+            scope={c.terms.scope}
+
             start={c.terms.start}
             end={c.terms.end}
             repos={c.terms.repos}
@@ -241,7 +241,7 @@ function SetupRow({ step, c, config, act, state }: { step: (typeof SETUP)[number
 }
 
 function StepAction({ step, c, sim, config, act }: { step: StepId; c: ContractView; sim: boolean; config: AppConfig; act: Act }) {
-  const [amount, setAmount] = useState(String(Math.ceil(Number(c.terms.monthly_cap_usd) * 1.2)));
+  const [amount, setAmount] = useState(c.total_usd);
   const token = links.get(c.id);
 
   const signTerms = (role: "representative" | "contractor") =>
@@ -324,33 +324,45 @@ function StepAction({ step, c, sim, config, act }: { step: StepId; c: ContractVi
 
 /* -------------------------------------------------------------- dashboard */
 
-type TabId = "payouts" | "security" | "policy" | "activity";
+type TabId = "scope" | "payouts" | "security" | "policy" | "activity";
 
 function Dashboard({ c, config, verify, act, reload }: { c: ContractView; config: AppConfig; verify: VerifyReport | null; act: Act; reload: () => Promise<void> }) {
-  const [tab, setTab] = useState<TabId>("payouts");
-  const cap = Number(c.terms.monthly_cap_usd);
-  const used = cap - Number(c.remaining_cap_usd);
+  const [tab, setTab] = useState<TabId>("scope");
+  const total = Number(c.total_usd);
+  const paid = Number(c.paid_usd);
   const daysLeft = Math.ceil((Date.parse(`${c.terms.end}T23:59:59Z`) - Date.parse(c.now)) / 86_400_000);
-  const queued = c.payouts.find((p) => p.status === "queued");
+  const queued = c.payouts.filter((p) => p.status === "queued");
+  const review = c.payouts.filter((p) => p.status === "escalated").length;
 
   return (
     <>
       {c.stage === "frozen" ? <Alert tone="danger" icon="snowflake">This wallet is frozen. It can't pay anything.</Alert> : null}
       {c.stage === "ended" ? <Alert tone="info" icon="calendar">This contract ended on {dateText(c.terms.end)}. The agent's permission has expired.</Alert> : null}
+      {review ? (
+        <Alert tone="warning" icon="alert">
+          {review} payout{review === 1 ? "" : "s"} need{review === 1 ? "s" : ""} your review. See Payouts.
+        </Alert>
+      ) : null}
 
       <div className="stats-row four">
-        <Stat label="Wallet balance" icon="wallet" value={usd(c.agent?.available_usd ?? "0")} sub="USDC" />
-        <Stat label="Used this month" icon="coins" value={usd(used)} sub={`of ${usd(cap)} limit`}>
-          <Progress value={used} max={cap} tone={used >= cap ? "warning" : "accent"} />
+        <Stat label="Paid for the scope" icon="coins" value={usd(paid)} sub={`of ${usd(total)}`}>
+          <Progress value={paid} max={total} />
         </Stat>
+        <Stat label="Wallet balance" icon="wallet" value={usd(c.agent?.available_usd ?? "0")} sub="USDC" />
+        <Stat
+          label="In the cancel window"
+          icon="clock"
+          value={queued.length ? usd(queued.reduce((n, p) => n + Number(p.amount_usd), 0)) : "—"}
+          sub={queued.length ? `dispatches ${timeText(queued[0]!.dispatch_at)}` : "Nothing queued"}
+        />
         <Stat label="Contract ends" icon="calendar" value={dateText(c.terms.end)} sub={daysLeft > 0 ? `${daysLeft} days left` : "Ended"} />
-        <Stat label="Next payout" icon="clock" value={queued ? usd(queued.amount_usd) : "—"} sub={queued ? `dispatches ${timeText(queued.dispatch_at)}` : "Run the agent at period end"} />
       </div>
 
       <Tabs<TabId>
         value={tab}
         onChange={setTab}
         items={[
+          { id: "scope", label: "Scope", icon: "file" },
           { id: "payouts", label: "Payouts", icon: "coins", count: c.payouts.length },
           { id: "security", label: "Security test", icon: "shield" },
           { id: "policy", label: "Policy & verify", icon: "shieldCheck" },
@@ -358,11 +370,99 @@ function Dashboard({ c, config, verify, act, reload }: { c: ContractView; config
         ]}
       />
 
+      {tab === "scope" ? <ScopeTab c={c} config={config} act={act} onPayouts={() => setTab("payouts")} /> : null}
       {tab === "payouts" ? <PayoutsTab c={c} config={config} act={act} /> : null}
       {tab === "security" ? <SecurityTab c={c} config={config} reload={reload} /> : null}
       {tab === "policy" ? <PolicyTab c={c} verify={verify} /> : null}
       {tab === "activity" ? <ActivityTab c={c} /> : null}
     </>
+  );
+}
+
+function RunAgent({ c, act }: { c: ContractView; act: Act }) {
+  return (
+    <Button icon="play" disabled={c.stage !== "active"} onClick={() => act(() => api("POST", `/contracts/${c.id}/run`))}>
+      Check merges
+    </Button>
+  );
+}
+
+/** The scoreboard: each deliverable, what it's worth, how done it is, what's been paid. */
+function ScopeTab({ c, config, act, onPayouts }: { c: ContractView; config: AppConfig; act: Act; onPayouts: () => void }) {
+  const j = c.judgment;
+  const outOfScope = (j?.prs ?? []).filter((p) => !p.eligible || !p.deliverable);
+  return (
+    <Card pad={false}>
+      <div className="card-pad-x">
+        <CardHeader
+          title="Scope"
+          sub={j ? `Last judged ${timeText(j.at)} by ${j.judge === "near-ai" ? `NEAR AI (${j.model ?? "model"})` : "the rule-based judge"}` : "Not judged yet. Check merges to start."}
+          actions={<RunAgent c={c} act={act} />}
+        />
+      </div>
+      <ul className="scoreboard">
+        {c.scope.map((d) => {
+          const value = Number(d.value_usd);
+          const paid = Number(d.paid_usd);
+          const pending = Number(d.pending_usd);
+          const escalated = Number(d.escalated_usd);
+          return (
+            <li key={d.id} className={d.completion >= 1 && paid >= value ? "is-done" : ""}>
+              <div className="sb-head">
+                <span className="scope-id">{d.id}</span>
+                <div className="sb-title">
+                  <strong>{d.title}</strong>
+                  <span>{d.criteria}</span>
+                </div>
+                <span className="sb-value num">{usd(value)}</span>
+              </div>
+              <div className="sb-bar">
+                <Progress value={d.completion * 100} max={100} />
+                <span className="num">{Math.round(d.completion * 100)}%</span>
+              </div>
+              <div className="sb-meta">
+                <span className="pill-mini ok">
+                  <Icon name="check" size={12} /> {usd(paid)} paid
+                </span>
+                {pending ? (
+                  <span className="pill-mini">
+                    <Icon name="clock" size={12} /> {usd(pending)} in cancel window
+                  </span>
+                ) : null}
+                {escalated ? (
+                  <button className="pill-mini warn linkish" onClick={onPayouts}>
+                    <Icon name="alert" size={12} /> {usd(escalated)} needs review
+                  </button>
+                ) : null}
+                {d.prs.map((pr) => (
+                  <a key={pr.key} className={`pr-chip${pr.flagged ? " warn" : ""}`} href={pr.url} target="_blank" rel="noreferrer" title={pr.flagged ? `Flagged: ${pr.title}` : pr.title}>
+                    <Icon name={pr.flagged ? "alert" : "pr"} size={12} /> {pr.key.split("/")[1]}
+                  </a>
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {outOfScope.length ? (
+        <div className="card-pad-x out-of-scope">
+          <div className="side-label">Not counted</div>
+          <ul className="prs">
+            {outOfScope.map((pr) => (
+              <li key={pr.key} className={pr.flags.length ? "warn" : "no"}>
+                <Icon name={pr.flags.length ? "alert" : "x"} size={14} />
+                <a href={pr.url} target="_blank" rel="noreferrer" className="pr-key">
+                  {pr.key}
+                </a>
+                <span className="pr-title">{pr.title}</span>
+                <span className="pr-reason">{pr.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {config.provider === "sim" ? <p className="card-pad-x fineprint pad-b">Demo PRs link to a deliverable with a "Scope: d2" line. Use “Simulate a merge” above to land the next one.</p> : <div className="pad-b" />}
+    </Card>
   );
 }
 
@@ -379,22 +479,13 @@ const PAYOUT_STATUS: Record<Payout["status"], { label: string; tone: Tone }> = {
 };
 
 function PayoutsTab({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
-  const canRun = c.stage === "active";
   return (
     <Card pad={false}>
       <div className="card-pad-x">
-        <CardHeader
-          title="Payouts"
-          sub={`Period ${c.period.month} · ${usd(c.remaining_cap_usd)} left under the limit`}
-          actions={
-            <Button icon="play" disabled={!canRun} onClick={() => act(() => api("POST", `/contracts/${c.id}/run`))}>
-              Run agent
-            </Button>
-          }
-        />
+        <CardHeader title="Payouts" sub={`One payment per deliverable · ${usd(Number(c.total_usd) - Number(c.committed_usd))} of the scope unpaid`} actions={<RunAgent c={c} act={act} />} />
       </div>
       {c.payouts.length === 0 ? (
-        <Empty icon="bot" title="No payouts yet" sub="The agent reviews merged PRs for this period and pays inside the limits." />
+        <Empty icon="bot" title="No payouts yet" sub="When a merged PR completes part of the scope, the agent pays that part, inside the limits." />
       ) : (
         <ul className="payouts">
           {c.payouts.map((p) => (
@@ -408,8 +499,6 @@ function PayoutsTab({ c, config, act }: { c: ContractView; config: AppConfig; ac
 
 function PayoutItem({ p, c, config, act }: { p: Payout; c: ContractView; config: AppConfig; act: Act }) {
   const [open, setOpen] = useState(p.status === "escalated" || p.status === "queued");
-  const accepted = p.score.prs.filter((x) => x.accepted).length;
-  const rejected = p.score.prs.length - accepted;
   const st = PAYOUT_STATUS[p.status];
   const total = c.compiled.policy.timelock_ms;
   const left = p.dispatch_at ? Math.max(0, Date.parse(p.dispatch_at) - Date.parse(c.now)) : 0;
@@ -419,14 +508,12 @@ function PayoutItem({ p, c, config, act }: { p: Payout; c: ContractView; config:
       <button className="payout-row" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className="payout-amount num">{usd(p.amount_usd)}</span>
         <span className="payout-meta">
-          <span className="pill-mini ok">
-            <Icon name="check" size={12} /> {accepted} accepted
-          </span>
-          {rejected ? (
-            <span className="pill-mini">
-              <Icon name="x" size={12} /> {rejected} not counted
+          {p.deliverable ? (
+            <span className="payout-d">
+              <span className="scope-id">{p.deliverable.id}</span> {p.deliverable.title}
             </span>
           ) : null}
+          {p.completion !== null ? <span className="pill-mini">{Math.round(p.completion * 100)}% done</span> : null}
           <span className="muted small hide-sm">{timeText(p.created_at)}</span>
         </span>
         <Badge tone={st.tone} dot>
@@ -450,7 +537,7 @@ function PayoutItem({ p, c, config, act }: { p: Payout; c: ContractView; config:
       {p.status === "escalated" ? (
         <div className="escalation">
           <Icon name="alert" size={16} />
-          <span>{p.score.summary} Flagged PRs stay excluded.</span>
+          <span>{p.judge?.summary ?? "The agent escalated this payout."} Rejecting keeps the flagged PR out for good.</span>
           <Button size="sm" icon="check" onClick={() => act(() => api("POST", `/payouts/${p.id}/approve`))}>
             Approve {usd(p.amount_usd)}
           </Button>
@@ -463,16 +550,23 @@ function PayoutItem({ p, c, config, act }: { p: Payout; c: ContractView; config:
       {open ? (
         <div className="payout-detail">
           <ul className="prs">
-            {p.score.prs.map((pr) => (
-              <li key={pr.key} className={pr.accepted ? "ok" : pr.flags.length ? "warn" : "no"}>
-                <Icon name={pr.accepted ? "check" : pr.flags.length ? "alert" : "x"} size={14} />
+            {p.prs.map((pr) => (
+              <li key={pr.key} className="ok">
+                <Icon name="check" size={14} />
                 <a href={pr.url} target="_blank" rel="noreferrer" className="pr-key">
                   {pr.key}
                 </a>
                 <span className="pr-title">{pr.title}</span>
-                {!pr.accepted ? <span className="pr-reason">{pr.reason}</span> : null}
+                <span className="pr-reason">{pr.reason}</span>
               </li>
             ))}
+            {p.reason ? (
+              <li className="no">
+                <Icon name="bot" size={14} />
+                <span className="pr-key">judge</span>
+                <span className="pr-title">{p.reason}</span>
+              </li>
+            ) : null}
           </ul>
           {p.tx_hash ? (
             <div className="kv-line">
@@ -588,8 +682,8 @@ function PolicyTab({ c, verify }: { c: ContractView; verify: VerifyReport | null
       <div className="stack">
         <PolicyCard
           payee={c.terms.payee.address}
-          cap={c.terms.monthly_cap_usd}
-          rate={c.terms.rate_per_accepted_pr_usd}
+          scope={c.terms.scope}
+
           start={c.terms.start}
           end={c.terms.end}
           repos={c.terms.repos}
@@ -677,6 +771,16 @@ function SimBar({ c, config, reload }: { c: ContractView; config: AppConfig; rel
       <span className="simbar-label">
         <Icon name="clock" size={14} /> Simulated time <strong>{timeText(c.now)}</strong>
       </span>
+      <button
+        className="simbar-btn"
+        onClick={async () => {
+          await api("POST", "/sim/merge", { contract_id: c.id });
+          await api("POST", `/contracts/${c.id}/run`).catch(() => undefined);
+          await reload();
+        }}
+      >
+        <Icon name="pr" size={13} /> Simulate a merge
+      </button>
       <button className="simbar-btn" onClick={() => go({ ms: config.timelock_ms + 1000 })}>
         <Icon name="fastForward" size={13} /> Skip timelock
       </button>

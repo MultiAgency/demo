@@ -4,7 +4,7 @@ import { canonicalJson } from "../src/shared/canonical";
 import { canonicalPolicy, compileContract, diffPolicy } from "../src/shared/compile";
 import { DEMO_TERMS } from "../src/shared/demo";
 import { fromAtomic, normalizeDecimal, toAtomic } from "../src/shared/money";
-import { parseTerms, termsHash, USDC_NEAR } from "../src/shared/terms";
+import { parseTerms, scopeTotal, termsHash, USDC_NEAR } from "../src/shared/terms";
 import { DevWallet, nep413Hash, randomNonce, verifyNep413 } from "../src/server/nep413";
 
 describe("money", () => {
@@ -34,17 +34,20 @@ describe("terms", () => {
   });
   test("any change changes the hash", () => {
     const a = termsHash(parseTerms(DEMO_TERMS));
-    const b = termsHash(parseTerms({ ...DEMO_TERMS, monthly_cap_usd: "51" }));
+    const b = termsHash(parseTerms({ ...DEMO_TERMS, scope: DEMO_TERMS.scope.map((d, i) => (i === 0 ? { ...d, value_usd: "301" } : d)) }));
     expect(a).not.toBe(b);
   });
   test("normalizes accounts and amounts", () => {
-    const t = parseTerms({ ...DEMO_TERMS, payee: { chain: "near", address: "Maria.Demo" }, monthly_cap_usd: "050.00" });
+    const t = parseTerms({ ...DEMO_TERMS, payee: { chain: "near", address: "Maria.Demo" }, scope: [{ ...DEMO_TERMS.scope[0]!, value_usd: "050.00" }] });
     expect(t.payee.address).toBe("maria.demo");
-    expect(t.monthly_cap_usd).toBe("50");
+    expect(t.scope[0]!.value_usd).toBe("50");
+    expect(scopeTotal(t)).toBe("50");
   });
   test("rejects bad terms", () => {
     expect(() => parseTerms({ ...DEMO_TERMS, end: "2026-10-01" })).toThrow();
-    expect(() => parseTerms({ ...DEMO_TERMS, monthly_cap_usd: "-5" })).toThrow();
+    expect(() => parseTerms({ ...DEMO_TERMS, scope: [{ ...DEMO_TERMS.scope[0]!, value_usd: "-5" }] })).toThrow();
+    expect(() => parseTerms({ ...DEMO_TERMS, scope: [] })).toThrow();
+    expect(() => parseTerms({ ...DEMO_TERMS, scope: [DEMO_TERMS.scope[0]!, DEMO_TERMS.scope[0]!] })).toThrow();
     expect(() => parseTerms({ ...DEMO_TERMS, payee: { chain: "base", address: "0xabc" } })).toThrow();
     expect(() => parseTerms({ ...DEMO_TERMS, extra: true })).toThrow();
     expect(() => parseTerms({ ...DEMO_TERMS, end: "2028-01-01" })).toThrow();
@@ -62,10 +65,12 @@ describe("compiler", () => {
   test("one destination: the payee", () => {
     expect(c.policy.destinations).toEqual({ mode: "only", list: [{ action: "withdraw", chain: "near", address: "maria.demo", memo: null }] });
   });
-  test("per-payment and monthly limits both equal the cap, exactly", () => {
-    expect(c.policy.limits.per_transaction?.[USDC_NEAR]).toBe("50000000");
-    expect(c.policy.limits.monthly?.[USDC_NEAR]).toBe("50000000");
-    expect(c.policy.budget.monthly_usd).toBe("52.5");
+  test("one payment is at most the largest deliverable; the total is the scope", () => {
+    expect(scopeTotal(terms)).toBe("1000");
+    expect(c.policy.limits.per_transaction?.[USDC_NEAR]).toBe("500000000");
+    expect(c.policy.limits.monthly?.[USDC_NEAR]).toBe("1000000000");
+    expect(c.policy.budget.monthly_usd).toBe("1050");
+    expect(c.policy.max_actions_per_hour).toBe(5);
   });
   test("withdraw-only, USDC-only, no owner approval, timelock on", () => {
     expect(c.policy.actions).toEqual(["withdraw"]);
@@ -81,11 +86,11 @@ describe("compiler", () => {
   });
   test("diff ignores formatting differences but catches real ones", () => {
     const formatted = structuredClone(c.policy);
-    formatted.budget.monthly_usd = "52.50";
+    formatted.budget.monthly_usd = "1050.00";
     formatted.destinations.list = [{ action: "withdraw", chain: "near", address: "MARIA.DEMO", memo: null }];
     expect(diffPolicy(c.policy, formatted)).toEqual([]);
     const widened = structuredClone(c.policy);
-    widened.limits.monthly = { [USDC_NEAR]: "500000000" };
+    widened.limits.monthly = { [USDC_NEAR]: "5000000000" };
     expect(diffPolicy(c.policy, widened).map((d) => d.path)).toEqual([`limits.monthly.${USDC_NEAR}`]);
     expect(canonicalPolicy(c.policy)).toEqual(canonicalPolicy(formatted));
   });

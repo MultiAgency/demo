@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { DEMO_TERMS } from "../../shared/demo";
 import { api, links } from "../api";
+import { SignInGate } from "../components/Account";
 import { Icon } from "../components/icons";
 import { PolicyCard } from "../components/PolicyCard";
-import { SignInGate } from "../components/Account";
+import { Alert, Button, usd } from "../components/ui";
 import { useSession } from "../session";
-import { Alert, Button } from "../components/ui";
-import type { AppConfig } from "../types";
+import type { AppConfig, Deliverable } from "../types";
 
 interface Form {
   company: string;
@@ -15,12 +15,10 @@ interface Form {
   github: string;
   contractorAccount: string;
   payee: string;
-  cap: string;
-  rate: string;
   start: string;
   end: string;
   repos: string;
-  scope: string;
+  scope: Deliverable[];
 }
 
 /** Demo dates relative to today: the 1st of this month to the last day of next month (UTC). */
@@ -40,11 +38,9 @@ const initial: Form = {
   github: DEMO_TERMS.contractor.github,
   contractorAccount: DEMO_TERMS.contractor.near_account,
   payee: DEMO_TERMS.payee.address,
-  cap: DEMO_TERMS.monthly_cap_usd,
-  rate: DEMO_TERMS.rate_per_accepted_pr_usd,
   ...demoDates(),
   repos: DEMO_TERMS.repos.join(", "),
-  scope: DEMO_TERMS.scope,
+  scope: DEMO_TERMS.scope.map((d) => ({ ...d })),
 };
 
 function Field(props: { label: string; hint?: string; children: React.ReactNode; wide?: boolean }) {
@@ -65,25 +61,33 @@ export function NewContract({ config }: { config: AppConfig }) {
   useEffect(() => {
     if (session.account) setF((x) => ({ ...x, rep: session.account! }));
   }, [session.account]);
-  const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+
+  const set = (k: Exclude<keyof Form, "scope">) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  const setItem = (i: number, k: keyof Deliverable) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setF({ ...f, scope: f.scope.map((d, j) => (j === i ? { ...d, [k]: e.target.value } : d)) });
+  const addItem = () => {
+    const used = new Set(f.scope.map((d) => d.id));
+    const id = Array.from({ length: 10 }, (_, i) => `d${i + 1}`).find((x) => !used.has(x));
+    if (id) setF({ ...f, scope: [...f.scope, { id, title: "", criteria: "", value_usd: "" }] });
+  };
+  const removeItem = (i: number) => setF({ ...f, scope: f.scope.filter((_, j) => j !== i) });
   const repos = f.repos.split(/[\s,]+/).filter(Boolean);
+  const total = f.scope.reduce((n, d) => n + (Number(d.value_usd) || 0), 0);
 
   async function submit() {
     setError(null);
     try {
       const res = await api<{ id: string; contractor_token: string }>("POST", "/contracts", {
-        v: 1,
+        v: 2,
         company: f.company,
         representative: { near_account: f.rep },
         contractor: { name: f.contractorName, github: f.github, near_account: f.contractorAccount },
         payee: { chain: "near", address: f.payee },
         asset: DEMO_TERMS.asset,
-        monthly_cap_usd: f.cap,
-        rate_per_accepted_pr_usd: f.rate,
+        scope: f.scope,
         start: f.start,
         end: f.end,
         repos,
-        scope: f.scope,
         acceptance: "merged_to_default_branch_by_other",
       });
       links.save(res.id, res.contractor_token);
@@ -101,7 +105,7 @@ export function NewContract({ config }: { config: AppConfig }) {
             <Icon name="chevronLeft" size={14} /> Contracts
           </a>
           <h1>New contract</h1>
-          <p className="page-sub">Fill in the terms. The preview shows the wallet they compile to.</p>
+          <p className="page-sub">Define the scope. Every merged PR is judged against it, and the wallet never pays more than it's worth.</p>
         </div>
       </header>
 
@@ -130,57 +134,67 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Field label="Contractor's NEAR account">
                 <input value={f.contractorAccount} onChange={set("contractorAccount")} required />
               </Field>
-            </div>
-          </section>
-
-          <section className="form-section">
-            <h2>
-              <Icon name="coins" /> Payment
-            </h2>
-            <div className="grid2">
-              <Field label="Payee" hint="The only account this wallet can pay" wide>
+              <Field label="GitHub username" hint="Whose merged PRs count">
+                <div className="input-affix prefix">
+                  <span>@</span>
+                  <input value={f.github} onChange={set("github")} required />
+                </div>
+              </Field>
+              <Field label="Payee" hint="The only account this wallet can pay">
                 <div className="input-affix">
                   <input value={f.payee} onChange={set("payee")} required />
                   <span>USDC · NEAR</span>
                 </div>
               </Field>
-              <Field label="Monthly limit">
-                <div className="input-affix prefix">
-                  <span>$</span>
-                  <input value={f.cap} onChange={set("cap")} inputMode="decimal" required />
-                </div>
-              </Field>
-              <Field label="Per merged PR">
-                <div className="input-affix prefix">
-                  <span>$</span>
-                  <input value={f.rate} onChange={set("rate")} inputMode="decimal" required />
-                </div>
-              </Field>
+            </div>
+          </section>
+
+          <section className="form-section">
+            <div className="section-head">
+              <h2>
+                <Icon name="file" /> Scope
+              </h2>
+              <span className="scope-total num">{usd(total)} total</span>
+            </div>
+            <ol className="scope-edit">
+              {f.scope.map((d, i) => (
+                <li key={d.id}>
+                  <span className="scope-id">{d.id}</span>
+                  <div className="scope-fields">
+                    <input value={d.title} onChange={setItem(i, "title")} placeholder="Deliverable" aria-label={`${d.id} title`} required />
+                    <textarea rows={2} value={d.criteria} onChange={setItem(i, "criteria")} placeholder="Done when…" aria-label={`${d.id} acceptance criteria`} required />
+                  </div>
+                  <div className="input-affix prefix scope-value">
+                    <span>$</span>
+                    <input value={d.value_usd} onChange={setItem(i, "value_usd")} inputMode="decimal" aria-label={`${d.id} value`} required />
+                  </div>
+                  <button type="button" className="icon-btn" onClick={() => removeItem(i)} disabled={f.scope.length === 1} aria-label={`Remove ${d.id}`}>
+                    <Icon name="x" />
+                  </button>
+                </li>
+              ))}
+            </ol>
+            <div className="scope-foot">
+              <Button variant="ghost" size="sm" icon="plus" onClick={addItem} disabled={f.scope.length >= 10}>
+                Add deliverable
+              </Button>
+              <span className="field-hint">PRs link to a deliverable with a "Scope: d2" line. The agent judges how complete each one is.</span>
+            </div>
+          </section>
+
+          <section className="form-section">
+            <h2>
+              <Icon name="calendar" /> Term and code
+            </h2>
+            <div className="grid2">
               <Field label="Start">
                 <input type="date" value={f.start} onChange={set("start")} required />
               </Field>
               <Field label="End" hint="The agent's permission expires then">
                 <input type="date" value={f.end} onChange={set("end")} required />
               </Field>
-            </div>
-          </section>
-
-          <section className="form-section">
-            <h2>
-              <Icon name="pr" /> Work
-            </h2>
-            <div className="grid2">
-              <Field label="GitHub username">
-                <div className="input-affix prefix">
-                  <span>@</span>
-                  <input value={f.github} onChange={set("github")} required />
-                </div>
-              </Field>
-              <Field label="Repositories" hint="owner/name, comma separated">
+              <Field label="Repositories" hint="owner/name, comma separated" wide>
                 <input value={f.repos} onChange={set("repos")} required />
-              </Field>
-              <Field label="Scope" wide>
-                <textarea rows={2} value={f.scope} onChange={set("scope")} required />
               </Field>
             </div>
             <p className="field-hint">A PR counts when someone other than its author merges it.</p>
@@ -201,7 +215,7 @@ export function NewContract({ config }: { config: AppConfig }) {
         <aside className="split-side">
           <div className="sticky">
             <div className="side-label">Live preview</div>
-            <PolicyCard payee={f.payee} cap={f.cap} rate={f.rate} start={f.start} end={f.end} repos={repos} timelockMinutes={Math.round(config.timelock_ms / 60000)} />
+            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} timelockMinutes={Math.round(config.timelock_ms / 60000)} />
             <p className="side-note">
               <Icon name="info" size={14} /> Locked rows are enforced by NEAR Intents. Nothing is created until both parties sign.
             </p>

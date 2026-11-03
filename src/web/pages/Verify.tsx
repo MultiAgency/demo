@@ -101,8 +101,7 @@ export function VerifyPage({ id }: { id: string }) {
         </div>
         <PolicyCard
           payee={t.payee.address}
-          cap={t.monthly_cap_usd}
-          rate={t.rate_per_accepted_pr_usd}
+          scope={t.scope}
           start={t.start}
           end={t.end}
           repos={t.repos}

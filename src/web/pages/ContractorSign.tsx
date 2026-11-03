@@ -42,12 +42,12 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
 
         <div className="doc-tiles">
           <div className="doc-tile">
-            <span>Per merged PR</span>
-            <strong>{usd(t.rate_per_accepted_pr_usd)}</strong>
+            <span>Scope</span>
+            <strong>{usd(t.scope.reduce((n, d) => n + Number(d.value_usd), 0))}</strong>
           </div>
           <div className="doc-tile">
-            <span>Monthly limit</span>
-            <strong>{usd(t.monthly_cap_usd)}</strong>
+            <span>Deliverables</span>
+            <strong>{t.scope.length}</strong>
           </div>
           <div className="doc-tile">
             <span>Term</span>
@@ -56,6 +56,19 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
             </strong>
           </div>
         </div>
+
+        <ol className="doc-scope">
+          {t.scope.map((d) => (
+            <li key={d.id}>
+              <span className="scope-id">{d.id}</span>
+              <div>
+                <strong>{d.title}</strong>
+                <span>{d.criteria}</span>
+              </div>
+              <span className="num">{usd(d.value_usd)}</span>
+            </li>
+          ))}
+        </ol>
 
         <ul className="doc-list">
           <li>
@@ -67,8 +80,8 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           <li>
             <Icon name="pr" size={15} />
             <span>For</span>
-            <strong>PRs by @{t.contractor.github}</strong>
-            <em>merged by someone else in {t.repos.join(", ")}</em>
+            <strong>Merged PRs by @{t.contractor.github}</strong>
+            <em>judged against the scope, in {t.repos.join(", ")}</em>
           </li>
           <li>
             <Icon name="shieldCheck" size={15} />
@@ -79,7 +92,6 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
         </ul>
 
         <Disclosure label="Scope and details">
-          <p className="muted">{t.scope}</p>
           <div className="kv-line">
             <span>Terms hash</span>
             <Mono copy={c.hash}>{short(c.hash, 12, 6)}</Mono>

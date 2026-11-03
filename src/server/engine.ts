@@ -2,10 +2,12 @@ import type { Database } from "bun:sqlite";
 import { type Clause, clauseFor, type Layer } from "../shared/clauses";
 import { canonicalJson, hashCanonical, sha256Hex } from "../shared/canonical";
 import { type CompiledContract, compileContract, diffPolicy, type PolicyDiff } from "../shared/compile";
-import { fromAtomic, minBig, toAtomic } from "../shared/money";
+import { fromAtomic, toAtomic } from "../shared/money";
 import {
   endInstant,
+  largestDeliverable,
   parseTerms,
+  scopeTotal,
   startInstant,
   type Terms,
   TERMS_RECIPIENT,
@@ -27,7 +29,7 @@ import {
   ProviderRefusal,
   type WithdrawRequest,
 } from "./provider/port";
-import type { ScoreResult, Scorer } from "./scorer";
+import type { Judge, Judgment, Level } from "./judge";
 
 export class UserError extends Error {
   constructor(
@@ -62,7 +64,7 @@ export interface Deps {
   provider: Provider;
   keys: KeyRegistry;
   evidence: EvidenceSource;
-  scorer: Scorer;
+  judge: Judge;
   box: SecretBox;
   config: Config;
 }
@@ -87,7 +89,7 @@ export class Covenant {
     this.d.db
       .query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash) VALUES (?, ?, ?, ?, ?)")
       .run(id, canonicalJson(terms), hash, this.nowIso(), sha256Hex(contractorToken));
-    this.event(id, "draft", `Draft created: ${terms.company} pays ${terms.contractor.name} up to $${terms.monthly_cap_usd}/month until ${terms.end}.`);
+    this.event(id, "draft", `Draft created: ${terms.company} funds ${terms.scope.length} deliverables worth $${scopeTotal(terms)} for ${terms.contractor.name}, until ${terms.end}.`);
     return { id, contractorToken };
   }
 
@@ -95,6 +97,13 @@ export class Covenant {
   parties(id: string): { representative: string; contractor: string } {
     const t = this.terms(this.row(id));
     return { representative: t.representative.near_account, contractor: t.contractor.near_account };
+  }
+
+  /** Contracts whose wallet is live: the ones the merge watcher runs. */
+  activeContractIds(): string[] {
+    const rows = this.d.db.query("SELECT * FROM contracts WHERE agent_id IS NOT NULL AND grant_id IS NOT NULL AND frozen = 0").all() as ContractRow[];
+    const now = this.d.provider.now().getTime();
+    return rows.filter((r) => now <= Date.parse(endInstant(this.terms(r)))).map((r) => r.id);
   }
 
   payoutContract(payoutId: string): string {
@@ -112,15 +121,13 @@ export class Covenant {
       : all;
     return rows.map((r) => {
       const terms = JSON.parse(r.terms) as Terms;
-      const cap = toAtomic(terms.monthly_cap_usd, USDC_DECIMALS);
-      const used = cap - this.remainingCap(r.id, terms, this.period(terms).month);
       return {
         id: r.id,
         company: terms.company,
         contractor: terms.contractor.name,
         payee: terms.payee.address,
-        cap: terms.monthly_cap_usd,
-        used: fromAtomic(used, USDC_DECIMALS),
+        total: scopeTotal(terms),
+        paid: fromAtomic(this.committed(r.id, ["paid"]), USDC_DECIMALS),
         start: terms.start,
         end: terms.end,
         stage: this.stageOf(r),
@@ -139,7 +146,8 @@ export class Covenant {
       if (a.frozen && !row.frozen) this.d.db.query("UPDATE contracts SET frozen = 1 WHERE id = ?").run(id);
     }
     await this.refresh(id);
-    const period = this.period(terms);
+    const total = toAtomic(scopeTotal(terms), USDC_DECIMALS);
+    const paid = this.committed(id, ["paid"]);
     return {
       id: row.id,
       hash: row.hash,
@@ -152,8 +160,11 @@ export class Covenant {
       agent,
       grant: row.grant_id ? { grant_id: row.grant_id, expires_at: row.grant_expires_at } : null,
       stage: this.stageOf(this.row(id), agent?.available_usd),
-      period,
-      remaining_cap_usd: fromAtomic(this.remainingCap(id, terms, period.month), USDC_DECIMALS),
+      total_usd: fromAtomic(total, USDC_DECIMALS),
+      paid_usd: fromAtomic(paid, USDC_DECIMALS),
+      committed_usd: fromAtomic(this.committed(id), USDC_DECIMALS),
+      scope: this.scopeView(id, terms),
+      judgment: this.latestJudgment(id),
       payouts: this.payouts(id),
       events: this.events(id),
     };
@@ -288,30 +299,44 @@ export class Covenant {
     const row = this.row(id);
     const terms = this.terms(row);
     this.requireActive(row, terms);
-    const period = this.period(terms);
-    const prs = await this.d.evidence.mergedPullRequests({ repos: terms.repos, author: terms.contractor.github, since: period.since, until: period.until });
-    const paidKeys = this.paidPrKeys(id);
-    const fresh = prs.filter((p) => !paidKeys.has(`${p.repo}#${p.number}`));
-    const score = await this.d.scorer.score(terms, fresh, period);
-    const amount = this.amountFor(terms, score, id, period.month);
-
-    if (amount === 0n) {
-      this.event(id, "run", `Agent run: nothing to pay. ${score.summary}`);
-      return { payout: null, score, amount_usd: "0" };
+    const window = this.window(terms);
+    const reviews = this.prReviews(id);
+    // PRs the representative rejected after an escalation are out for good.
+    const prs = (await this.d.evidence.mergedPullRequests({ repos: terms.repos, author: terms.contractor.github, since: window.since, until: window.until })).filter(
+      (p) => reviews.get(`${p.repo}#${p.number}`) !== "rejected",
+    );
+    const judgment = await this.d.judge.judge(terms, prs, this.acceptedCompletion(id), window);
+    // A flag the representative already reviewed and approved does not escalate again.
+    const openFlags = judgment.prs.filter((p) => p.eligible && p.flags.length > 0 && reviews.get(p.key) !== "approved");
+    if (judgment.decision === "escalate" && openFlags.length === 0 && judgment.prs.some((p) => p.flags.length > 0)) {
+      judgment.decision = "pay";
+      judgment.summary = `${judgment.deliverables.filter((d) => d.completion > 0).length} of ${terms.scope.length} deliverables have merged work (flags already reviewed).`;
     }
-    const payoutId = `p_${sha256Hex(randomNonce()).slice(0, 12)}`;
+    const runId = `r_${sha256Hex(randomNonce()).slice(0, 12)}`;
     const now = this.nowIso();
-    this.d.db
-      .query("INSERT INTO payouts (id, contract_id, period, score, amount_atomic, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(payoutId, id, period.month, JSON.stringify(score), amount.toString(), score.decision === "escalate" ? "escalated" : "persisted", now, now);
+    this.d.db.query("INSERT INTO judgments (id, contract_id, at, json, approved) VALUES (?, ?, ?, ?, 0)").run(runId, id, now, JSON.stringify(judgment));
 
-    if (score.decision === "escalate") {
-      this.event(id, "escalate", `Agent escalated instead of paying: ${score.summary}`);
-      return { payout: this.payoutView(this.payout(payoutId)), score, amount_usd: fromAtomic(amount, USDC_DECIMALS) };
+    const owed = this.owed(id, terms, judgment);
+    if (owed.length === 0) {
+      this.event(id, "run", `Agent run: nothing new to pay. ${judgment.summary}`);
+      return { judgment, payouts: [] as ReturnType<Covenant["payoutView"]>[] };
     }
-    this.event(id, "run", `Agent decided to pay ${usdText(amount)} for ${score.prs.filter((p) => p.accepted).length} accepted pull requests.`);
-    await this.send(payoutId);
-    return { payout: this.payoutView(this.payout(payoutId)), score, amount_usd: fromAtomic(amount, USDC_DECIMALS) };
+    const status: PayoutStatus = judgment.decision === "escalate" ? "escalated" : "persisted";
+    const ids = owed.map((o) => {
+      const pid = `p_${sha256Hex(randomNonce()).slice(0, 12)}`;
+      this.d.db
+        .query("INSERT INTO payouts (id, contract_id, period, score, amount_atomic, status, deliverable_id, run_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(pid, id, now.slice(0, 7), "{}", o.amount.toString(), status, o.id, runId, now, now);
+      return pid;
+    });
+    const total = owed.reduce((n, o) => n + o.amount, 0n);
+    if (status === "escalated") {
+      this.event(id, "escalate", `Agent escalated ${usdText(total)} instead of paying: ${judgment.summary}`);
+    } else {
+      this.event(id, "run", `Agent decided to pay ${usdText(total)} for work on ${owed.map((o) => o.id).join(", ")}.`);
+      for (const pid of ids) await this.send(pid);
+    }
+    return { judgment, payouts: ids.map((pid) => this.payoutView(this.payout(pid))) };
   }
 
   /** The representative resolves an escalation. This gate is Covenant's, not the provider's. */
@@ -319,19 +344,22 @@ export class Covenant {
     const p = this.payout(payoutId);
     if (p.status !== "escalated") throw new UserError("This payout is not waiting for a decision.");
     const row = this.row(p.contract_id);
+    this.recordReviews(p.contract_id, p.run_id, approve ? "approved" : "rejected");
     if (!approve) {
       this.setPayout(payoutId, { status: "rejected" });
-      this.event(p.contract_id, "reject", "The representative rejected the escalated payout.");
+      this.event(p.contract_id, "reject", `The representative rejected the escalated payout for ${p.deliverable_id}.`);
       return this.getContract(p.contract_id);
     }
     const terms = this.terms(row);
     this.requireActive(row, terms);
-    // Re-check the amount against the cap now, in case anything was paid since.
-    const score = JSON.parse(p.score) as ScoreResult;
-    const amount = this.amountFor(terms, score, p.contract_id, p.period, payoutId);
-    if (amount === 0n) throw new UserError("Nothing left under the cap for this period.");
-    this.setPayout(payoutId, { status: "persisted", amount_atomic: amount.toString() });
-    this.event(p.contract_id, "approve", `The representative approved ${usdText(amount)} (flagged pull requests stay excluded).`);
+    const judgment = this.judgmentOf(p.run_id);
+    if (!judgment) throw new UserError("The judgment behind this payout is missing.");
+    // Re-check what is owed now, in case anything was paid since.
+    const owed = this.owed(p.contract_id, terms, judgment, payoutId).find((o) => o.id === p.deliverable_id);
+    if (!owed) throw new UserError("Nothing is owed for this deliverable any more.");
+    this.d.db.query("UPDATE judgments SET approved = 1 WHERE id = ?").run(p.run_id);
+    this.setPayout(payoutId, { status: "persisted", amount_atomic: owed.amount.toString() });
+    this.event(p.contract_id, "approve", `The representative approved ${usdText(owed.amount)} for ${p.deliverable_id}.`);
     await this.send(payoutId);
     return this.getContract(p.contract_id);
   }
@@ -349,7 +377,7 @@ export class Covenant {
       amount: p.amount_atomic,
       chain: terms.payee.chain,
       recipient: terms.payee.address,
-      memo: `covenant ${row.hash.slice(0, 16)} ${p.period}`,
+      memo: `covenant ${row.hash.slice(0, 16)} ${p.deliverable_id ?? ""}`.trim(),
     };
     const idem = p.idem_key ?? `covenant-${payoutId}`;
     this.setPayout(payoutId, { idem_key: idem, request: JSON.stringify(req) });
@@ -415,15 +443,15 @@ export class Covenant {
     const compiled = this.compile(row);
     let policy = null as null | { status: string; synced: boolean; equal: boolean; diffs: PolicyDiff[]; policy_hash: string };
     let grant = null as null | { expires_at: string; matches_end: boolean; revoked: boolean };
-    let funds = null as null | { available_usd: string; cap_usd: string; covers_cap: boolean; frozen: boolean };
+    let funds = null as null | { available_usd: string; unpaid_usd: string; covers_cap: boolean; frozen: boolean };
     if (row.agent_id) {
       const live = await this.d.provider.getPolicy(row.agent_id);
       const expected = { ...compiled.policy, frozen: live.policy.frozen }; // freezing is a lawful owner action, shown separately
       const diffs = diffPolicy(expected, live.policy);
       policy = { status: live.status, synced: live.provider_policy_synced, equal: diffs.length === 0, diffs, policy_hash: live.policy_hash };
       const a = await this.d.provider.getAgent(row.agent_id);
-      const cap = toAtomic(terms.monthly_cap_usd, USDC_DECIMALS);
-      funds = { available_usd: fromAtomic(BigInt(a.available), USDC_DECIMALS), cap_usd: terms.monthly_cap_usd, covers_cap: BigInt(a.available) >= this.remainingCap(id, terms, this.period(terms).month) && cap > 0n, frozen: a.frozen };
+      const unpaid = toAtomic(scopeTotal(terms), USDC_DECIMALS) - this.committed(id);
+      funds = { available_usd: fromAtomic(BigInt(a.available), USDC_DECIMALS), unpaid_usd: fromAtomic(unpaid, USDC_DECIMALS), covers_cap: BigInt(a.available) >= unpaid, frozen: a.frozen };
     }
     if (row.agent_id && row.grant_id) {
       const g = await this.d.provider.getGrant(row.agent_id, row.grant_id);
@@ -437,7 +465,7 @@ export class Covenant {
       { id: "policy", label: "Live policy equals the policy compiled from these terms", ok: !!policy?.equal },
       { id: "grant", label: "The agent's permission expires exactly at the contract end", ok: !!grant && grant.matches_end && !grant.revoked },
       // Informational: funding is not a mismatch with the signed terms, so it never turns the verdict red.
-      { id: "funded", label: "The wallet holds enough USDC for this month's remaining cap", ok: !!funds?.covers_cap, info: true },
+      { id: "funded", label: "The wallet holds enough USDC for the unpaid scope", ok: !!funds?.covers_cap, info: true },
     ];
     const matches = checks.filter((c) => !("info" in c));
     const overall = !row.agent_id || !row.grant_id ? "incomplete" : matches.every((c) => c.ok) ? "green" : "red";
@@ -451,7 +479,7 @@ export class Covenant {
     const terms = this.terms(row);
     if (!row.agent_id || !row.grant_id) throw new UserError("Create, grant and fund the contract wallet first.");
     if (mode === "live" && this.d.provider.mode === "live") throw new UserError("Live attacks against mainnet are run once by hand and recorded in docs/evidence.md.");
-    const cap = toAtomic(terms.monthly_cap_usd, USDC_DECIMALS);
+    const largest = toAtomic(largestDeliverable(terms), USDC_DECIMALS);
     const one = toAtomic("1", USDC_DECIMALS);
     const base = { asset: terms.asset, chain: terms.payee.chain, recipient: terms.payee.address };
     let req: WithdrawRequest;
@@ -459,8 +487,8 @@ export class Covenant {
     let extra: Record<string, unknown> = {};
     switch (scenario) {
       case "overpay":
-        req = { ...base, amount: (cap + one).toString() };
-        story = `Pay ${usdText(cap + one)} on a ${usdText(cap)} contract.`;
+        req = { ...base, amount: (largest + one).toString() };
+        story = `Pay ${usdText(largest + one)} in one payment; the largest deliverable is worth ${usdText(largest)}.`;
         break;
       case "redirect":
         req = { ...base, amount: one.toString(), recipient: "attacker.near" };
@@ -511,37 +539,88 @@ export class Covenant {
 
   // ================= helpers =================
 
-  private amountFor(terms: Terms, score: ScoreResult, id: string, month: string, excludePayout?: string): bigint {
-    const accepted = score.prs.filter((p) => p.accepted).length;
-    const rate = toAtomic(terms.rate_per_accepted_pr_usd, USDC_DECIMALS);
-    return minBig(rate * BigInt(accepted), this.remainingCap(id, terms, month, excludePayout));
+  /** What is owed per deliverable under a judgment: value × completion − already committed. */
+  private owed(id: string, terms: Terms, judgment: Judgment, excludePayout?: string): { id: string; amount: bigint }[] {
+    const out: { id: string; amount: bigint }[] = [];
+    for (const d of terms.scope) {
+      const level = judgment.deliverables.find((x) => x.id === d.id)?.completion ?? 0;
+      const target = (toAtomic(d.value_usd, USDC_DECIMALS) * BigInt(Math.round(level * 100))) / 100n;
+      const committed = this.committed(id, ["persisted", "queued", "paid", "needs_review", "escalated"], d.id, excludePayout);
+      if (target > committed) out.push({ id: d.id, amount: target - committed });
+    }
+    return out;
   }
 
-  private remainingCap(id: string, terms: Terms, month: string, excludePayout?: string): bigint {
-    const cap = toAtomic(terms.monthly_cap_usd, USDC_DECIMALS);
-    const rows = this.d.db
-      .query("SELECT id, amount_atomic FROM payouts WHERE contract_id = ? AND period = ? AND status IN ('persisted','queued','paid','needs_review')")
-      .all(id, month) as { id: string; amount_atomic: string }[];
-    const used = rows.filter((r) => r.id !== excludePayout).reduce((n, r) => n + BigInt(r.amount_atomic), 0n);
-    return cap > used ? cap - used : 0n;
+  /** Sum of payouts in the given statuses, optionally for one deliverable. */
+  private committed(id: string, statuses: PayoutStatus[] = ["persisted", "queued", "paid", "needs_review"], deliverable?: string, excludePayout?: string): bigint {
+    const rows = this.d.db.query("SELECT id, amount_atomic, status, deliverable_id FROM payouts WHERE contract_id = ?").all(id) as {
+      id: string;
+      amount_atomic: string;
+      status: PayoutStatus;
+      deliverable_id: string | null;
+    }[];
+    return rows
+      .filter((r) => statuses.includes(r.status) && r.id !== excludePayout && (!deliverable || r.deliverable_id === deliverable))
+      .reduce((n, r) => n + BigInt(r.amount_atomic), 0n);
   }
 
-  private paidPrKeys(id: string): Set<string> {
-    const rows = this.d.db
-      .query("SELECT score FROM payouts WHERE contract_id = ? AND status IN ('persisted','queued','paid','needs_review','escalated')")
-      .all(id) as { score: string }[];
-    const keys = new Set<string>();
-    for (const r of rows) for (const pr of (JSON.parse(r.score) as ScoreResult).prs) if (pr.accepted) keys.add(pr.key);
-    return keys;
+  /** Completion carried into the next run: only from judgments that paid, or that the representative approved. */
+  private acceptedCompletion(id: string): Record<string, Level> {
+    const rows = this.d.db.query("SELECT json, approved FROM judgments WHERE contract_id = ? ORDER BY rowid ASC").all(id) as { json: string; approved: number }[];
+    const out: Record<string, Level> = {};
+    for (const r of rows) {
+      const j = JSON.parse(r.json) as Judgment;
+      if (j.decision !== "pay" && !r.approved) continue;
+      for (const d of j.deliverables) if (d.completion > (out[d.id] ?? 0)) out[d.id] = d.completion;
+    }
+    return out;
   }
 
-  private period(terms: Terms) {
-    const now = this.d.provider.now();
-    const month = now.toISOString().slice(0, 7);
-    const monthStart = `${month}-01T00:00:00.000Z`;
-    const since = [monthStart, startInstant(terms)].sort().at(-1)!;
-    const until = [now.toISOString(), endInstant(terms)].sort()[0]!;
-    return { month, since, until };
+  private prReviews(id: string): Map<string, "approved" | "rejected"> {
+    const rows = this.d.db.query("SELECT pr_key, verdict FROM pr_reviews WHERE contract_id = ?").all(id) as { pr_key: string; verdict: "approved" | "rejected" }[];
+    return new Map(rows.map((r) => [r.pr_key, r.verdict]));
+  }
+
+  /** Remember the representative's verdict on the flagged PRs behind an escalation. */
+  private recordReviews(id: string, runId: string | null, verdict: "approved" | "rejected") {
+    const j = this.judgmentOf(runId);
+    for (const pr of j?.prs ?? []) {
+      if (!pr.eligible || pr.flags.length === 0) continue;
+      this.d.db
+        .query("INSERT INTO pr_reviews (contract_id, pr_key, verdict, at) VALUES (?, ?, ?, ?) ON CONFLICT(contract_id, pr_key) DO UPDATE SET verdict = excluded.verdict, at = excluded.at")
+        .run(id, pr.key, verdict, this.nowIso());
+    }
+  }
+
+  private judgmentOf(runId: string | null): Judgment | null {
+    if (!runId) return null;
+    const r = this.d.db.query("SELECT json FROM judgments WHERE id = ?").get(runId) as { json: string } | null;
+    return r ? (JSON.parse(r.json) as Judgment) : null;
+  }
+
+  private latestJudgment(id: string): (Judgment & { at: string }) | null {
+    const r = this.d.db.query("SELECT json, at FROM judgments WHERE contract_id = ? ORDER BY rowid DESC LIMIT 1").get(id) as { json: string; at: string } | null;
+    return r ? { ...(JSON.parse(r.json) as Judgment), at: r.at } : null;
+  }
+
+  /** The scope scoreboard: value, accepted completion and money per deliverable. */
+  private scopeView(id: string, terms: Terms) {
+    const accepted = this.acceptedCompletion(id);
+    const latest = this.latestJudgment(id);
+    return terms.scope.map((d) => ({
+      ...d,
+      completion: accepted[d.id] ?? 0,
+      paid_usd: fromAtomic(this.committed(id, ["paid"], d.id), USDC_DECIMALS),
+      pending_usd: fromAtomic(this.committed(id, ["persisted", "queued", "needs_review"], d.id), USDC_DECIMALS),
+      escalated_usd: fromAtomic(this.committed(id, ["escalated"], d.id), USDC_DECIMALS),
+      prs: (latest?.prs ?? []).filter((p) => p.deliverable === d.id).map((p) => ({ key: p.key, title: p.title, url: p.url, flagged: p.flags.length > 0 })),
+    }));
+  }
+
+  /** The whole term up to now: every merged PR counts toward the scope. */
+  private window(terms: Terms) {
+    const now = this.d.provider.now().toISOString();
+    return { since: startInstant(terms), until: [now, endInstant(terms)].sort()[0]! };
   }
 
   private requireActive(row: ContractRow, terms: Terms) {
@@ -591,12 +670,19 @@ export class Covenant {
   }
 
   private payoutView(p: PayoutRow) {
+    const terms = this.terms(this.row(p.contract_id));
+    const d = terms.scope.find((x) => x.id === p.deliverable_id);
+    const j = this.judgmentOf(p.run_id);
+    const dj = j?.deliverables.find((x) => x.id === p.deliverable_id);
     return {
       id: p.id,
-      period: p.period,
       status: p.status,
       amount_usd: fromAtomic(BigInt(p.amount_atomic), USDC_DECIMALS),
-      score: JSON.parse(p.score) as ScoreResult,
+      deliverable: d ? { id: d.id, title: d.title, value_usd: d.value_usd } : null,
+      completion: dj?.completion ?? null,
+      reason: dj?.reason ?? null,
+      judge: j ? { kind: j.judge, model: j.model ?? null, decision: j.decision, summary: j.summary } : null,
+      prs: (j?.prs ?? []).filter((x) => x.deliverable === p.deliverable_id).map((x) => ({ key: x.key, title: x.title, url: x.url, reason: x.reason })),
       correlation_id: p.correlation_id,
       dispatch_at: p.dispatch_at,
       tx_hash: p.tx_hash,

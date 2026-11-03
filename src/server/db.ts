@@ -49,6 +49,8 @@ export interface PayoutRow {
   dispatch_at: string | null;
   tx_hash: string | null;
   error: string | null;
+  deliverable_id: string | null;
+  run_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -116,8 +118,24 @@ export function openDb(path: string): Database {
       dispatch_at TEXT,
       tx_hash TEXT,
       error TEXT,
+      deliverable_id TEXT,
+      run_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pr_reviews (
+      contract_id TEXT NOT NULL REFERENCES contracts(id),
+      pr_key TEXT NOT NULL,
+      verdict TEXT NOT NULL,
+      at TEXT NOT NULL,
+      PRIMARY KEY (contract_id, pr_key)
+    );
+    CREATE TABLE IF NOT EXISTS judgments (
+      id TEXT PRIMARY KEY,
+      contract_id TEXT NOT NULL REFERENCES contracts(id),
+      at TEXT NOT NULL,
+      json TEXT NOT NULL,
+      approved INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

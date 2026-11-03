@@ -1,10 +1,10 @@
+import type { Deliverable } from "../types";
 import { Icon, type IconName } from "./icons";
 import { dateText, usd } from "./ui";
 
 export interface PolicyCardProps {
   payee: string;
-  cap: string;
-  rate: string;
+  scope: Pick<Deliverable, "value_usd">[];
   start: string;
   end: string;
   repos: string[];
@@ -15,9 +15,13 @@ export interface PolicyCardProps {
 
 /** The contract rendered as the wallet it compiles to. */
 export function PolicyCard(p: PolicyCardProps) {
+  const values = p.scope.map((d) => Number(d.value_usd) || 0);
+  const total = values.reduce((a, b) => a + b, 0);
+  const largest = values.length ? Math.max(...values) : 0;
   const rows: { icon: IconName; label: string; value: string }[] = [
     { icon: "user", label: "Pays only", value: p.payee || "—" },
-    { icon: "coins", label: "Up to", value: p.cap ? `${usd(p.cap)} / month` : "—" },
+    { icon: "coins", label: "Up to", value: total ? `${usd(total)} in total` : "—" },
+    { icon: "zap", label: "One payment", value: largest ? `≤ ${usd(largest)}` : "—" },
     { icon: "calendar", label: "Valid until", value: p.end ? dateText(p.end) : "—" },
     { icon: "clock", label: "Cancel window", value: `${p.timelockMinutes} min` },
   ];
@@ -52,10 +56,10 @@ export function PolicyCard(p: PolicyCardProps) {
         </span>
       </div>
       <div className="policy-app">
-        <div className="policy-app-label">Checked by Covenant before paying</div>
+        <div className="policy-app-label">Judged by the agent on every merge</div>
         <div className="policy-app-row">
           <Icon name="pr" size={14} />
-          {p.rate ? `${usd(p.rate)} per merged PR` : "—"}
+          {p.scope.length} deliverable{p.scope.length === 1 ? "" : "s"}
           <span className="sep">·</span>
           {p.repos.filter(Boolean).join(", ") || "—"}
           <span className="sep">·</span>

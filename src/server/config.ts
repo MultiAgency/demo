@@ -13,6 +13,10 @@ export interface Config {
   devWallet: boolean;
   agentApiKey: string | null;
   agentApiBaseUrl: string | null;
+  /** The agent's judge. NEAR AI Cloud when NEARAI_API_KEY is set, otherwise rule-based. */
+  judge: { kind: "rules" | "near-ai"; apiKey: string | null; model: string; baseUrl: string };
+  /** Check for new merges on a timer (ms). 0 = only when "Run agent" is pressed. */
+  pollMs: number;
   /** Sign in with NEAR (Better-Auth + better-near-auth). */
   auth: {
     secret: string | null;
@@ -41,6 +45,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     devWallet,
     agentApiKey: env.NEAR_INTENTS_AGENT_API_KEY || env.AGENT_API_KEY || null,
     agentApiBaseUrl: env.AGENT_API_BASE_URL || null,
+    judge: {
+      kind: env.JUDGE === "rules" || !env.NEARAI_API_KEY ? "rules" : "near-ai",
+      apiKey: env.NEARAI_API_KEY || null,
+      model: env.NEARAI_MODEL || "z-ai/glm-5.3-flash",
+      baseUrl: env.NEARAI_BASE_URL || "https://cloud-api.near.ai/v1",
+    },
+    pollMs: env.AGENT_POLL_MS ? Number(env.AGENT_POLL_MS) : 0,
     auth: {
       secret: env.BETTER_AUTH_SECRET || null,
       publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,

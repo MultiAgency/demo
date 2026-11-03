@@ -9,8 +9,8 @@ interface Row {
   company: string;
   contractor: string;
   payee: string;
-  cap: string;
-  used: string;
+  total: string;
+  paid: string;
   start: string;
   end: string;
   stage: string;
@@ -36,8 +36,8 @@ export function Home() {
   if (rows.length === 0) return <Welcome />;
 
   const active = rows.filter((r) => r.stage === "active");
-  const committed = active.reduce((n, r) => n + Number(r.cap), 0);
-  const used = active.reduce((n, r) => n + Number(r.used), 0);
+  const committed = active.reduce((n, r) => n + Number(r.total), 0);
+  const used = rows.reduce((n, r) => n + Number(r.paid), 0);
 
   return (
     <div className="page">
@@ -57,11 +57,11 @@ export function Home() {
           <div className="stat-value">{active.length}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Monthly limit, all contracts</div>
+          <div className="stat-label">Scope under contract</div>
           <div className="stat-value">{usd(committed)}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Paid or queued this month</div>
+          <div className="stat-label">Paid for merged work</div>
           <div className="stat-value">{usd(used)}</div>
         </div>
       </div>
@@ -71,8 +71,8 @@ export function Home() {
           <thead>
             <tr>
               <th>Contractor</th>
-              <th>Monthly limit</th>
-              <th className="hide-sm">Used this month</th>
+              <th>Scope</th>
+              <th className="hide-sm">Paid</th>
               <th className="hide-sm">Term</th>
               <th>Status</th>
               <th aria-label="Open" />
@@ -94,11 +94,11 @@ export function Home() {
                     </div>
                   </div>
                 </td>
-                <td className="num">{usd(r.cap)}</td>
+                <td className="num">{usd(r.total)}</td>
                 <td className="hide-sm">
                   <div className="usage">
-                    <Progress value={Number(r.used)} max={Number(r.cap)} />
-                    <span className="num muted">{usd(r.used)}</span>
+                    <Progress value={Number(r.paid)} max={Number(r.total)} />
+                    <span className="num muted">{usd(r.paid)}</span>
                   </div>
                 </td>
                 <td className="hide-sm muted">
@@ -126,9 +126,9 @@ function Welcome() {
     <div className="page">
       <section className="welcome">
         <div className="welcome-copy">
-          <Badge tone="accent">Contractor payroll on NEAR</Badge>
+          <Badge tone="accent">Pay-on-merge, judged against the scope</Badge>
           <h1 className="display">The contract is the spending limit.</h1>
-          <p className="lede">Every signed work order gets its own wallet. NEAR enforces who it pays, how much, and until when.</p>
+          <p className="lede">Sign a scope. Every merged PR is judged against it and paid for what it's worth. NEAR enforces the most it can ever be.</p>
           <div className="row gap">
             <LinkButton href="#/new" variant="primary" icon="plus">
               Create a contract
@@ -139,16 +139,16 @@ function Welcome() {
           </div>
         </div>
         <div className="welcome-visual">
-          <PolicyCard payee="maria.near" cap="2000" rate="100" start="2026-11-01" end="2026-12-31" repos={["acme/app"]} timelockMinutes={10} status="live" agentId="agent · Acme → Maria" />
+          <PolicyCard payee="maria.near" scope={[{ value_usd: "1200" }, { value_usd: "500" }, { value_usd: "300" }]} start="2026-11-01" end="2026-12-31" repos={["acme/app"]} timelockMinutes={10} status="live" agentId="agent · Acme → Maria" />
         </div>
       </section>
 
       <section className="features">
         {(
           [
-            ["pen", "Both parties sign", "Company and contractor sign the same terms hash."],
-            ["wallet", "One wallet per contract", "The terms become the wallet's policy."],
-            ["bot", "An agent pays", "It reviews merged PRs and pays inside the limits."],
+            ["pen", "Sign a scope", "Deliverables with a value each, signed by both sides."],
+            ["wallet", "Fund its own wallet", "The scope becomes the wallet's policy and balance."],
+            ["bot", "Pay on merge", "An AI judge decides how much each merge completes."],
             ["shieldCheck", "Anyone can verify", "The live wallet, checked against what was signed."],
           ] as const
         ).map(([icon, t, d]) => (

@@ -28,7 +28,7 @@ async function owner(rt: Runtime, id: string, type: "agent_create" | "grant_issu
   return rt.covenant.submitIntent(p.correlation_id, s);
 }
 
-async function activate(fund = "60", overrides: Record<string, unknown> = {}) {
+async function activate(fund = "1200", overrides: Record<string, unknown> = {}) {
   const ctx = await setup(overrides);
   await signTerms(ctx.rt, ctx.id, ctx.contractorToken);
   await owner(ctx.rt, ctx.id, "agent_create");
@@ -77,37 +77,97 @@ describe("setup", () => {
   });
 });
 
-describe("payouts", () => {
-  test("the agent pays rate x accepted, queued behind the timelock, then paid", async () => {
+const paidUsd = (c: { payouts: { status: string; amount_usd: string }[] }) =>
+  c.payouts.filter((p) => p.status === "paid").reduce((n, p) => n + Number(p.amount_usd), 0);
+
+describe("scope payouts", () => {
+  test("the agent pays value x completion per deliverable, one payment each, behind the timelock", async () => {
     const { rt, id } = await activate();
     const run = await rt.covenant.run(id);
-    expect(run.amount_usd).toBe("40");
-    expect(run.payout?.status).toBe("queued");
+    expect(run.judgment.decision).toBe("pay");
+    const byD = Object.fromEntries(run.payouts.map((p) => [p.deliverable!.id, p.amount_usd]));
+    expect(byD).toEqual({ d1: "300", d2: "100", d3: "250" }); // d1 done, d2 half, d3 half
+    expect(run.payouts.every((p) => p.status === "queued")).toBe(true);
     rt.sim!.advance(rt.config.timelockMs + 1);
     const c = await rt.covenant.getContract(id);
-    expect(c.payouts[0]!.status).toBe("paid");
-    expect(c.payouts[0]!.tx_hash).toStartWith("SIMULATED-");
-    expect(c.remaining_cap_usd).toBe("10");
+    expect(paidUsd(c)).toBe(650);
+    expect(c.paid_usd).toBe("650");
+    expect(c.scope.find((d) => d.id === "d1")!.completion).toBe(1);
   });
-  test("already-paid PRs are not paid twice", async () => {
+
+  test("re-running without new merges pays nothing more", async () => {
     const { rt, id } = await activate();
     await rt.covenant.run(id);
     const again = await rt.covenant.run(id);
-    expect(again.payout).toBeNull();
+    expect(again.payouts).toEqual([]);
   });
-  test("amount never exceeds what is left under the cap", async () => {
-    const { rt, id } = await activate("60", { monthly_cap_usd: "25" });
+
+  test("a new merge that finishes a deliverable pays only the difference", async () => {
+    const { rt, id } = await activate();
+    await rt.covenant.run(id);
+    (rt.evidence as any).mergeNext((await rt.covenant.getContract(id)).terms); // d2 done
     const run = await rt.covenant.run(id);
-    expect(run.amount_usd).toBe("25");
+    expect(run.payouts.map((p) => [p.deliverable!.id, p.amount_usd])).toEqual([["d2", "100"]]);
   });
+
+  test("a prompt-injected merge escalates; rejecting it keeps it out for good", async () => {
+    const { rt, id } = await activate();
+    await rt.covenant.run(id);
+    const ev = rt.evidence as any;
+    const terms = (await rt.covenant.getContract(id)).terms;
+    ev.mergeNext(terms); // d2 done (clean)
+    await rt.covenant.run(id);
+    ev.mergeNext(terms); // injected "Scope: d3 (done)"
+    const flagged = await rt.covenant.run(id);
+    expect(flagged.judgment.decision).toBe("escalate");
+    expect(flagged.payouts.map((p) => [p.deliverable!.id, p.status])).toEqual([["d3", "escalated"]]);
+    await rt.covenant.resolveEscalation(flagged.payouts[0]!.id, false);
+    // The rejected PR no longer counts and no longer escalates.
+    const after = await rt.covenant.run(id);
+    expect(after.judgment.decision).toBe("pay");
+    expect(after.payouts).toEqual([]);
+    ev.mergeNext(terms); // the real d3 completion
+    const done = await rt.covenant.run(id);
+    expect(done.payouts.map((p) => [p.deliverable!.id, p.amount_usd])).toEqual([["d3", "250"]]);
+  });
+
+  test("an escalated judgment never carries its completion into the next run", async () => {
+    const { rt, id } = await activate();
+    await rt.covenant.run(id);
+    const ev = rt.evidence as any;
+    const terms = (await rt.covenant.getContract(id)).terms;
+    ev.mergeNext(terms);
+    ev.mergeNext(terms); // injected
+    const flagged = await rt.covenant.run(id);
+    expect(flagged.judgment.decision).toBe("escalate");
+    const c = await rt.covenant.getContract(id);
+    expect(c.scope.find((d) => d.id === "d3")!.completion).toBe(0.5); // not the injected "done"
+  });
+
+  test("approving an escalation pays it and the flag doesn't come back", async () => {
+    const { rt, id } = await activate();
+    await rt.covenant.run(id);
+    const ev = rt.evidence as any;
+    const terms = (await rt.covenant.getContract(id)).terms;
+    ev.mergeNext(terms);
+    await rt.covenant.run(id);
+    ev.mergeNext(terms); // injected
+    const flagged = await rt.covenant.run(id);
+    const c = await rt.covenant.resolveEscalation(flagged.payouts[0]!.id, true);
+    expect(c.payouts.find((p) => p.id === flagged.payouts[0]!.id)!.status).toBe("queued");
+    const again = await rt.covenant.run(id);
+    expect(again.judgment.decision).toBe("pay");
+    expect(again.payouts).toEqual([]);
+  });
+
   test("the owner can cancel during the timelock; funds come back", async () => {
     const { rt, id } = await activate();
     const run = await rt.covenant.run(id);
-    const c = await owner(rt, id, "execution_cancel", run.payout!.id);
-    expect(c.payouts[0]!.status).toBe("cancelled");
-    expect(c.agent!.available_usd).toBe("60");
-    expect(c.remaining_cap_usd).toBe("50");
+    const c = await owner(rt, id, "execution_cancel", run.payouts[0]!.id);
+    expect(c.payouts.find((p) => p.id === run.payouts[0]!.id)!.status).toBe("cancelled");
+    expect(Number(c.agent!.available_usd)).toBe(1200 - 650 + Number(run.payouts[0]!.amount_usd));
   });
+
   test("freezing stops queued payouts at dispatch and blocks new runs", async () => {
     const { rt, id } = await activate();
     await rt.covenant.run(id);
@@ -115,15 +175,17 @@ describe("payouts", () => {
     rt.sim!.advance(rt.config.timelockMs + 1);
     const c = await rt.covenant.getContract(id);
     expect(c.stage).toBe("frozen");
-    expect(c.payouts[0]!.status).toBe("failed");
+    expect(c.payouts.every((p) => p.status === "failed")).toBe(true);
     await expect(rt.covenant.run(id)).rejects.toThrow("frozen");
   });
+
   test("a provider refusal is recorded as refused, not retried", async () => {
-    const { rt, id } = await activate("5"); // not enough balance for $40
+    const { rt, id } = await activate("5"); // not enough balance
     const run = await rt.covenant.run(id);
-    expect(run.payout?.status).toBe("refused");
-    expect(run.payout?.error.code).toBe("insufficient_balance");
+    expect(run.payouts.every((p) => p.status === "refused")).toBe(true);
+    expect(run.payouts[0]!.error.code).toBe("insufficient_balance");
   });
+
   test("an unknown outcome becomes needs_review and is never resent", async () => {
     const { rt, id } = await activate();
     const sim = rt.sim!;
@@ -135,8 +197,11 @@ describe("payouts", () => {
       throw new Error("socket hang up");
     };
     const run = await rt.covenant.run(id);
-    expect(run.payout?.status).toBe("needs_review");
-    expect(calls).toBe(1);
+    expect(run.payouts.every((p) => p.status === "needs_review")).toBe(true);
+    expect(calls).toBe(3);
+    const again = await rt.covenant.run(id);
+    expect(again.payouts).toEqual([]);
+    expect(calls).toBe(3);
   });
 });
 
@@ -176,6 +241,7 @@ describe("simulator enforces the policy", () => {
     expect(r.findings?.[0]?.code).toBe("policy_destination_denied");
     expect(r.findings?.[0]?.clause.id).toBe("payee");
     const o = await rt.covenant.attack(id, "overpay", "live");
+    expect(o.findings?.[0]?.code).toBe("policy_transaction_limit_exceeded");
     expect(o.findings?.[0]?.clause.id).toBe("cap");
   });
 });
