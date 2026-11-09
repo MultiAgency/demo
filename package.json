@@ -10,7 +10,8 @@
     "demo": "PROVIDER=sim bun src/server/index.ts",
     "demo:e2e": "bun scripts/demo-e2e.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "demo:stack": "bun scripts/demo-stack.ts"
   },
   "dependencies": {
     "@better-auth/core": "1.7.14",
