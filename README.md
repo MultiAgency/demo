@@ -127,7 +127,7 @@ See [.env.example](.env.example). The defaults run the stand-in with no keys. `P
 
 Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.4, Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
 
-Written with AI assistance (Claude Code).
+Written with AI assistance.
 
 ## License
 
