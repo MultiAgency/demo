@@ -1,11 +1,9 @@
 import { toAtomic } from "../shared/money";
-import { fixtureApi, fixturesOn } from "./fixtures"; // TEMPORARY (M3): remove with fixtures.ts
 import type { AppConfig, NextStep, PayoutView, Signed, SignRequest, VoteAnswer } from "./types";
 
 export class ApiError extends Error {}
 
 export async function api<T = any>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-  if (fixturesOn()) return fixtureApi<T>(method, path, body); // TEMPORARY (M3)
   const res = await fetch(`/api${path}`, {
     method,
     headers: body === undefined ? undefined : { "content-type": "application/json" },

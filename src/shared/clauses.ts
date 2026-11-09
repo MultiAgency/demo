@@ -2,8 +2,7 @@ import { usd } from "./money";
 import { endInstant, largestDeliverable, scopeTotal, type Terms } from "./terms";
 
 // ---------------------------------------------------------------------------------------------
-// FROZEN signature (orchestrator, M0). Track C writes the body of clauseFor and removes the legacy
-// section below once track B no longer calls legacyClauseFor.
+// Frozen signature (shared by server and web).
 // ---------------------------------------------------------------------------------------------
 export type ClauseId = "payee" | "cap" | "budget" | "withdraw-only" | "funding" | "term" | "termination" | "approval" | "setup" | "platform";
 export interface Clause {
@@ -40,6 +39,10 @@ export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held
     case "frozen":
     case "agent_frozen":
       return { id: "termination", title: "Termination clause", text: `${terms.representative.near_account} froze this contract's agent. It can't pay anything.` };
+    case "contract_ending":
+      return { id: "term", title: "Term clause", text: `The contract ends ${terms.end}; Covenant stops requesting payouts in its last minutes.` };
+    case "policy_mismatch":
+    case "setup":
     case "grant_missing":
     case "grant_purpose_denied":
     case "policy_not_in_force":
@@ -69,36 +72,11 @@ function setupClause(code: string, terms: Terms): Clause {
     grant_missing: "The agent's payout grant is missing. Issue it again.",
     grant_purpose_denied: "The agent's grant doesn't cover payouts. Issue a payout grant.",
     policy_not_in_force: "The signed policy isn't in force yet.",
+    policy_mismatch: "The live policy no longer matches the signed contract. Covenant won't request payouts until it does.",
+    setup: "The contract's agent isn't fully set up yet.",
     recipient_not_registered: `${terms.payee.address} isn't registered on the USDC contract yet.`,
     credential: "The platform refused Covenant's app credential. The operator has to fix it.",
     consent_revoked: "The representative revoked the app's consent. Sign a new consent.",
   };
   return { id: "setup", title: "Setup", text: text[code] ?? "The app's consent doesn't cover this request. Sign a new consent." };
-}
-
-// ----------------------------------------- legacy (provider adapter era)
-// TODO(track C, M2 merge): delete this section once track B no longer imports legacyClauseFor.
-export type Layer = "request" | "auth" | "grant" | "policy" | "budget" | "balance" | "provider" | "api";
-
-export interface LegacyClause {
-  id: "payee" | "cap" | "term" | "termination" | "withdraw-only" | "funding" | "other";
-  title: string;
-  text: string;
-}
-
-export function legacyClauseFor(code: string, layer: Layer | undefined, terms: Terms): LegacyClause {
-  const largest = usd(largestDeliverable(terms));
-  const total = usd(scopeTotal(terms));
-  if (code === "policy_destination_denied" || code === "invalid_address")
-    return { id: "payee", title: "Payee clause", text: `Payments go only to ${terms.payee.address} on ${terms.payee.chain}.` };
-  if (code === "policy_transaction_limit_exceeded" || code === "policy_limit_exceeded" || code === "spend_budget_exceeded" || code === "policy_denied" || layer === "budget")
-    return { id: "cap", title: "Scope clause", text: `No payment above ${largest} (the largest deliverable); ${total} in total.` };
-  if (layer === "grant" || layer === "auth" || code.startsWith("grant_"))
-    return { id: "term", title: "Term clause", text: `The contract ends ${terms.end}. After that the agent's permission has expired.` };
-  if (code === "agent_frozen" || code === "wallet_frozen")
-    return { id: "termination", title: "Termination clause", text: "The representative froze this contract wallet." };
-  if (code === "policy_action_denied" || code === "policy_asset_denied")
-    return { id: "withdraw-only", title: "Payment clause", text: "The wallet can only withdraw USDC to the payee." };
-  if (code === "insufficient_balance" || layer === "balance") return { id: "funding", title: "Funding", text: "The contract wallet does not hold enough USDC." };
-  return { id: "other", title: "Provider rule", text: `Refused by the ${layer ?? "provider"} layer.` };
 }

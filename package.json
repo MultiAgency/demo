@@ -6,8 +6,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "PROVIDER=sim bun --hot src/server/index.ts",
-    "demo": "PROVIDER=sim bun src/server/index.ts",
+    "dev": "bun --hot src/server/index.ts",
+    "demo": "bun src/server/index.ts",
     "demo:e2e": "bun scripts/demo-e2e.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
@@ -16,7 +16,6 @@
   "dependencies": {
     "@better-auth/core": "1.7.14",
     "@multiagency/sdk": "0.5.4",
-    "@near-intents-agent-api/sdk": "0.7.3",
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@scure/base": "^2.4.0",
