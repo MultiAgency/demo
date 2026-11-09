@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { type Clause, clauseFor, type Layer } from "../shared/clauses";
+import { type LegacyClause as Clause, legacyClauseFor as clauseFor, type Layer } from "../shared/clauses";
 import { canonicalJson, hashCanonical, sha256Hex } from "../shared/canonical";
 import { type CompiledContract, compileContract, diffPolicy, type PolicyDiff } from "../shared/compile";
 import { fromAtomic, toAtomic } from "../shared/money";

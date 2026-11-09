@@ -67,6 +67,7 @@ export const termsSchema = z
 
 export type Terms = z.infer<typeof termsSchema>;
 export type TermsInput = z.input<typeof termsSchema>;
+export type Deliverable = Terms["scope"][number];
 
 export function parseTerms(input: unknown): Terms {
   const terms = termsSchema.parse(input);
