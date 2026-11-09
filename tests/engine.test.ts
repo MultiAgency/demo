@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { openDb } from "../src/server/db";
 import { DEMO_TERMS } from "../src/shared/demo";
 import type { Judgment } from "../src/server/judge";
+import { type FCtx, fakeActivate, fakeApproveAndSettle, fakeVote } from "./support/fake-harness";
 import { type Ctx, activate, agentId, approveAndSettle, attemptOf, castVote, evidence, livePayout, setup, signTerms } from "./support/harness";
 
 const M = (usd: number) => (BigInt(usd) * 1_000_000n).toString();
@@ -518,5 +519,119 @@ describe("secrets and storage", () => {
     expect((await view(ctx)).organization).toBe(ctx.id);
     expect(ctx.id).toMatch(/^c_[0-9a-f]{12}$/);
     expect(() => ctx.rt.covenant.createContract(DEMO_TERMS)).toThrow("already exists");
+  });
+});
+
+// ----------------------------------------------------------------------------------------------------------------
+// The same rules on track A's FakePlatform (the platform's authorize rules, consent scopes and requestId semantics).
+describe("on the FakePlatform", () => {
+  const live = async (ctx: FCtx) => (await ctx.rt.covenant.getContract(ctx.id)).payouts.find((p) => p.kind === "payout" && ["held", "processing", "unknown", "blocked", "waiting", "failed"].includes(p.state)) ?? null;
+
+  test("held → approved → settled; the remainder is seq 2 on the same judgment; then approved and carried forward", async () => {
+    const ctx = await fakeActivate();
+    const r = await ctx.rt.covenant.run(ctx.id);
+    expect([r.payouts[0]!.state, r.payouts[0]!.amount_usd]).toEqual(["held", "500"]);
+    let c = await fakeApproveAndSettle(ctx, r.payouts[0]!.request_id);
+    const seq2 = (await live(ctx))!;
+    expect([seq2.seq, seq2.amount_usd, seq2.state]).toEqual([2, "150", "held"]);
+    c = await fakeApproveAndSettle(ctx, seq2.request_id);
+    expect([c.paid_usd, c.open_judgment, (c.judgment as { outcome: string }).outcome]).toEqual(["650", null, "approved"]);
+    expect(c.scope.find((d) => d.id === "d1")!.completion).toBe(1);
+    const reqs = ctx.controls.requests();
+    expect(reqs.every((b) => !("memo" in b))).toBe(true);
+  });
+
+  test("reject → judgment rejected, its PRs excluded, the next run requests nothing", async () => {
+    const ctx = await fakeActivate();
+    await fakeApproveAndSettle(ctx, (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id);
+    const c = await fakeVote(ctx, (await live(ctx))!.request_id, "reject");
+    expect([c.paid_usd, c.committed_usd, c.open_judgment]).toEqual(["500", "500", null]);
+    expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("nothing");
+  });
+
+  test("a run while a payout is held is deferred: no request", async () => {
+    const ctx = await fakeActivate();
+    await ctx.rt.covenant.run(ctx.id);
+    const n = ctx.controls.requests().length;
+    expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("deferred");
+    expect(ctx.controls.requests().length).toBe(n);
+  });
+
+  test("insufficient_balance is refused by the platform; Retry after funding gets attempt 2 held", async () => {
+    const ctx = await fakeActivate("100");
+    const r = await ctx.rt.covenant.run(ctx.id);
+    expect([r.payouts[0]!.state, r.payouts[0]!.code]).toEqual(["refused", "insufficient_balance"]);
+    await ctx.controls.fund(ctx.rt.covenant.onboarding.agentRow(ctx.id)!.agent_id!, M(900));
+    const c = await ctx.rt.covenant.retry(ctx.id);
+    expect(c.payouts.find((p) => p.state === "held")!.attempt).toBe(2);
+  });
+
+  test("outage: the overview check fails first, so nothing is sent; the same id goes through after → one transfer", async () => {
+    const ctx = await fakeActivate();
+    ctx.controls.setUnavailable(true);
+    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+    expect([ctx.rt.covenant.attempt(rid).state, ctx.controls.requests().length]).toEqual(["waiting", 0]);
+    ctx.controls.setUnavailable(false);
+    ctx.rt.clock.advance(61_000);
+    const c = await ctx.rt.covenant.getContract(ctx.id);
+    expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("held");
+    await fakeApproveAndSettle(ctx, rid);
+    expect((await ctx.controls.transfers()).filter((t) => t.status === "SUCCESS").length).toBe(1);
+  });
+
+  test("a lost reply is followed by status, never sent under a new id", async () => {
+    const ctx = await fakeActivate();
+    ctx.controls.dropNextReply();
+    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+    await ctx.rt.covenant.getContract(ctx.id);
+    expect(ctx.rt.covenant.attempt(rid).state).toBe("held");
+    expect(new Set(ctx.controls.requests().map((b) => b.requestId)).size).toBe(1);
+  });
+
+  test("failed after approval stays committed until reowe, then attempt 2 on the same seq", async () => {
+    const ctx = await fakeActivate();
+    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+    ctx.controls.failAfterApproval("delivery_failed");
+    await fakeApproveAndSettle(ctx, rid);
+    let c = await ctx.rt.covenant.getContract(ctx.id);
+    expect([c.payouts.find((p) => p.request_id === rid)!.state, c.committed_usd]).toEqual(["failed", "500"]);
+    c = await ctx.rt.covenant.resolve(rid, "reowe");
+    const again = c.payouts.find((p) => p.state === "held")!;
+    expect([again.seq, again.attempt]).toEqual([1, 2]);
+  });
+
+  test("recipient_not_registered blocks; the same id goes through once the payee registers", async () => {
+    const ctx = await fakeActivate();
+    ctx.controls.chain.setRegistered("maria.demo", false);
+    const r = await ctx.rt.covenant.run(ctx.id);
+    const rid = r.payouts[0]!.request_id;
+    expect([r.payouts[0]!.state, r.payouts[0]!.code]).toEqual(["blocked", "recipient_not_registered"]);
+    ctx.controls.chain.setRegistered("maria.demo", true);
+    ctx.rt.clock.advance(61_000);
+    await ctx.rt.covenant.getContract(ctx.id);
+    expect(ctx.rt.covenant.attempt(rid).state).toBe("held");
+  });
+
+  test("Verify is green after onboarding and funding", async () => {
+    const ctx = await fakeActivate();
+    const v = await ctx.rt.covenant.verify(ctx.id);
+    expect(v.checks.filter((c) => !c.ok && !c.info).map((c) => c.id)).toEqual([]);
+    expect(v.overall).toBe("green");
+  });
+
+  test("attacks: redirect and overpay refused, injected held then rejected; after the end forbidden, vote still works", async () => {
+    const ctx = await fakeActivate();
+    expect((await ctx.rt.covenant.attack(ctx.id, "redirect")).code).toBe("payee_not_agreed");
+    expect((await ctx.rt.covenant.attack(ctx.id, "overpay")).code).toBe("per_transaction_exceeded");
+    const inj = await ctx.rt.covenant.attack(ctx.id, "injected");
+    expect(inj.outcome).toBe("held");
+    const c0 = await fakeVote(ctx, inj.payout!.request_id, "reject");
+    expect(c0.payouts.find((p) => p.request_id === inj.payout!.request_id)!.state).toBe("rejected");
+    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+    ctx.rt.clock.set(new Date("2026-12-02T00:00:00Z"));
+    const atk = await ctx.rt.covenant.attack(ctx.id, "after_end");
+    expect([atk.outcome, atk.code]).toEqual(["forbidden", "scope"]);
+    const c = await fakeVote(ctx, rid, "reject");
+    expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("rejected");
   });
 });

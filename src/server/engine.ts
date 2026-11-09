@@ -634,7 +634,7 @@ export class Covenant {
       const o = await h.overview();
       observed = o.ok ? o.value : null;
       const cs = await this.d.platform.listConsents(row.organization);
-      consents = cs.ok ? cs.value : [];
+      consents = cs.ok ? cs.value.filter((c) => c.agentId === a.agent_id) : []; // the setup consent is listed too ("unborn")
     }
     if (!observed) {
       return { overall: "incomplete", checks: [...checks, { id: "platform", label: "The platform agent is set up", ok: false, detail: a?.agent_id ? "The platform did not answer." : "Not set up yet." }], expected, observed, consents };
@@ -643,7 +643,8 @@ export class Covenant {
     const now = this.d.now().getTime();
     const largest = largestAtomic(terms);
     const payoutConsent = consents.find((c) => c.id === a!.payout_consent_id) ?? consents.find((c) => c.scopes.includes("payout") && !c.revoked);
-    const grant = observed.grants.find((g) => g.label === "payout" && !g.revoked && Date.parse(g.expiresAt) > now);
+    // The local stack only accepts the "invoices" label for the payout grant (platform-gaps G7).
+    const grant = observed.grants.find((g) => (g.label === "payout" || g.label === "invoices") && !g.revoked && Date.parse(g.expiresAt) > now);
     checks.push(
       { id: "applied", label: "Policy is applied, synced and in force", ok: observed.status === "APPLIED" && observed.synced && observed.notInForce === null, detail: observed.notInForce ?? undefined },
       { id: "actions", label: "The agent can only withdraw", ok: !!p && p.actions.length === 1 && p.actions[0] === "withdraw", detail: p ? p.actions.join(", ") : undefined },

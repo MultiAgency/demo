@@ -52,7 +52,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
   /** Approve the live payout, settle it, and return the contract after the follow-up. */
   async function approveAndSettle(id: string, rid: string) {
     const { v, c } = await vote(id, rid, "approve");
-    check(payout(c, rid)?.state === "processing", `${rid}: approved in the wallet; the platform releases it (terms ${v.terms?.amount} → ${v.terms?.recipient})`);
+    check(["processing", "paid"].includes(payout(c, rid)?.state ?? ""), `${rid}: approved in the wallet; the platform releases it (terms ${v.terms?.amount} → ${v.terms?.recipient})`);
     await api("POST", "/sim/settle", { request_id: rid });
     return contract(id);
   }

@@ -203,8 +203,13 @@ export class Onboarding {
     if (s && s.state === "prepared") return stepView(s, a.owner, label);
     const action = await build();
     if (!action) return wait("Waiting for the agent's current policy to apply");
-    const prepared = await this.prepare(id, a, action);
-    return stepView(prepared, a.owner, label);
+    try {
+      return stepView(await this.prepare(id, a, action), a.owner, label);
+    } catch (err) {
+      // A failed ownerPrepare answers `unknown`/`unavailable`: nothing was stored, so simply prepare again later.
+      if (err instanceof UserError && err.status === 503) return wait("The platform did not answer; preparing the step again shortly");
+      throw err;
+    }
   }
 
   /** ownerPrepare, then store the row before anything is returned. */
