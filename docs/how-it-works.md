@@ -2,25 +2,24 @@
 
 ## The idea
 
-Escrow for code, without trusting the escrow agent with the money. A company and a contractor sign a scope of deliverables, each with a value. The scope becomes its own NEAR Intents agent wallet, funded with the total. Every merged PR is judged against the scope, and the agent pays for what the work completed. NEAR enforces the most it could ever pay.
-
-Three separate questions, three separate answers:
+A company and a contractor sign a scope of deliverables, each with a value. Covenant turns the signed scope into a MultiAgency platform agent made for that contract, funded with the total. Every merged PR is judged against the scope; Covenant requests what the work completed; the platform holds the payout until the company approves it, and refuses anything outside the contract's policy.
 
 | Question | Answered by |
 |---|---|
-| **When** does money move? | A merged PR (objective, on GitHub) |
+| **When** is a payout requested? | A merged PR (objective, on GitHub) |
 | **How much** is the work worth? | The judge, against the signed scope |
-| **What's the most** that can move, to whom, until when? | NEAR Intents, from the signed contract |
+| **Does this payout go out?** | The company, voting on the held payout |
+| **What's the most** that can move, to whom? | The platform policy and the funded total |
 
 ## Roles
 
 | Role | Does | Holds |
 |---|---|---|
-| Representative | Drafts and signs the scope, owns and funds the wallet, approves or rejects escalations, can cancel a queued payout or freeze the wallet | The owner key (in their own wallet) |
-| Contractor | Signs the same scope, ships PRs, verifies the live wallet | Their own key |
-| Agent (Covenant server) | Checks merges, asks the judge, pays the difference | A revocable grant that expires at the contract end |
-| Judge | Says how complete each deliverable is | Nothing: it never sees money, amounts or recipients |
-| NEAR Intents | Holds the funds, refuses anything outside the policy | — |
+| Representative | Drafts and signs the scope, owns and funds the agent, approves or rejects every payout | The owner key, in their own wallet |
+| Contractor | Signs the same scope, ships PRs, verifies the live policy | Their own key |
+| Covenant (app) | Checks merges, asks the judge, requests payouts, prepares owner steps for the representative to sign | The app credential only |
+| Judge | Says how complete each deliverable is | Nothing: it never sees money or recipients |
+| MultiAgency platform | Holds the agent's policy and funds, refuses what the policy forbids, holds every payout for approval | — |
 
 ## Terms (v2)
 
@@ -33,55 +32,107 @@ Canonical JSON with sorted keys, lowercase accounts and normalized decimals:
   start, end, repos[], acceptance:"merged_to_default_branch_by_other" }
 ```
 
-`sha256(canonical terms)` is the contract's identity. Both parties sign `Covenant work order sha256:<hash>` with NEP-413 (recipient `covenant`, 32-byte nonce). See `src/shared/terms.ts` and `src/server/nep413.ts`.
+`sha256(canonical terms)` is the contract's identity. Both parties sign `Covenant work order sha256:<hash>` with NEP-413 (recipient `covenant`, 32-byte nonce). See `src/shared/terms.ts` and `src/server/nep413.ts`. Signing the terms makes no platform call.
 
-## Compiler
+## Setting up a contract on the platform
 
-`compileContract(terms, hash, {timelockMs})` in `src/shared/compile.ts` is a pure function:
+Each contract is its own platform Organization (`organization = contract id`). The representative signs each step; Covenant never signs as the owner.
 
-| Clause | Compiles to | Enforced by |
+| # | Step | Platform call |
 |---|---|---|
-| Payee | `destinations: { mode: "only", list: [{ withdraw, near, payee }] }` | NEAR Intents |
-| Scope | `limits.per_transaction` = largest deliverable; `limits.monthly` = total; `budget.monthly_usd` = total + 5%; wallet funded with the total | NEAR Intents |
-| End date | grant `expires_at` = end date 23:59:59 UTC | NEAR Intents (expired grant) |
-| Cancel window | `timelock_ms` (10 min in the demo, 48 h by default for live) | NEAR Intents |
-| Payment type | `actions: ["withdraw"]`, `assets: [USDC]`, `owner_approval: false` | NEAR Intents |
-| Start date, acceptance, repos | checked before judging | Covenant |
-| Completion of each deliverable | judged on every merge | Covenant's judge |
+| 1 | Set up | The representative signs a setup message for the `payables` area; `setup` reserves the Organization's agent |
+| 2 | Create | `owner/prepare agent_create` (role `payout`), signed by the representative |
+| 3 | Consents | `[payout]` until the contract end; `[owner, read]` until the end plus a grace period, so held payouts can still be voted on |
+| 4 | Grant | `owner/prepare grant_issue` (label `payout`) |
+| 5 | Policy | One `owner/prepare policy_update`: `withdrawals: [payee]`, `owner_approval: true`, `limits.per_transaction` = largest deliverable, daily and monthly = total, a USD budget sized from the total |
+| 6 | Fund | `deposit` gives a one-time address; the representative sends exactly the scope total |
+
+An owner step is either a NEP-413 message the representative signs, or a link to the platform's confirm page. A lost reply is answered by reading the step's status, never by signing again.
+
+### What enforces what
+
+| Clause | Enforced by |
+|---|---|
+| Payee | Policy `withdrawals = [payee]` (provider) |
+| No payment above the largest deliverable | `limits.per_transaction` (provider) |
+| Every payout approved by the company | `owner_approval: true` (platform holds, company votes) |
+| Never more than the scope | The agent is funded with exactly the total |
+| End date | Covenant's `[payout]` consent expires at the end; Covenant also stops requesting 10 minutes before |
+| Start date, acceptance, repos | Covenant, before judging |
+| Completion of each deliverable | Covenant's judge |
+
+The daily and monthly limits are set too, but they reset (monthly on the same date each month), so they are not what caps a contract longer than a month. The funded total is.
 
 ## A payout run
 
-1. **Evidence:** the contractor's merged PRs in the listed repos, across the whole term so far.
+1. **Evidence:** the contractor's merged PRs in the listed repos, across the term so far.
 2. **Prechecks** (hard rules no judge can override): right author, merged by someone else, listed repo, inside the term. PRs the representative rejected earlier are dropped.
-3. **Judge:** completion per deliverable, one of 0, 25, 50, 75, 100%. Completion never goes down, and only judgments that paid, or that the representative approved, carry forward.
-4. **Owed** per deliverable = value × completion − already committed (paid, queued, sending, under review).
-5. **Escalate or pay:** if any eligible PR is flagged (prompt-injection patterns, or the AI judge's own suspicion or low confidence), every payout from the run waits for the representative. Otherwise each deliverable is its own withdrawal, saved before it is sent, then held in the cancel window.
-6. **Resolution:** approving pays it and clears that PR's flag for the future; rejecting excludes that PR for good.
+3. **Judge:** completion per deliverable, one of 0, 25, 50, 75, 100%. Only approved judgments carry forward.
+4. **Owed** = Σ value × completion − already committed. One payout, at most the largest deliverable, covers the deliverables in scope order.
+5. **Before the request:** the platform's policy must be in force, with owner approval on, the payee as the only withdrawal destination and the right per-payment cap. Otherwise no request is made.
+6. **Request:** the attempt is saved with its requestId (`<hash16>-p<seq>-<attempt>`) before `payouts/request`.
+7. **Held:** the platform holds it. The approval card leads with the judge's flags and shows the terms the platform proved for this approval: payee, USDC, amount, a public withdrawal on NEAR that may arrive less a route fee. Covenant refuses to ask for an approval signature if those terms don't match the attempt.
+8. **Vote:** approve → the platform releases it → `succeeded` with the transaction. Reject → nothing moves, the judgment closes rejected, and its PRs stay out of later runs.
 
-### The judges
+If owed is still above zero after a paid payout, the next payout of the same judgment is requested and needs its own approval. A run while a judgment is open is deferred.
 
-- **Rule-based** (`RulesJudge`): reads a `Scope: d2` or `Scope: d2 (done)` line in the PR description. `done` counts as complete, anything else as half. The keyless demo's default, and the fallback with no AI key.
-- **NEAR AI Cloud** (`NearAiJudge`, when `NEARAI_API_KEY` is set): an OpenAI-compatible chat completion at `cloud-api.near.ai/v1`, temperature 0, JSON only. PR text is passed as untrusted data, and the system prompt forbids following instructions inside it. The answer is parsed strictly and clamped to known deliverables and allowed levels. Suspicious PRs or low confidence escalate. The model and completion id are kept with the judgment.
+### Attempt states
+
+| Platform answer | Covenant shows | Amount freed? | Next |
+|---|---|---|---|
+| no answer (crash, lost reply) | pending / unknown | no | read `payouts/status`; re-ask the **same** id only on `not_found` |
+| thrown refusal before recording (`recipient_not_registered`, …) | blocked | no | fix, then the same id |
+| `unresolved`, `busy`, `rate_limited` | waiting | no | the same id later |
+| `forbidden`, `session` | blocked | no | re-consent or operator fix |
+| `refused` (nothing sent) | refused | yes | Retry (new attempt) or Drop |
+| `held` | held | no | the representative votes |
+| `processing` | settling | no | poll |
+| `succeeded` | paid | no | — |
+| `failed` after a reject vote, no transaction | rejected | yes | judgment closes rejected |
+| any other `failed` | failed | no, until resolved | the representative picks *arrived*, *owe it again* or *count as rejected* |
+
+### Refusals and clauses
+
+Covenant shows a clause only when the code identifies one (`src/shared/clauses.ts`):
+
+| Code | Clause |
+|---|---|
+| `payee_not_agreed`, `recipient_not_found` | Payee |
+| `per_transaction_exceeded` | Scope: no payment above the largest deliverable |
+| `spend_budget_exceeded` | Budget: the policy's USD budget, sized from the scope, is used up for this window |
+| `withdraw_not_allowed`, `asset_not_allowed` | Payment: withdraw USDC to the payee only |
+| `insufficient_balance` | Funding: funded with exactly the scope total; it can't pay what it doesn't hold |
+| `forbidden` (`scope`, `no_consent`, `access_ended`) at or after the end | Term |
+| `frozen` | Termination |
+| `grant_missing`, `policy_not_in_force`, `recipient_not_registered`, … | Setup |
+| `duplicate_held_payout`, `reviewed_policy_changed`, `request_conflict` | Platform rule (never a contract clause) |
+| bare `policy_denied`, anything else | none: "The policy refused it." |
+
+## The judges
+
+- **Rule-based** (`RulesJudge`): reads a `Scope: d2` or `Scope: d2 (done)` line in the PR description. The keyless demo's default.
+- **NEAR AI Cloud** (`NearAiJudge`, when `NEARAI_API_KEY` is set): an OpenAI-compatible chat completion at `cloud-api.near.ai/v1`, temperature 0, JSON only. PR text is passed as untrusted data. Suspicious PRs or low confidence are flagged; the flags lead the approval card.
 
 ## The attack panel
 
-The panel switches off Covenant's own checks and sends requests straight to the provider with the agent's real grant:
+Real `payouts/request` calls with Covenant's own checks skipped (stand-in and local stack only):
 
-| Scenario | Request | Expected refusal |
+| Scenario | Request | Result |
 |---|---|---|
-| Overpay | largest deliverable + $1 in one payment | scope clause (`policy_transaction_limit_exceeded`) |
-| Redirect | $1 to `attacker.near` | payee clause (`policy_destination_denied`) |
-| Injected PR | $5,000 to the payee, as if the AI were fooled | scope clause |
-| After end | $1 after the end date | term clause (grant layer) |
+| Redirect | a payout to `attacker.demo` | refused `payee_not_agreed` (payee clause) |
+| Overpay | largest deliverable + $1 | refused `per_transaction_exceeded` (scope clause) |
+| Injected PR | an in-cap payout to the payee, as if the judge were fooled | **not stopped by policy**: held, and the representative rejects it. The approval is the second layer |
+| After the end (stand-in only) | a payout after the contract end | `forbidden scope` (term clause) |
 
-Dry runs return warnings and move nothing. Refusals are mapped to clauses by code first, then by layer.
+## Verify
 
-## The simulator
+The contractor's Verify page reads, through Covenant, the platform's overview of the contract's agent and the app's consents, and compares them with what the signed terms call for: policy applied and in force; actions = withdraw; assets = USDC; withdrawals = the payee; per-payment cap = largest deliverable; owner approval on; not frozen; a live payout grant; the payout consent expiring by the contract end. As information: paid + balance ≤ total, and the daily and monthly limits (which are not what caps the contract). Covenant relays the platform's read; a payee-scoped proof from the platform is filed as a gap.
 
-`src/server/provider/sim.ts` implements only the policy features Covenant uses, with shapes and codes taken from the SDK 0.7.3 types (Policy, ErrorDocument layers, dry-run warning codes). Two codes are the simulator's own until the spikes record the real ones: `grant_expired` (layer `grant`) and `agent_frozen` (layer `policy`). The simulator asks for NEP-413 on every owner intent; the real API uses NEP-366 for `agent_create` and `agent_freeze`.
+## The stand-in and the stack
+
+- `FakePlatform` (`src/server/platform/fake.ts`) is an in-process stand-in for `bun test` and `demo:e2e`. It follows the platform's request, hold and vote rules, and can simulate lost replies, outages and failures that the stack can't.
+- `demo:stack` runs the same scenario against the platform's own isolated stack: real gateway, confirm page, provider simulator and local chain. The stack signs with its published test key.
 
 ## What we claim, and what we don't
 
-We claim: each contract has its own agent whose policy allows only the payee, no single payment above the largest deliverable, out of a wallet funded with the scope total; the API reports an applied policy equal to the compiled contract; the agent's permission expires at the contract end; the server never holds an owner key; a prompt-injected PR can fool a judge but not the wallet.
-
-We don't claim: that NEAR judges the quality of the work; a cryptographic proof that the policy equals the contract; escrow in the strict sense (the representative still owns the wallet and can freeze it); guaranteed payment for the contractor; cross-chain payouts.
+See the README.
