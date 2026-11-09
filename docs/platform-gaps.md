@@ -1,19 +1,19 @@
 # Platform gaps
 
-Drafts for issues on `MultiAgency/platform`, met while moving Covenant onto `@multiagency/sdk` 0.5.4 (platform `96a0bb6`). Each is filed only once Covenant has hit it, with the failing case.
+Issues filed on `MultiAgency/platform`, met while moving Covenant onto `@multiagency/sdk` 0.5.4 (platform `96a0bb6`).
 
-Status: **draft** (not yet confirmed), **confirmed** (seen in the M0 stack spike or a stack run; link the log), **filed** (issue link).
-
-| # | Gap | Status |
+| # | Gap | Issue |
 |---|---|---|
-| G1 | Organization agents are never released, 16 per deployment | draft |
-| G2 | `grant_issue` has no expiry input | draft |
-| G3 | Approval votes show the terms only through the app | draft |
-| G4 | `payouts/status` reads `failed` for rejected, expired and delivery failures alike | draft |
-| G5 | `duplicate_held_payout` keys on recipient, asset and amount across the agent | draft |
-| G6 | A payee can't verify the policy that pays them | draft |
-| G7 | App testing tools (no SDK stand-in, stack controls, sim coverage) | draft |
-| G8 | `payouts/status` is not reachable under `read` | draft |
+| G1 | Organization agents are never released, 16 per deployment | [MultiAgency/platform#46](https://github.com/MultiAgency/platform/issues/46) |
+| G2 | `grant_issue` has no expiry input | [MultiAgency/platform#47](https://github.com/MultiAgency/platform/issues/47) |
+| G3 | Approval votes show the terms only through the app | [MultiAgency/platform#48](https://github.com/MultiAgency/platform/issues/48) |
+| G4 | `payouts/status` reads `failed` for rejected, expired and delivery failures alike | [MultiAgency/platform#49](https://github.com/MultiAgency/platform/issues/49) |
+| G5 | `duplicate_held_payout` keys on recipient, asset and amount across the agent | [MultiAgency/platform#50](https://github.com/MultiAgency/platform/issues/50) |
+| G6 | A payee can't verify the policy that pays them | [MultiAgency/platform#51](https://github.com/MultiAgency/platform/issues/51) |
+| G7 | App testing tools (no SDK stand-in, stack controls, sim coverage) | [MultiAgency/platform#52](https://github.com/MultiAgency/platform/issues/52) |
+| G8 | `payouts/status` is not reachable under `read` | [MultiAgency/platform#53](https://github.com/MultiAgency/platform/issues/53) |
+| G9 | The stack's provider sim refuses `grant_issue` with label `payout` (confirmed on the stack) | [MultiAgency/platform#54](https://github.com/MultiAgency/platform/issues/54) |
+| G10 | `owner/status` for an approve vote never reports a status (confirmed on the stack) | [MultiAgency/platform#55](https://github.com/MultiAgency/platform/issues/55) |
 
 ---
 
