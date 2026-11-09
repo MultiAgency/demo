@@ -3,7 +3,7 @@ import { api, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
 import { Icon } from "../components/icons";
 import { Alert, Avatar, Button, dateText, Disclosure, Mono, PageLoading, short, timeText, usd } from "../components/ui";
-import type { AppConfig, ContractView } from "../types";
+import type { AppConfig, ContractView, TermsSigningRequest } from "../types";
 
 /** The contractor's page: what they're agreeing to, and one button. */
 export function ContractorSign({ id, token, config }: { id: string; token: string | null; config: AppConfig }) {
@@ -21,8 +21,8 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
   async function sign() {
     setError(null);
     try {
-      const req = await api("GET", `/contracts/${id}/signing-request?role=contractor`);
-      const s = await signMessage(config.provider, req);
+      const req = await api<TermsSigningRequest>("GET", `/contracts/${id}/signing-request?role=contractor`);
+      const s = await signMessage(config, req);
       setC(await api<ContractView>("POST", `/contracts/${id}/signatures`, { role: "contractor", signed: s, contractor_token: token }));
     } catch (e) {
       setError((e as Error).message);
@@ -86,8 +86,8 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           <li>
             <Icon name="shieldCheck" size={15} />
             <span>Enforced</span>
-            <strong>By NEAR Intents</strong>
-            <em>a wallet just for this contract</em>
+            <strong>By the MultiAgency platform</strong>
+            <em>an agent just for this contract; every payout approved by {t.company}</em>
           </li>
         </ul>
 
@@ -102,6 +102,9 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           </div>
         </Disclosure>
 
+        {c.payee_registered === false ? (
+          <Alert tone="warning">{t.payee.address} isn't registered on the USDC contract yet. Register it, or payouts will wait.</Alert>
+        ) : null}
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {!signed ? <SignInGate account={t.contractor.near_account} role="contractor" /> : null}
 
@@ -112,17 +115,17 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
             </span>
             <div>
               <strong>Signed {timeText(signed.signed_at)}</strong>
-              <span>You can check the contract wallet at any time.</span>
+              <span>You can check the contract's policy at any time.</span>
             </div>
             <a className="btn btn-primary btn-md" href={`#/c/${id}/verify`}>
-              <Icon name="shieldCheck" /> <span>Verify wallet</span>
+              <Icon name="shieldCheck" /> <span>Verify policy</span>
             </a>
           </div>
         ) : !token ? (
           <Alert tone="warning">This link is missing its signing token. Ask {t.company} for the full link.</Alert>
         ) : (
-          <Button icon="pen" full onClick={sign}>
-            {config.provider === "sim" ? `Sign as ${t.contractor.near_account} (demo wallet)` : "Sign with NEAR wallet"}
+          <Button icon="pen" full onClick={sign} disabled={!config.demo_controls}>
+            {config.demo_controls ? `Sign as ${t.contractor.near_account} (demo wallet)` : "Sign with NEAR wallet"}
           </Button>
         )}
         <p className="doc-foot">Signing is free and off-chain. It doesn't move any money.</p>

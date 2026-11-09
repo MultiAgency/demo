@@ -67,7 +67,7 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
             Covenant
           </span>
           <div className="row gap">
-            {config?.provider === "sim" ? <span className="env-chip">Simulator</span> : null}
+            {config?.platform === "fake" ? <span className="env-chip">Platform stand-in</span> : config?.stack ? <span className="env-chip">Local stack</span> : null}
             {config ? <AccountBox compact /> : null}
           </div>
         </header>
@@ -91,11 +91,11 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
         </nav>
         <div className="sidebar-foot">
           {config ? <AccountBox /> : null}
-          {config?.provider === "sim" ? (
+          {config?.platform === "fake" || config?.stack ? (
             <div className="env">
               <span className="env-dot" />
               <div>
-                <strong>Simulator</strong>
+                <strong>{config.stack ? "Local platform stack" : "Platform stand-in"}</strong>
                 <span>No real funds · demo wallet</span>
               </div>
             </div>
@@ -103,8 +103,8 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
             <div className="env env-live">
               <span className="env-dot" />
               <div>
-                <strong>NEAR mainnet</strong>
-                <span>Real funds</span>
+                <strong>MultiAgency platform</strong>
+                <span>{config.host} · real funds</span>
               </div>
             </div>
           ) : null}
