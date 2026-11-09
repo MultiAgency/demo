@@ -14,23 +14,37 @@ export async function startServer(rt: Runtime, port: number) {
   });
 }
 
+/** Timers: follow live payouts every STATUS_POLL_MS; optionally check for new merges every AGENT_POLL_MS. */
+export function startTimers(rt: Runtime): () => void {
+  const timers: ReturnType<typeof setInterval>[] = [];
+  timers.push(setInterval(() => void rt.covenant.followUpAll(), rt.config.statusPollMs));
+  if (rt.config.pollMs > 0) {
+    timers.push(
+      setInterval(async () => {
+        for (const id of rt.covenant.activeContractIds()) {
+          try {
+            await rt.covenant.run(id);
+          } catch (err) {
+            console.error(`merge watcher: ${id}: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+      }, rt.config.pollMs),
+    );
+  }
+  return () => timers.forEach(clearInterval);
+}
+
 if (import.meta.main) {
   const config = loadConfig();
   const rt = await createRuntime(config);
   const server = await startServer(rt, config.port);
-  const banner = config.provider === "sim" ? "SIMULATED (no real funds, no network)" : "LIVE MAINNET";
+  const banner =
+    rt.kit.platform.mode === "fake"
+      ? "PLATFORM STAND-IN (fake: no real funds, no network)"
+      : config.stackDir
+        ? `LOCAL PLATFORM STACK at ${rt.kit.platform.host}`
+        : `MultiAgency platform at ${rt.kit.platform.host}`;
   console.log(`\nCovenant · ${banner}\n→ ${server.url}\n`);
-  // Pays when a PR is merged: check every active contract for new merges on a timer.
-  if (config.pollMs > 0) {
-    setInterval(async () => {
-      for (const id of rt.covenant.activeContractIds()) {
-        try {
-          await rt.covenant.run(id);
-        } catch (err) {
-          console.error(`merge watcher: ${id}: ${err instanceof Error ? err.message : err}`);
-        }
-      }
-    }, config.pollMs);
-    console.log(`Merge watcher on: every ${Math.round(config.pollMs / 1000)}s`);
-  }
+  startTimers(rt);
+  if (config.pollMs > 0) console.log(`Merge watcher on: every ${Math.round(config.pollMs / 1000)}s`);
 }

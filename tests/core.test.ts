@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { base64 } from "@scure/base";
 import { canonicalJson } from "../src/shared/canonical";
-import { canonicalPolicy, compileContract, diffPolicy } from "../src/shared/compile";
+import { expectations, policyChanges, policyProblem } from "../src/shared/policy-request";
+import type { Overview } from "../src/server/platform/port";
 import { DEMO_TERMS } from "../src/shared/demo";
 import { fromAtomic, normalizeDecimal, toAtomic } from "../src/shared/money";
 import { parseTerms, scopeTotal, termsHash, USDC_NEAR } from "../src/shared/terms";
@@ -57,42 +58,51 @@ describe("terms", () => {
   });
 });
 
-describe("compiler", () => {
+describe("policy request (what the platform is asked to enforce)", () => {
   const terms = parseTerms(DEMO_TERMS);
-  const hash = termsHash(terms);
-  const c = compileContract(terms, hash, { timelockMs: 600_000 });
 
-  test("one destination: the payee", () => {
-    expect(c.policy.destinations).toEqual({ mode: "only", list: [{ action: "withdraw", chain: "near", address: "maria.demo", memo: null }] });
+  test("policy_update body: full withdrawals list, owner approval, three limits, three budget windows", () => {
+    expect(policyChanges(terms)).toEqual({
+      withdrawals: [{ address: "maria.demo" }],
+      owner_approval: true,
+      limits: { per_transaction: { [USDC_NEAR]: "500000000" }, daily: { [USDC_NEAR]: "1000000000" }, monthly: { [USDC_NEAR]: "1000000000" } },
+      budget: { daily_usd: "1050", weekly_usd: null, monthly_usd: "1050" },
+    });
   });
-  test("one payment is at most the largest deliverable; the total is the scope", () => {
-    expect(scopeTotal(terms)).toBe("1000");
-    expect(c.policy.limits.per_transaction?.[USDC_NEAR]).toBe("500000000");
-    expect(c.policy.limits.monthly?.[USDC_NEAR]).toBe("1000000000");
-    expect(c.policy.budget.monthly_usd).toBe("1050");
-    expect(c.policy.max_actions_per_hour).toBe(5);
-  });
-  test("withdraw-only, USDC-only, no owner approval, timelock on", () => {
-    expect(c.policy.actions).toEqual(["withdraw"]);
-    expect(c.policy.assets).toEqual([USDC_NEAR]);
-    expect(c.policy.owner_approval).toBe(false);
-    expect(c.policy.timelock_ms).toBe(600_000);
-  });
-  test("grant expires at the last second of the end date", () => {
-    expect(c.grant.expires_at).toBe("2026-11-30T23:59:59.000Z");
+  test("expectations: payee, cap = largest deliverable, consent ends at the contract end, total", () => {
+    expect(expectations(terms)).toEqual({
+      payee: "maria.demo",
+      asset: USDC_NEAR,
+      per_transaction: "500000000",
+      owner_approval: true,
+      withdrawals: ["maria.demo"],
+      payout_consent_expires_by: "2026-11-30T23:59:59.000Z",
+      total: "1000000000",
+    });
   });
   test("pure: same input, same output", () => {
-    expect(compileContract(terms, hash, { timelockMs: 600_000 })).toEqual(c);
+    expect(policyChanges(terms)).toEqual(policyChanges(parseTerms(DEMO_TERMS)));
   });
-  test("diff ignores formatting differences but catches real ones", () => {
-    const formatted = structuredClone(c.policy);
-    formatted.budget.monthly_usd = "1050.00";
-    formatted.destinations.list = [{ action: "withdraw", chain: "near", address: "MARIA.DEMO", memo: null }];
-    expect(diffPolicy(c.policy, formatted)).toEqual([]);
-    const widened = structuredClone(c.policy);
-    widened.limits.monthly = { [USDC_NEAR]: "5000000000" };
-    expect(diffPolicy(c.policy, widened).map((d) => d.path)).toEqual([`limits.monthly.${USDC_NEAR}`]);
-    expect(canonicalPolicy(c.policy)).toEqual(canonicalPolicy(formatted));
+  const ov = (policy: Partial<NonNullable<Overview["policy"]>>, extra: Partial<Overview> = {}): Overview => ({
+    agentId: "a",
+    revision: 2,
+    digest: "d",
+    status: "APPLIED",
+    synced: true,
+    notInForce: null,
+    usdc: "0",
+    grants: [],
+    policy: { actions: ["withdraw"], assets: [USDC_NEAR], owner_approval: true, frozen: false, limits: { per_transaction: { [USDC_NEAR]: "500000000" } }, budget: { daily_usd: null, weekly_usd: null, monthly_usd: null }, withdrawals: ["maria.demo"], ...policy },
+    ...extra,
+  });
+  test("before every request: in force, owner approval, withdrawals == [payee], cap == largest", () => {
+    expect(policyProblem(ov({}), terms)).toBeNull();
+    expect(policyProblem(ov({}, { notInForce: "pending" }), terms)).toMatchObject({ code: "policy_not_in_force", waiting: true });
+    expect(policyProblem(ov({ owner_approval: false }), terms)).toMatchObject({ code: "policy_mismatch", waiting: false });
+    expect(policyProblem(ov({ withdrawals: ["maria.demo", "attacker.demo"] }), terms)?.code).toBe("policy_mismatch");
+    expect(policyProblem(ov({ limits: { per_transaction: { [USDC_NEAR]: "500000001" } } }), terms)?.code).toBe("policy_mismatch");
+    expect(policyProblem(ov({ frozen: true }), terms)?.code).toBe("frozen");
+    expect(policyProblem(null, terms)?.waiting).toBe(true);
   });
 });
 
