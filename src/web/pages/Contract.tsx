@@ -177,7 +177,7 @@ function stepDetail(c: ContractView, id: StepId): string | null {
     case "setup":
       return c.platform.agent ? `Agent ${c.platform.agent}` : null;
     case "create":
-      return c.platform.agent_id ? `Agent id ${c.platform.agent_id}` : null;
+      return c.platform.agent_id ? `Agent id ${short(c.platform.agent_id, 10, 6)}` : null;
     case "consent":
       return c.platform.consents ? `Payouts until ${timeText(c.platform.consents.payout_expires_at)} · read until ${dateText(c.platform.consents.owner_expires_at)}` : null;
     case "grant":
@@ -530,11 +530,17 @@ const ATTACKS: { id: string; icon: IconName; title: string; text: string; fakeOn
 function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
   const attacks = ATTACKS.filter((a) => !a.fakeOnly || config.platform === "fake");
   const allowed = config.demo_controls;
+  const [hints, setHints] = useState<Record<string, string>>({});
   const latest = (id: string) => c.payouts.find((p) => p.kind === "attack" && p.request_id.startsWith(`atk-${id}-`));
-  const run = (id: string) => act(() => api("POST", `/contracts/${c.id}/attacks/${id}`));
+  // An attack that can't run yet (e.g. after the end, before the end date) answers { ready: false, hint }.
+  const fire = async (id: string) => {
+    const r = await api<{ ready?: boolean; hint?: string }>("POST", `/contracts/${c.id}/attacks/${id}`);
+    setHints((h) => ({ ...h, [id]: r.ready === false ? (r.hint ?? "Not ready yet.") : "" }));
+  };
+  const run = (id: string) => act(() => fire(id));
   const runAll = () =>
     act(async () => {
-      for (const a of attacks) await api("POST", `/contracts/${c.id}/attacks/${a.id}`);
+      for (const a of attacks) await fire(a.id);
     });
 
   return (
@@ -544,7 +550,7 @@ function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; a
         title="Compromised-server test"
         sub="Real payout requests with Covenant's own checks skipped. The platform's policy and your approval are what stop them."
         actions={
-          <Button icon="zap" onClick={runAll} disabled={!allowed || c.stage !== "active"}>
+          <Button icon="zap" onClick={runAll} disabled={!allowed || (c.stage !== "active" && c.stage !== "ended")}>
             Run all
           </Button>
         }
@@ -564,10 +570,15 @@ function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; a
                   <h3>{a.title}</h3>
                   <p>{a.text}</p>
                 </div>
-                <Button size="sm" variant="secondary" onClick={() => run(a.id)} disabled={!allowed || c.stage !== "active"}>
+                <Button size="sm" variant="secondary" onClick={() => run(a.id)} disabled={!allowed || (c.stage !== "active" && c.stage !== "ended")}>
                   Run
                 </Button>
               </div>
+              {hints[a.id] ? (
+                <div className="attack-note">
+                  <Icon name="info" size={14} /> {hints[a.id]}
+                </div>
+              ) : null}
               {p ? (
                 <div className="attack-result">
                   <div className="attack-verdict">
@@ -591,7 +602,7 @@ function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; a
                   ) : null}
                   {p.clause && (p.state === "refused" || p.state === "blocked") ? <p className="muted small">{p.clause.text}</p> : null}
                   {p.state === "held" ? <ApprovalCard p={p} config={config} act={act} attack /> : null}
-                  {p.state !== "held" && p.state !== "refused" && p.state !== "blocked" ? <StateNote p={p} act={act} /> : null}
+                  {p.state !== "held" && p.state !== "refused" && p.state !== "blocked" && p.state !== "rejected" ? <StateNote p={p} act={act} /> : null}
                 </div>
               ) : null}
             </div>

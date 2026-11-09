@@ -1,6 +1,6 @@
 import type { Deliverable } from "../types";
 import { Icon, type IconName } from "./icons";
-import { dateText, usd } from "./ui";
+import { dateText, short, usd } from "./ui";
 
 export interface PolicyCardProps {
   payee: string;
@@ -31,7 +31,7 @@ export function PolicyCard(p: PolicyCardProps) {
       <div className="policy-top">
         <div>
           <div className="policy-kicker">Contract agent</div>
-          <div className="policy-id">{p.agentId ?? (status === "draft" ? "Not created yet" : "—")}</div>
+          <div className="policy-id" title={p.agentId ?? undefined}>{p.agentId ? short(p.agentId, 10, 6) : status === "draft" ? "Not created yet" : "—"}</div>
         </div>
         <span className="policy-status">
           <span className="policy-dot" />

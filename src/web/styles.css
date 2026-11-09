@@ -2523,3 +2523,10 @@ textarea:focus {
   border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
   background: var(--warning-soft);
 }
+
+.check-detail {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

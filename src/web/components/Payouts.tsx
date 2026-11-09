@@ -36,7 +36,7 @@ export function PayoutsTab({ c, config, act }: { c: ContractView; config: AppCon
       <div className="card-pad-x">
         <CardHeader
           title="Payouts"
-          sub={`Every payout waits for ${c.terms.representative.near_account}'s approval · ${usd(Number(c.total_usd) - Number(c.committed_usd))} of the scope unpaid`}
+          sub={`Every payout waits for ${c.terms.representative.near_account}'s approval · ${usd(c.paid_usd)} of ${usd(c.total_usd)} paid`}
           actions={
             <Button icon="play" disabled={c.stage !== "active"} onClick={() => act(() => api("POST", `/contracts/${c.id}/run`))}>
               Check merges
@@ -48,7 +48,7 @@ export function PayoutsTab({ c, config, act }: { c: ContractView; config: AppCon
         <div className="judgment-bar">
           <Icon name="bot" size={15} />
           <span>
-            Open judgment: <strong>{usd(oj.owed_usd)}</strong> owed, {usd(oj.paid_usd)} paid. New merges wait until it closes.
+            Open judgment: {usd(oj.paid_usd)} paid{Number(oj.owed_usd) > 0 ? `, ${usd(oj.owed_usd)} still to request` : ""}. New merges wait until it closes.
           </span>
           {canRetry ? (
             <>
@@ -89,7 +89,7 @@ function PayoutItem({ p, c, config, act }: { p: PayoutView; c: ContractView; con
             </span>
           ))}
           <span className="pill-mini">
-            payout {p.seq + 1} · attempt {p.attempt}
+            payout {p.seq} · attempt {p.attempt}
           </span>
           <span className="muted small hide-sm">{timeText(p.created_at)}</span>
         </span>

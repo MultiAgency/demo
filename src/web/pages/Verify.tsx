@@ -7,6 +7,9 @@ import { Alert, Button, Disclosure, Mono, PageLoading, short, timeText, usd } fr
 import type { ContractView, VerifyView } from "../types";
 
 const atomicUsd = (a: string | null | undefined) => (a ? usd(fromAtomic(BigInt(a), 6)) : "—");
+/** Server check details carry raw atomic amounts and ISO times; show them as people read them. */
+const detailText = (d: string) =>
+  d.replace(/\b\d{4}-\d{2}-\d{2}T[\d:.]+Z\b/g, (t) => timeText(t)).replace(/^\d{7,}$/, (a) => atomicUsd(a));
 const list = (xs: string[] | "any" | undefined) => (xs === undefined ? "—" : xs === "any" ? "any" : xs.length ? xs.map((x) => (x.startsWith("nep141:") ? "USDC" : x)).join(", ") : "none");
 
 /** The contractor's view: the live platform policy, read through Covenant, against what they signed. */
@@ -80,8 +83,10 @@ export function VerifyPage({ id }: { id: string }) {
             {matchChecks.map((x) => (
               <li key={x.id} className={x.ok ? "ok" : "bad"} title={x.detail}>
                 <Icon name={x.ok ? "check" : "x"} size={15} strokeWidth={2.4} />
-                {x.label}
-                {x.detail ? <span className="muted small"> · {x.detail}</span> : null}
+                <span>
+                  {x.label}
+                  {x.detail ? <span className="check-detail">{detailText(x.detail)}</span> : null}
+                </span>
               </li>
             ))}
           </ul>
@@ -123,13 +128,13 @@ export function VerifyPage({ id }: { id: string }) {
               </span>
             </li>
             {infoChecks
-              .filter((x) => x.id !== "funded")
+              .filter((x) => !["funded", "windows", "relay"].includes(x.id))
               .map((x) => (
                 <li key={x.id}>
                   <Icon name="info" size={14} />
                   <span>
                     {x.label}
-                    {x.detail ? ` · ${x.detail}` : ""}
+                    {x.detail ? ` · ${detailText(x.detail)}` : ""}
                   </span>
                 </li>
               ))}
