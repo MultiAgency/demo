@@ -207,7 +207,7 @@ export async function platformScenario(s: PlatformScenarioInput): Promise<{ fail
 /** The stack `ScenarioDriver` for track B's `runScenario`. */
 export function stackDriver(stackDir: string, base: string, now = new Date()): ScenarioDriver {
   const stack = readStack(stackDir);
-  const day = (n: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + n)).toISOString();
+  const day = (n: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + n)).toISOString().slice(0, 10);
   const signer = stackSigner();
   return {
     name: "stack",
