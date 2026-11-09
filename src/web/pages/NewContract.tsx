@@ -105,7 +105,7 @@ export function NewContract({ config }: { config: AppConfig }) {
             <Icon name="chevronLeft" size={14} /> Contracts
           </a>
           <h1>New contract</h1>
-          <p className="page-sub">Define the scope. Every merged PR is judged against it, and the wallet never pays more than it's worth.</p>
+          <p className="page-sub">Define the scope. Every merged PR is judged against it, and the agent never pays more than it's worth.</p>
         </div>
       </header>
 
@@ -125,7 +125,7 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Field label="Company">
                 <input value={f.company} onChange={set("company")} required />
               </Field>
-              <Field label="Representative" hint="NEAR account that signs and owns the wallet">
+              <Field label="Representative" hint="NEAR account that signs, owns the agent and approves payouts">
                 <input value={f.rep} onChange={set("rep")} required />
               </Field>
               <Field label="Contractor">
@@ -140,7 +140,7 @@ export function NewContract({ config }: { config: AppConfig }) {
                   <input value={f.github} onChange={set("github")} required />
                 </div>
               </Field>
-              <Field label="Payee" hint="The only account this wallet can pay">
+              <Field label="Payee" hint="The only account the agent can pay">
                 <div className="input-affix">
                   <input value={f.payee} onChange={set("payee")} required />
                   <span>USDC · NEAR</span>
@@ -190,7 +190,7 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Field label="Start">
                 <input type="date" value={f.start} onChange={set("start")} required />
               </Field>
-              <Field label="End" hint="The agent's permission expires then">
+              <Field label="End" hint="Covenant's payout permission ends then">
                 <input type="date" value={f.end} onChange={set("end")} required />
               </Field>
               <Field label="Repositories" hint="owner/name, comma separated" wide>
@@ -215,9 +215,9 @@ export function NewContract({ config }: { config: AppConfig }) {
         <aside className="split-side">
           <div className="sticky">
             <div className="side-label">Live preview</div>
-            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} timelockMinutes={Math.round(config.timelock_ms / 60000)} />
+            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.rep} />
             <p className="side-note">
-              <Icon name="info" size={14} /> Locked rows are enforced by NEAR Intents. Nothing is created until both parties sign.
+              <Icon name="info" size={14} /> Locked rows are enforced by the MultiAgency platform. Nothing is created until both parties sign.
             </p>
           </div>
         </aside>

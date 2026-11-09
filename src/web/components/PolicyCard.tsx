@@ -8,29 +8,29 @@ export interface PolicyCardProps {
   start: string;
   end: string;
   repos: string[];
-  timelockMinutes: number;
+  approver?: string;
   status?: "draft" | "live" | "frozen" | "ended";
   agentId?: string | null;
 }
 
-/** The contract rendered as the wallet it compiles to. */
+/** The contract rendered as the platform policy it becomes. */
 export function PolicyCard(p: PolicyCardProps) {
   const values = p.scope.map((d) => Number(d.value_usd) || 0);
   const total = values.reduce((a, b) => a + b, 0);
   const largest = values.length ? Math.max(...values) : 0;
   const rows: { icon: IconName; label: string; value: string }[] = [
     { icon: "user", label: "Pays only", value: p.payee || "—" },
-    { icon: "coins", label: "Up to", value: total ? `${usd(total)} in total` : "—" },
     { icon: "zap", label: "One payment", value: largest ? `≤ ${usd(largest)}` : "—" },
-    { icon: "calendar", label: "Valid until", value: p.end ? dateText(p.end) : "—" },
-    { icon: "clock", label: "Cancel window", value: `${p.timelockMinutes} min` },
+    { icon: "coins", label: "Funded with", value: total ? `${usd(total)}, the scope` : "—" },
+    { icon: "check", label: "Approves each", value: p.approver || "The company" },
+    { icon: "calendar", label: "Can pay until", value: p.end ? dateText(p.end) : "—" },
   ];
   const status = p.status ?? "draft";
   return (
     <div className={`policy-card policy-${status}`}>
       <div className="policy-top">
         <div>
-          <div className="policy-kicker">Contract wallet</div>
+          <div className="policy-kicker">Contract agent</div>
           <div className="policy-id">{p.agentId ?? (status === "draft" ? "Not created yet" : "—")}</div>
         </div>
         <span className="policy-status">
@@ -52,11 +52,11 @@ export function PolicyCard(p: PolicyCardProps) {
       </ul>
       <div className="policy-foot">
         <span>
-          <Icon name="shieldCheck" size={14} /> Enforced by NEAR Intents
+          <Icon name="shieldCheck" size={14} /> Enforced by the MultiAgency platform
         </span>
       </div>
       <div className="policy-app">
-        <div className="policy-app-label">Judged by the agent on every merge</div>
+        <div className="policy-app-label">Judged by Covenant on every merge</div>
         <div className="policy-app-row">
           <Icon name="pr" size={14} />
           {p.scope.length} deliverable{p.scope.length === 1 ? "" : "s"}

@@ -1,7 +1,8 @@
 import type { IconName } from "./components/icons";
+import type { SetupStage } from "./types";
 
-export type StepId = "rep-sign" | "contractor-sign" | "wallet" | "grant" | "fund";
-export type Phase = "agree" | "wallet" | "live";
+export type StepId = "rep-sign" | "contractor-sign" | "setup" | "create" | "consent" | "grant" | "policy" | "fund";
+export type Phase = "agree" | "platform" | "live";
 
 export interface SetupStep {
   id: StepId;
@@ -10,13 +11,19 @@ export interface SetupStep {
   title: string;
   short: string;
   help: string[];
+  /** The step is done once the contract's stage is past this one. */
+  stage: SetupStage;
 }
+
+/** Order of the server's setup stages; a step is done when the contract has moved past its stage. */
+export const STAGE_ORDER: SetupStage[] = ["needs_signatures", "needs_setup", "needs_create", "needs_consent", "needs_grant", "needs_policy", "policy_pending", "needs_funding", "active"];
 
 /** Setup checklist. One line each; the help bullets open on demand. */
 export const SETUP: SetupStep[] = [
   {
     id: "rep-sign",
     phase: "agree",
+    stage: "needs_signatures",
     icon: "pen",
     title: "Representative signs",
     short: "Sign the terms hash with your NEAR wallet.",
@@ -25,39 +32,70 @@ export const SETUP: SetupStep[] = [
   {
     id: "contractor-sign",
     phase: "agree",
+    stage: "needs_signatures",
     icon: "user",
     title: "Contractor signs",
     short: "Send the private link. They sign the same hash.",
     help: ["They see the terms in plain language and sign with their own wallet.", "Both keys are checked as full-access keys of the named accounts."],
   },
   {
-    id: "wallet",
-    phase: "wallet",
+    id: "setup",
+    phase: "platform",
+    stage: "needs_setup",
+    icon: "building",
+    title: "Set up Covenant on the platform",
+    short: "One platform Organization for this contract.",
+    help: ["Your wallet signs a setup message for the payables area.", "One Organization per contract keeps its payee, balance and limits apart from every other contract."],
+  },
+  {
+    id: "create",
+    phase: "platform",
+    stage: "needs_create",
     icon: "wallet",
-    title: "Create the contract wallet",
-    short: "One agent wallet whose policy is compiled from the signed scope.",
-    help: ["Only the payee; no payment above the largest deliverable; a cancel window on every payment. Never edited later.", "Your wallet signs it. Covenant never holds the owner key."],
+    title: "Create the contract agent",
+    short: "A payout agent you own.",
+    help: ["Covenant never holds the owner key. It holds only its app credential."],
+  },
+  {
+    id: "consent",
+    phase: "platform",
+    stage: "needs_consent",
+    icon: "key",
+    title: "Give Covenant access",
+    short: "Payouts until the end date; read and approvals a little longer.",
+    help: ["Two consents: payout ends at the contract end; owner and read run for a grace period so you can still approve or reject.", "You can revoke either on the platform."],
   },
   {
     id: "grant",
-    phase: "wallet",
+    phase: "platform",
+    stage: "needs_grant",
     icon: "key",
-    title: "Give the agent permission",
-    short: "A grant that expires exactly at the contract end.",
-    help: ["After the end date the grant is dead, so NEAR refuses every payout.", "Stored encrypted. Revocable by the owner."],
+    title: "Issue the payout grant",
+    short: "Lets the agent pay at all.",
+    help: ["The platform chooses the grant's expiry; the payout consent is what ends at the contract end."],
+  },
+  {
+    id: "policy",
+    phase: "platform",
+    stage: "needs_policy",
+    icon: "shield",
+    title: "Apply the contract's policy",
+    short: "Only the payee, no payment above the largest deliverable, your approval on every payout.",
+    help: ["One policy edit, signed by you: withdrawals to the payee, per-payment cap, owner approval, budget.", "Covenant checks the policy is in force before every payout."],
   },
   {
     id: "fund",
-    phase: "wallet",
+    phase: "platform",
+    stage: "needs_funding",
     icon: "coins",
-    title: "Fund the wallet",
+    title: "Fund the agent",
     short: "Deposit the scope total in USDC.",
-    help: ["Funds sit in this contract's wallet only, so it can never pay more than the scope.", "Each merge pays the deliverable's value × completion, minus what was already paid."],
+    help: ["The agent holds exactly the scope total, so it can never pay more than the contract.", "Each merge pays value × completion, minus what was already paid."],
   },
 ];
 
 export const PHASES: { id: Phase; label: string }[] = [
   { id: "agree", label: "Agree" },
-  { id: "wallet", label: "Set up wallet" },
+  { id: "platform", label: "Set up on the platform" },
   { id: "live", label: "Live" },
 ];
