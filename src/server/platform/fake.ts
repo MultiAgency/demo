@@ -784,6 +784,13 @@ export class FakeControls implements DemoControls {
     a.status = status;
     a.synced = synced;
   }
+  /** Change the live policy as an owner edit or a platform-side change would: the revision goes up. */
+  editPolicy(agentId: string, edit: (p: Policy) => void): void {
+    const a = [...this.p.state.agents.values()].find((x) => x.agentId === agentId);
+    if (!a?.policy) throw new Error(`No policy for ${agentId}`);
+    edit(a.policy);
+    a.revision += 1;
+  }
   /** The owner's key removed from their account: consents it signed end (`consent_revoked`) at the next call. */
   revokeGrants(agentId: string): void {
     const a = [...this.p.state.agents.values()].find((x) => x.agentId === agentId);

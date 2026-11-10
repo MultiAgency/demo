@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { clauseFor } from "../shared/clauses";
 import { canonicalJson, sha256Hex } from "../shared/canonical";
 import { fromAtomic, toAtomic } from "../shared/money";
-import { expectations, largestAtomic, policyProblem, totalAtomic } from "../shared/policy-request";
+import { expectations, largestAtomic, policyDifferences, policyProblem, totalAtomic } from "../shared/policy-request";
 import { endInstant, parseTerms, scopeTotal, startInstant, type Terms, TERMS_RECIPIENT, termsHash, termsSigningMessage, USDC_DECIMALS } from "../shared/terms";
 import type { AttemptState, ContractView, EventView, JudgmentOutcome, NextStep, PayoutView, ScopeRow, SetupStage, VerifyView } from "../shared/views";
 import type { Config } from "./config";
@@ -435,7 +435,10 @@ export class Covenant {
     let expected: { revision: number; digest: string } | null = null;
     if (att.kind === "payout") {
       const pre = await this.preflight(row, terms, a);
-      if ("state" in pre) return this.transition(att, pre);
+      if ("state" in pre) {
+        if (pre.alert && att.state === pre.state && att.code === pre.code) delete pre.alert; // said once, not on every re-check
+        return this.transition(att, pre);
+      }
       expected = pre.expected;
     } else {
       // Attacks: a compromised server skips Covenant's checks; only the platform stands in the way.
@@ -446,7 +449,10 @@ export class Covenant {
     await this.apply(att, res);
   }
 
-  /** Before every payout request: active, not near the end, and the platform's read matches the terms. */
+  /**
+   * Before every payout request: active, not near the end, and the whole live policy matches what Covenant signed.
+   * Any other policy, whichever revision it is, blocks the request (`policy_mismatch`) until it matches again.
+   */
   private async preflight(row: ContractRow, terms: Terms, a: PlatformAgentRow): Promise<{ expected: { revision: number; digest: string } } | Transition> {
     const blocked = (code: string): Transition => ({ state: "blocked", code, failKind: "blocked", retryAfterMs: this.d.config.statusPollMs });
     if (row.frozen) return blocked("frozen");
@@ -457,9 +463,15 @@ export class Covenant {
     const problem = policyProblem(o.value, terms);
     if (problem) {
       if (problem.code === "frozen") this.d.db.query("UPDATE contracts SET frozen = 1 WHERE id = ?").run(row.id);
+      if (problem.code === "policy_mismatch") return { ...blocked(problem.code), alert: `${problem.detail} Nothing is requested until it matches again.` };
       return problem.waiting ? { state: "waiting", code: problem.code, failKind: null, retryAfterMs: 60_000 } : blocked(problem.code);
     }
     if (o.value.revision === null || o.value.digest === null) return { state: "waiting", code: "policy_not_in_force", failKind: null, retryAfterMs: 60_000 };
+    if (o.value.revision !== a.policy_revision || o.value.digest !== a.policy_digest) {
+      // A new revision that still matches the signed terms in full: record it as the reviewed one.
+      this.onboarding.setAgent(a.organization, { policy_revision: o.value.revision, policy_digest: o.value.digest });
+      this.event(row.id, "policy", `Policy revision ${o.value.revision} still matches the signed terms in full; Covenant continues under it.`);
+    }
     return { expected: { revision: o.value.revision, digest: o.value.digest } };
   }
 
@@ -676,7 +688,7 @@ export class Covenant {
     const balance = BigInt(observed.usdc || "0");
     checks.push(
       { id: "funded", label: "Paid plus balance is within the funded scope total", ok: paid + balance <= BigInt(totalAtomic(terms)), info: true, detail: `paid ${usdText(paid)} + balance ${usdText(balance)} of ${usdText(totalAtomic(terms))}` },
-      { id: "windows", label: "Daily/monthly limits are set to the scope total (not what caps the contract)", ok: p?.limits.daily?.[terms.asset] === totalAtomic(terms) && p?.limits.monthly?.[terms.asset] === totalAtomic(terms), info: true },
+      { id: "signed", label: "The whole live policy matches what both parties signed (limits and USD budget included)", ok: !!p && policyDifferences(p, terms).length === 0, detail: p ? policyDifferences(p, terms).join("; ") || undefined : undefined },
       { id: "relay", label: "Covenant relays the platform's read of the policy", ok: true, info: true },
     );
     const real = checks.filter((c) => !c.info);

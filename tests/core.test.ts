@@ -92,16 +92,24 @@ describe("policy request (what the platform is asked to enforce)", () => {
     notInForce: null,
     usdc: "0",
     grants: [],
-    policy: { actions: ["withdraw"], assets: [USDC_NEAR], owner_approval: true, frozen: false, limits: { per_transaction: { [USDC_NEAR]: "500000000" } }, budget: { daily_usd: null, weekly_usd: null, monthly_usd: null }, withdrawals: ["maria.demo"], ...policy },
+    policy: { actions: ["withdraw"], assets: [USDC_NEAR], owner_approval: true, frozen: false, limits: policyChanges(terms).limits!, budget: policyChanges(terms).budget!, withdrawals: ["maria.demo"], ...policy },
     ...extra,
   });
-  test("before every request: in force, owner approval, withdrawals == [payee], cap == largest", () => {
+  test("before every request: in force and the whole signed policy (approval, payee, cap, limits, budget, actions, assets)", () => {
     expect(policyProblem(ov({}), terms)).toBeNull();
     expect(policyProblem(ov({}, { notInForce: "pending" }), terms)).toMatchObject({ code: "policy_not_in_force", waiting: true });
     expect(policyProblem(ov({ owner_approval: false }), terms)).toMatchObject({ code: "policy_mismatch", waiting: false });
     expect(policyProblem(ov({ withdrawals: ["maria.demo", "attacker.demo"] }), terms)?.code).toBe("policy_mismatch");
     expect(policyProblem(ov({ limits: { per_transaction: { [USDC_NEAR]: "500000001" } } }), terms)?.code).toBe("policy_mismatch");
     expect(policyProblem(ov({ frozen: true }), terms)?.code).toBe("frozen");
+    const lim = policyChanges(terms).limits!;
+    expect(policyProblem(ov({ limits: { ...lim, monthly: undefined } }), terms)?.code).toBe("policy_mismatch");
+    expect(policyProblem(ov({ limits: { ...lim, daily: { [USDC_NEAR]: "1" } } }), terms)?.code).toBe("policy_mismatch");
+    expect(policyProblem(ov({ budget: { daily_usd: null, weekly_usd: null, monthly_usd: null } }), terms)?.code).toBe("policy_mismatch");
+    expect(policyProblem(ov({ assets: "any" }), terms)?.code).toBe("policy_mismatch");
+    expect(policyProblem(ov({ actions: ["withdraw", "transfer"] }), terms)?.code).toBe("policy_mismatch");
+    const b = policyChanges(terms).budget!;
+    expect(policyProblem(ov({ budget: { ...b, daily_usd: `${b.daily_usd}.00` } }), terms)).toBeNull(); // the same amount, written differently
     expect(policyProblem(null, terms)?.waiting).toBe(true);
   });
 });

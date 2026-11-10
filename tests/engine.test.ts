@@ -456,7 +456,7 @@ describe("Verify", () => {
     stubAgent(live).policy.withdrawals.push("attacker.demo");
     const red = await live.rt.covenant.verify(live.id);
     expect(red.overall).toBe("red");
-    expect(red.checks.filter((c) => !c.ok).map((c) => c.id)).toEqual(["payee"]);
+    expect(red.checks.filter((c) => !c.ok).map((c) => c.id)).toEqual(["payee", "signed"]);
   });
 
   test("a payout consent longer than the contract turns Verify red", async () => {

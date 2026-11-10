@@ -136,3 +136,74 @@ test("an APPLIED policy at or below the revision the edit was prepared against d
   }
   throw new Error("never reached the policy step");
 });
+
+// ---------------------------------------------------------------- the whole live policy, before every request
+
+const agentIdOf = (ctx: any): string => ctx.rt.covenant.onboarding.agentRow(ctx.id)!.agent_id!;
+const allAttempts = (ctx: any): any[] => (ctx.rt.covenant as any).attempts(ctx.id);
+const events = async (ctx: any): Promise<any[]> => (await ctx.rt.covenant.viewContract(ctx.id)).events;
+
+test("a live policy that differs from the signed terms anywhere blocks the request as policy_mismatch, alerts, and turns Verify red", async () => {
+  const ctx = await fakeActivate();
+  const agentId = agentIdOf(ctx);
+  ctx.controls.editPolicy(agentId, (p) => {
+    p.assets = "any";
+    delete p.limits.monthly;
+    p.budget.monthly_usd = null;
+  });
+  const before = ctx.controls.requests().length;
+  await ctx.rt.covenant.run(ctx.id);
+  expect(ctx.controls.requests().length).toBe(before); // nothing was asked of the platform
+  const att = allAttempts(ctx).find((a) => a.kind === "payout");
+  expect(`${att.state} ${att.code}`).toBe("blocked policy_mismatch");
+  expect((await events(ctx)).filter((e) => e.kind === "alert" && e.text.includes("differs from the signed terms")).length).toBe(1);
+  const v = await ctx.rt.covenant.verify(ctx.id);
+  expect(v.overall).toBe("red");
+  expect(v.checks.find((c) => c.id === "signed")!.ok).toBe(false);
+  // Re-checked on the timer: still blocked, still nothing sent, and the alert is not repeated.
+  ctx.rt.clock.advance(120_000);
+  await ctx.rt.covenant.getContract(ctx.id);
+  expect(ctx.controls.requests().length).toBe(before);
+  expect((await events(ctx)).filter((e) => e.kind === "alert").length).toBe(1);
+});
+
+test("each signed field counts: daily limit, budget, actions", async () => {
+  for (const edit of [
+    (p: any) => (p.limits.daily = { [DEMO_TERMS.asset]: "1" }),
+    (p: any) => (p.budget.daily_usd = "1000000"),
+    (p: any) => p.actions.push("transfer"),
+  ]) {
+    const ctx = await fakeActivate();
+    ctx.controls.editPolicy(agentIdOf(ctx), edit);
+    await ctx.rt.covenant.run(ctx.id);
+    expect(allAttempts(ctx).find((a) => a.kind === "payout").code).toBe("policy_mismatch");
+    expect(ctx.controls.requests().length).toBe(0);
+  }
+});
+
+test("a revision bump whose policy still matches is fine, and becomes the stored reviewed revision", async () => {
+  const ctx = await fakeActivate();
+  const stored = ctx.rt.covenant.onboarding.agentRow(ctx.id)!.policy_revision!;
+  ctx.controls.editPolicy(agentIdOf(ctx), () => {}); // e.g. a freeze and unfreeze: same policy, new revision
+  const r = await ctx.rt.covenant.run(ctx.id);
+  expect(r.payouts[0]!.state).toBe("held");
+  const row = ctx.rt.covenant.onboarding.agentRow(ctx.id)!;
+  expect(row.policy_revision).toBe(stored + 1);
+  expect((ctx.controls.requests()[0] as any).expectedPolicy.revision).toBe(stored + 1);
+  expect((await ctx.rt.covenant.verify(ctx.id)).overall).toBe("green");
+});
+
+test("a mismatched policy put back to the signed terms lets the same request id go out", async () => {
+  const ctx = await fakeActivate();
+  const agentId = agentIdOf(ctx);
+  const original = ctx.controls.policyOf(agentId)!;
+  ctx.controls.editPolicy(agentId, (p) => (p.owner_approval = false));
+  await ctx.rt.covenant.run(ctx.id);
+  const att = allAttempts(ctx).find((a) => a.kind === "payout");
+  expect(att.code).toBe("policy_mismatch");
+  ctx.controls.editPolicy(agentId, (p) => Object.assign(p, original));
+  ctx.rt.clock.advance(120_000);
+  await ctx.rt.covenant.getContract(ctx.id);
+  expect(ctx.rt.covenant.attempt(att.request_id).state).toBe("held");
+  expect((ctx.controls.requests()[0] as any).requestId).toBe(att.request_id);
+});
