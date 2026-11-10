@@ -187,8 +187,14 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     const body = z.object({ step: z.enum(["setup", "consent_payout", "consent_owner"]), nonce: z.string(), publicKey: z.string(), signature: z.string() }).parse(await c.req.json());
     return c.json(await covenant.signed(id, body));
   });
-  // The wallet signature is the authority here; the platform checks it against the owner key.
-  app.post("/owner-steps/:cid/submit", async (c) => c.json(await covenant.submitOwnerStep(c.req.param("cid"), walletSig.parse(await c.req.json()))));
+  // The platform checks the wallet signature against the owner key; Covenant also requires the representative's session.
+  app.post("/owner-steps/:cid/submit", async (c) => {
+    const cid = c.req.param("cid");
+    const contractId = covenant.ownerStepContract(cid);
+    if (contractId) asRepresentative(c.get("session"), contractId);
+    else if (config.auth.required) throw new UserError("This owner step belongs to no contract.", 403);
+    return c.json(await covenant.submitOwnerStep(cid, walletSig.parse(await c.req.json())));
+  });
   app.get("/owner-steps/:cid", async (c) => c.json(await covenant.getOwnerStep(c.req.param("cid"))));
 
   app.post("/contracts/:id/deposit", async (c) => {

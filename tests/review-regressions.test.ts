@@ -286,3 +286,32 @@ test("an expired payout grant blocks the request as grant_expired and sends the 
   expect(ctx.rt.covenant.attempt(att.request_id).state).toBe("held");
   expect((ctx.controls.requests()[before] as any).requestId).toBe(att.request_id);
 });
+
+// ---------------------------------------------------------------- access
+
+test("a demo attack payout can only be rejected, never approved", async () => {
+  const ctx = await fakeActivate();
+  const r = await ctx.rt.covenant.attack(ctx.id, "injected");
+  expect(r.outcome).toBe("held");
+  const rid = r.payout!.request_id;
+  await expect(ctx.rt.covenant.vote(rid, "approve")).rejects.toThrow("can only be rejected");
+  expect(ctx.rt.covenant.attempt(rid).vote_correlation_id).toBeNull(); // nothing was prepared at the platform
+  const v = await ctx.rt.covenant.vote(rid, "reject");
+  await ctx.rt.covenant.submitOwnerStep(v.correlation_id, await ctx.sign(v.sign!));
+  expect(ctx.rt.covenant.attempt(rid).vote).toBe("reject");
+});
+
+test("submitting an owner step needs the representative's session when sign-in is required", async () => {
+  const ctx = await fakeActivate();
+  const p1 = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+  const v = await ctx.rt.covenant.vote(p1, "approve");
+  const s = await ctx.sign(v.sign!);
+  (ctx.rt.config as any).auth.required = true;
+  const res = await ctx.rt.app.request(`/api/owner-steps/${v.correlation_id}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(s) });
+  expect(res.status).toBe(401);
+  expect(ctx.rt.covenant.onboarding.step(v.correlation_id).state).toBe("prepared");
+  // With sign-in off (the keyless demo) it stays open, like every other company action.
+  (ctx.rt.config as any).auth.required = false;
+  const ok = await ctx.rt.app.request(`/api/owner-steps/${v.correlation_id}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(s) });
+  expect(ok.status).toBe(200);
+});

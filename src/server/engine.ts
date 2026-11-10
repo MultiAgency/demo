@@ -395,6 +395,8 @@ export class Covenant {
     const first = this.attempt(requestId);
     return this.mutex.run(first.contract_id, async () => {
       let att = this.attempt(requestId);
+      // An attack payout is never counted against the scope, so it may only be rejected: its money can't move uncounted.
+      if (att.kind === "attack" && verdict === "approve") throw new UserError("A demo attack payout can only be rejected.", 409);
       if (att.state !== "held") throw new UserError(`This payout is ${att.state}, not waiting for approval.`, 409);
       if (!att.approval_id) {
         await this.fillHeld(att);
