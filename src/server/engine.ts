@@ -125,6 +125,11 @@ export class Covenant {
     return { id, contractorToken };
   }
 
+  private lastAlert(contractId: string): string | null {
+    const r = this.d.db.query("SELECT text FROM events WHERE contract_id = ? AND kind = 'alert' ORDER BY id DESC LIMIT 1").get(contractId) as { text: string } | null;
+    return r?.text ?? null;
+  }
+
   parties(id: string): { representative: string; contractor: string } {
     const t = this.terms(this.row(id));
     return { representative: t.representative.near_account, contractor: t.contractor.near_account };
@@ -446,7 +451,8 @@ export class Covenant {
     if (att.kind === "payout") {
       const pre = await this.preflight(row, terms, a);
       if ("state" in pre) {
-        if (pre.alert && att.state === pre.state && att.code === pre.code) delete pre.alert; // said once, not on every re-check
+        // Said once per distinct problem, not on every re-check.
+        if (pre.alert && att.state === pre.state && att.code === pre.code && this.lastAlert(att.contract_id) === pre.alert) delete pre.alert;
         return this.transition(att, pre);
       }
       expected = pre.expected;

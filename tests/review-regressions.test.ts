@@ -1,5 +1,5 @@
 // Regression tests for the review of #6, on the FakePlatform harness.
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createRuntime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import type { FakeControls } from "../src/server/platform/fake";
@@ -362,4 +362,14 @@ test("deferred runs are logged once per open judgment, so they can't push the he
   await ctx.rt.covenant.run(ctx.id);
   await ctx.rt.covenant.run(ctx.id);
   expect((await events(ctx)).filter((e) => e.kind === "deferred").length).toBe(2);
+});
+
+describe("destinations mode", () => {
+  test("a policy whose destinations aren't limited to the list never matches the signed payee", async () => {
+    const { withdrawalsOf } = await import("../src/server/platform/client");
+    const list = [{ action: "withdraw", chain: "near", address: "maria.demo", memo: null }];
+    expect(withdrawalsOf({ destinations: { mode: "only", list } })).toEqual(["maria.demo"]);
+    expect(withdrawalsOf({ destinations: { mode: "any", list } })).toEqual(['(destinations mode "any")']);
+    expect(withdrawalsOf({ destinations: { mode: "except", list } })).not.toContain("maria.demo");
+  });
 });

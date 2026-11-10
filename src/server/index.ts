@@ -1,6 +1,7 @@
 import index from "../web/index.html";
 import { loadConfig } from "./config";
 import { createRuntime, type Runtime } from "./app";
+import { UserError } from "./engine";
 
 export async function startServer(rt: Runtime, port: number) {
   return Bun.serve({
@@ -25,6 +26,8 @@ export function startTimers(rt: Runtime): () => void {
           try {
             await rt.covenant.run(id);
           } catch (err) {
+            // A 409 is an expected state (frozen, ended, nothing to do); only log real failures.
+            if (err instanceof UserError && err.status === 409) continue;
             console.error(`merge watcher: ${id}: ${err instanceof Error ? err.message : err}`);
           }
         }

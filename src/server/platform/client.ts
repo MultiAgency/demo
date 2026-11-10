@@ -132,8 +132,13 @@ type SdkAgentClient = ReturnType<ReturnType<typeof appClient>["agent"]>;
 // The SDK's call() is typed per procedure; its inputs here are built to the published schemas (owner-inputs, inputs).
 type Call = (path: string, input?: unknown) => Promise<{ ok: true; value: any } | AnyFailure>;
 
-/** The policy's NEAR withdrawal payees: `destinations.list` entries action=withdraw, chain=near, memo=null. */
-export function withdrawalsOf(policy: { destinations: { list: { action: string; chain?: string; address: string; memo?: string | null }[] } }): string[] {
+/**
+ * The policy's NEAR withdrawal payees: `destinations.list` entries action=withdraw, chain=near, memo=null.
+ * The list only limits payees in mode "only"; any other mode is reported as such, so it never matches the signed payee.
+ */
+export function withdrawalsOf(policy: { destinations: { mode?: string; list: { action: string; chain?: string; address: string; memo?: string | null }[] } }): string[] {
+  const mode = policy.destinations.mode;
+  if (mode !== undefined && mode !== "only") return [`(destinations mode "${mode}")`];
   return policy.destinations.list.filter((d) => d.action === "withdraw" && d.chain === "near" && d.memo === null).map((d) => d.address);
 }
 
