@@ -30,7 +30,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
   const live = (c: ContractView) => c.payouts.find((p) => p.kind === "payout" && (p.state === "held" || p.state === "processing" || p.state === "pending" || p.state === "unknown"));
   const lines = (p: PayoutView | undefined) => (p ? p.lines.map((l) => `${l.deliverable_id} $${l.amount_usd}`).join(", ") : "nothing");
 
-  /** Owner signs a prepared step: NEP-413 in the wallet, or the platform's confirm page. */
+  /** Owner signs a prepared step: NEP-413 with the owner's key, or the platform's confirm page. */
   async function ownerSign(cid: string, sign: { message: string; recipient: string; nonce: string } | null | undefined, confirm: { url: string } | null | undefined) {
     if (sign) {
       const s = await d.signer(d.rep).sign413({ message: sign.message, recipient: sign.recipient, nonce: sign.nonce });
@@ -52,7 +52,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
   /** Approve the live payout, settle it, and return the contract after the follow-up. */
   async function approveAndSettle(id: string, rid: string) {
     const { v, c } = await vote(id, rid, "approve");
-    check(["processing", "paid"].includes(payout(c, rid)?.state ?? ""), `${rid}: approved in the wallet; the platform releases it (terms ${v.terms?.amount} → ${v.terms?.recipient})`);
+    check(["processing", "paid"].includes(payout(c, rid)?.state ?? ""), `${rid}: approved with the owner's signature; the platform releases it (terms ${v.terms?.amount} → ${v.terms?.recipient})`);
     await api("POST", "/sim/settle", { request_id: rid });
     return contract(id);
   }
@@ -153,7 +153,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
     if (p1) {
       const r = await vote(id, p1.request_id, "reject");
       c = r.c;
-      check(payout(c, p1.request_id)?.state === "rejected" && (c.judgment as any)?.outcome === "rejected", "rejected in the wallet: nothing sent, judgment rejected");
+      check(payout(c, p1.request_id)?.state === "rejected" && (c.judgment as any)?.outcome === "rejected", "rejected with the owner's signature: nothing sent, judgment rejected");
     }
     run = await api("POST", `/contracts/${id}/run`);
     check(run.outcome === "nothing", "the injected PR is excluded; the next run requests nothing");

@@ -86,7 +86,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           <li>
             <Icon name="shieldCheck" size={15} />
             <span>Enforced</span>
-            <strong>By the MultiAgency platform</strong>
+            <strong>{config.platform === "fake" ? "By the platform stand-in (simulated)" : "By the MultiAgency platform"}</strong>
             <em>an agent just for this contract; every payout approved by {t.company}</em>
           </li>
         </ul>

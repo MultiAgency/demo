@@ -168,6 +168,7 @@ function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Ac
             approver={c.terms.representative.near_account}
             status={c.platform.policy?.applied ? "live" : "draft"}
             agentId={c.platform.agent_id}
+            standIn={c.platform.mode === "fake"}
           />
           <p className="side-note">
             <Icon name="info" size={14} /> Organization <code>{c.organization}</code> on {c.platform.host}
@@ -643,6 +644,7 @@ function PolicyTab({ c, verify }: { c: ContractView; verify: VerifyView | null }
           approver={c.terms.representative.near_account}
           status={c.stage === "frozen" ? "frozen" : c.stage === "ended" ? "ended" : "live"}
           agentId={c.platform.agent_id}
+          standIn={c.platform.mode === "fake"}
         />
       </div>
       <Card>

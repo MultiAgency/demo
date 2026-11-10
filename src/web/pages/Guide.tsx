@@ -13,8 +13,9 @@ const ENFORCED: [string, string, boolean][] = [
   ["Payee", "The agent can only withdraw to the payee", true],
   ["Largest deliverable", "No single payment above it", true],
   ["Your approval", "The platform holds every payout until you vote", true],
-  ["Scope total", "The agent is funded with exactly the total", true],
   ["End date", "Covenant's payout consent ends with the contract", true],
+  ["The whole signed policy", "Checked before every payout request; any difference and nothing is requested", false],
+  ["Scope total", "You fund the agent with it; Verify shows paid + balance against it (you could deposit more)", false],
   ["How complete each deliverable is", "Judged on every merge (NEAR AI Cloud or rules)", false],
   ["Acceptance, repos, start date", "Checked before judging", false],
 ];

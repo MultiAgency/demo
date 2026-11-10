@@ -215,9 +215,9 @@ export function NewContract({ config }: { config: AppConfig }) {
         <aside className="split-side">
           <div className="sticky">
             <div className="side-label">Live preview</div>
-            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.rep} />
+            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.rep} standIn={config.platform === "fake"} />
             <p className="side-note">
-              <Icon name="info" size={14} /> Locked rows are enforced by the MultiAgency platform. Nothing is created until both parties sign.
+              <Icon name="info" size={14} /> {config.platform === "fake" ? "On the platform stand-in the locked rows are simulated." : "Locked rows become the MultiAgency platform's policy."} Nothing is created until both parties sign.
             </p>
           </div>
         </aside>

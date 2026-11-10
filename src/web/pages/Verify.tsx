@@ -177,6 +177,7 @@ export function VerifyPage({ id }: { id: string }) {
           approver={t.representative.near_account}
           status={o?.frozen ? "frozen" : v.observed ? "live" : "draft"}
           agentId={v.observed?.agentId ?? c.platform.agent_id}
+          standIn={c.platform.mode === "fake"}
         />
       </div>
     </div>

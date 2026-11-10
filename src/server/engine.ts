@@ -715,7 +715,7 @@ export class Covenant {
     const paid = this.attempts(id).filter(isPaid).reduce((n, x) => n + BigInt(x.amount_atomic), 0n);
     const balance = BigInt(observed.usdc || "0");
     checks.push(
-      { id: "funded", label: "Paid plus balance is within the funded scope total", ok: paid + balance <= BigInt(totalAtomic(terms)), info: true, detail: `paid ${usdText(paid)} + balance ${usdText(balance)} of ${usdText(totalAtomic(terms))}` },
+      { id: "funded", label: "Paid plus balance against the scope total (information: the company could deposit more)", ok: paid + balance <= BigInt(totalAtomic(terms)), info: true, detail: `paid ${usdText(paid)} + balance ${usdText(balance)} of ${usdText(totalAtomic(terms))}` },
       { id: "signed", label: "The whole live policy matches what both parties signed (limits and USD budget included)", ok: !!p && policyDifferences(p, terms).length === 0, detail: p ? policyDifferences(p, terms).join("; ") || undefined : undefined },
       { id: "relay", label: "Covenant relays the platform's read of the policy", ok: true, info: true },
     );
