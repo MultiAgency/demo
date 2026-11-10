@@ -1,4 +1,4 @@
-// Shared test setup: a Covenant runtime on track B's StubPlatform, plus helpers that play the representative.
+// Shared test setup: a Covenant runtime on the StubPlatform, plus helpers that play the representative.
 import { createRuntime, type Runtime } from "../../src/server/app";
 import { loadConfig } from "../../src/server/config";
 import { DEMO_TERMS } from "../../src/shared/demo";

@@ -1,4 +1,4 @@
-// FROZEN: API view types between the server (track B) and the web app (track C). Changed only by the orchestrator.
+// API view types shared by the server and the web app.
 import type { Consent, Deposit, OwnerAction, Overview } from "../server/platform/port";
 import type { Clause } from "./clauses";
 import type { Deliverable, Terms } from "./terms";
@@ -130,7 +130,6 @@ export interface ConfigView {
   platform: "fake" | "remote";
   stack: boolean;
   host: string;
-  org_mode: "contract";
   demo_controls: boolean;
   demo_accounts: { representative: string; contractor: string; attacker: string } | null;
   now: string;
@@ -139,7 +138,7 @@ export interface ConfigView {
 }
 
 /*
-REST (track B serves, track C calls):
+REST:
   GET  /api/config -> ConfigView
   GET  /api/contracts -> list
   POST /api/contracts -> { id, contractor_link, contractor_token }
@@ -156,7 +155,5 @@ REST (track B serves, track C calls):
   POST /api/payouts/:rid/resolve { outcome: "arrived"|"reowe"|"rejected" }
   GET  /api/contracts/:id/verify -> VerifyView
   POST /api/contracts/:id/attacks/:scenario
-  POST /api/contracts/:id/freeze       (only if freeze survives the cut list)
   Demo (fake; stack when PLATFORM_STACK_DIR): /api/sim/{sign,fund,settle,merge,advance,confirm}
-  Removed: /api/intents/*, /api/payouts/:pid/approve|reject
 */

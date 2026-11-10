@@ -14,7 +14,7 @@ export interface StackInfo {
   rpcUrl: string;
   owner: string;
   payees: string[];
-  /** Beyond the frozen signature: the stack's app deployment, its not-agreed account and its control directory. */
+  /** The stack's app deployment, its not-agreed account and its control directory. */
   deployment: string;
   builder: string | null;
   controlsDir: string;
@@ -59,7 +59,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /**
  * The stack's file controls as `DemoControls`: simulated funding of a created agent and settlement of an approved payout.
  * Lost replies, outages and failures after approval are injected on the fake only (the stack can't drop a withdrawal's
- * reply: A-spike F9).
+ * reply).
  */
 export class StackControls implements DemoControls {
   private seq = 0;

@@ -1,7 +1,7 @@
-// Track B's scripted stand-in for the frozen Platform port, used until track A's FakePlatform lands.
+// A scripted stand-in for the Platform port, smaller than FakePlatform.
 // It models only what Covenant's engine depends on: NEP-413 checks, consent scopes on its own clock,
 // owner steps, the authorize rules Covenant maps, requestId idempotency, held → vote → settle, and
-// hooks to script failures. It is not the platform; tests that need the real rules move to FakePlatform at M2.
+// hooks to script failures. It is not the platform; tests that need the real rules use FakePlatform.
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { base64 } from "@scure/base";
 import { formatPublicKey, nep413Hash, nonceFromString, randomNonce, nonceToString, verifyNep413 } from "../../src/server/nep413";

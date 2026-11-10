@@ -1,4 +1,4 @@
-// Onboarding: the next-step orchestrator (plan 04 §5 rows 1–5) and the owner steps every owner action goes
+// Onboarding: what the representative does next (setup, create, consents, grant, policy), and the owner steps every owner action goes
 // through (prepare → store a row before returning → wallet signs or confirm link → submit → status).
 import type { Database } from "bun:sqlite";
 import type { Fail, OwnerAction, OwnerPrepared, Platform, Signed413 } from "./platform/port";

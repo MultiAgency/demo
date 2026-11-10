@@ -13,7 +13,6 @@ export interface Config {
   /** Dev/test only: a local platform stack's directory (state.json). Refused in production. */
   stackDir: string | null;
   rpcUrl: string | null;
-  orgMode: "contract";
   consentGraceDays: number;
   statusPollMs: number;
   evidence: "fake" | "github";
@@ -48,7 +47,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     caPem,
     stackDir,
     rpcUrl: env.NEAR_RPC_URL || null,
-    orgMode: "contract",
     consentGraceDays: env.CONSENT_GRACE_DAYS ? Number(env.CONSENT_GRACE_DAYS) : 30,
     statusPollMs: env.STATUS_POLL_MS ? Number(env.STATUS_POLL_MS) : 60_000,
     evidence: (env.GITHUB ?? (production ? "github" : "fake")) as Config["evidence"],

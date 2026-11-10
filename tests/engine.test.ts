@@ -488,7 +488,7 @@ describe("secrets and storage", () => {
       const contract = await (await ctx.rt.app.request(`/api/contracts/${ctx.id}`)).text();
       const verify = await (await ctx.rt.app.request(`/api/contracts/${ctx.id}/verify`)).text();
       for (const text of [cfg, contract, verify, ...ctx.logs, ...lines]) expect(text.includes(secret)).toBe(false);
-      expect(JSON.parse(cfg)).toMatchObject({ platform: "fake", stack: true, demo_controls: true, org_mode: "contract" });
+      expect(JSON.parse(cfg)).toMatchObject({ platform: "fake", stack: true, demo_controls: true });
     } finally {
       Object.assign(console, orig);
     }
@@ -523,7 +523,7 @@ describe("secrets and storage", () => {
 });
 
 // ----------------------------------------------------------------------------------------------------------------
-// The same rules on track A's FakePlatform (the platform's authorize rules, consent scopes and requestId semantics).
+// The same rules on the FakePlatform (the platform's authorize rules, consent scopes and requestId semantics).
 describe("on the FakePlatform", () => {
   const live = async (ctx: FCtx) => (await ctx.rt.covenant.getContract(ctx.id)).payouts.find((p) => p.kind === "payout" && ["held", "processing", "unknown", "blocked", "waiting", "failed"].includes(p.state)) ?? null;
 

@@ -1,9 +1,7 @@
 import { usd } from "./money";
 import { endInstant, largestDeliverable, scopeTotal, type Terms } from "./terms";
 
-// ---------------------------------------------------------------------------------------------
-// Frozen signature (shared by server and web).
-// ---------------------------------------------------------------------------------------------
+// Shared by server and web.
 export type ClauseId = "payee" | "cap" | "budget" | "withdraw-only" | "funding" | "term" | "termination" | "approval" | "setup" | "platform";
 export interface Clause {
   id: ClauseId;

@@ -125,7 +125,6 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
       platform: kit.platform.mode,
       stack: !!config.stackDir,
       host: kit.platform.host,
-      org_mode: "contract",
       demo_controls: !!kit.controls,
       demo_accounts: kit.controls ? DEMO_ACCOUNTS : null,
       now: clock.now().toISOString(),

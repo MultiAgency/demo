@@ -1,4 +1,4 @@
-// The web app's view of the API. Everything the server returns is typed in src/shared/views.ts (frozen);
+// The web app's view of the API. Everything the server returns is typed in src/shared/views.ts;
 // this file re-exports those types and adds the few shapes views.ts leaves open.
 import type { ConfigView, SignRequest } from "../shared/views";
 

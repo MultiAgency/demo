@@ -22,7 +22,7 @@ import {
 /**
  * `Platform` over `@multiagency/sdk` `appClient`: the app deployment's routes under `/apps/v1`. The service credential
  * stays inside this object (never logged, never in a result). Every platform answer is mapped to the port's
- * shapes and failure kinds; nothing here retries or decides — the engine does (plan §4).
+ * shapes and failure kinds; nothing here retries or decides — the engine does.
  */
 export interface SdkPlatformOptions {
   url: string;
@@ -31,7 +31,7 @@ export interface SdkPlatformOptions {
   fetch?: typeof fetch;
   /**
    * The label `grant_issue` is sent with. The platform accepts `payout` (and `invoices`) for payout sends; the local
-   * stack's provider sim accepts only `invoices` for a created agent (A-spike F1), so `makePlatform` passes
+   * stack's provider sim accepts only `invoices` for a created agent (MultiAgency/platform#54), so `makePlatform` passes
    * `"invoices"` when it runs against a stack dir.
    */
   grantLabel?: "payout" | "invoices";

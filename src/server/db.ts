@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AttemptState, JudgmentOutcome } from "../shared/views";
+import { OPEN_STATES } from "./payouts";
 
 export interface SignatureRecord {
   account_id: string;
@@ -121,9 +122,6 @@ export interface EventRow {
   kind: string;
   text: string;
 }
-
-/** Attempt states that hold a contract's single open payout slot. */
-export const OPEN_STATES: AttemptState[] = ["pending", "blocked", "waiting", "unknown", "held", "processing"];
 
 export function openDb(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });

@@ -46,22 +46,3 @@ export class KeySigner implements OwnerSigner {
 export function stackSigner(): KeySigner {
   return KeySigner.fromSecretKey(STACK_TEST_KEY);
 }
-
-/**
- * Fake mode: one throwaway key per account, generated on first use. `keyOf` lets the fake chain answer
- * `isFullAccessKey` for exactly these keys.
- */
-export class DevKeyring {
-  private keys = new Map<string, KeySigner>();
-  signer(account: string): KeySigner {
-    let k = this.keys.get(account);
-    if (!k) {
-      k = KeySigner.random();
-      this.keys.set(account, k);
-    }
-    return k;
-  }
-  keyOf(account: string): string | null {
-    return this.keys.get(account)?.publicKey ?? null;
-  }
-}

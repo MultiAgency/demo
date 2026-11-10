@@ -1,4 +1,4 @@
-// FROZEN: the driver contract shared by demo-e2e (fake, track B) and demo-stack (local stack, track A).
+// The driver shared by demo-e2e (platform stand-in) and demo-stack (local platform stack).
 import type { DemoControls, OwnerSigner } from "../src/server/platform/port";
 
 export interface ScenarioDriver {
@@ -12,4 +12,4 @@ export interface ScenarioDriver {
   attacker: string;
 }
 
-// scripts/scenario.ts (track B): export async function runScenario(d: ScenarioDriver): Promise<string[] /* failures */>
+// scripts/scenario.ts: export async function runScenario(d: ScenarioDriver): Promise<string[] /* failures */>

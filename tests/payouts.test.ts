@@ -81,7 +81,7 @@ describe("committed / open / paid", () => {
   });
 });
 
-describe("platform answer → attempt state (one per row of plan §4)", () => {
+describe("platform answer → attempt state (one per answer)", () => {
   test("row written, no answer: pending is followed like unknown (status, not a new id)", () => {
     expect(isOpen(att({ state: "pending" })) && isCommitted(att({ state: "pending" }))).toBe(true);
   });

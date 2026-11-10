@@ -1,6 +1,6 @@
-// FROZEN interface between Covenant and the MultiAgency platform (track A implements, track B consumes).
-// Changed only by the orchestrator. See docs plan 04 §3.
-export const USDC = "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
+// The interface between Covenant and the MultiAgency platform: the SDK client (client.ts) and the stand-in (fake.ts).
+import { USDC_NEAR } from "../../shared/terms";
+export const USDC = USDC_NEAR;
 export type Fail =
   | { ok: false; kind: "session" } // credential bad (401)
   | { ok: false; kind: "forbidden"; code?: string } // scope | no_consent | consent_revoked | access_ended | ...
@@ -156,7 +156,7 @@ export interface DemoControls {
   fund(agentId: string, atomic: string): Promise<void>;
   settle(correlationId: string): Promise<void>;
   transfers(): Promise<{ recipient: string; amount: string; status: string }[]>;
-  completeConfirm?(url: string): Promise<void>; // stack, cut-list item 2
+  completeConfirm?(url: string): Promise<void>; // fake and stack: complete a platform confirm link headlessly
   dropNextReply?(): void; // fake only
   setUnavailable?(on: boolean): void; // fake only
   failAfterApproval?(code: string): void; // fake only

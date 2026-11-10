@@ -27,7 +27,7 @@ import {
 
 /**
  * A platform stand-in for the keyless demo and the tests. It reproduces the MultiAgency rules Covenant depends on,
- * as read from platform 96a0bb6 and observed on its local stack (p2/A-spike.md): NEP-413 setup and consents checked
+ * as read from platform 96a0bb6 and observed on its local stack: NEP-413 setup and consents checked
  * against the owner's full-access key, consent scopes and expiry on its own clock, one hosted agent per setup, owner
  * actions signed by the owner's key, the payout `authorize` rules (recorded refusals vs refusals thrown before
  * recording), requestId idempotency, held payouts released only by an `approval_vote`, and the failure modes the
@@ -569,7 +569,7 @@ class FakeAgent implements AgentHandle {
     if (!it || it.agent !== e.agent.name) return fail.refused("not_found");
     if (!it.submitted) return ok({ stage: "prepared", status: this.p.now() > it.expiresAtMs ? "EXPIRED" : "PENDING_SIGNATURE", failureCode: null });
     if (it.action.type === "approval_vote") {
-      // As observed on the stack (A-spike F2): an approve vote reads `submitting` with no status; a reject reads FAILED.
+      // As observed on the stack: an approve vote reads `submitting` with no status; a reject reads FAILED.
       const pay = this.p.state.payments.get(it.paymentCorrelation!)!;
       if (it.action.verdict === "reject") return ok({ stage: "submitted", status: "FAILED", failureCode: "rejected_by_owner" });
       return ok({ stage: "submitting", status: null, failureCode: pay.status === "FAILED" ? pay.failureCode : null });

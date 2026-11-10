@@ -1,11 +1,11 @@
 import { useState } from "react";
+import { USDC_NEAR } from "../../shared/terms";
 import { api, prepareVote, submitVote, termsMatch } from "../api";
 import type { AppConfig, AttemptState, ContractView, PayoutView, VoteAnswer } from "../types";
 import { Icon, type IconName } from "./icons";
 import { SignBox } from "./SignBox";
 import { Alert, Badge, Button, Card, CardHeader, Empty, Mono, short, timeText, type Tone, usd } from "./ui";
 
-export const USDC = "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 export const NO_CLAUSE = "The policy refused it.";
 
 export type Act = (fn: () => Promise<unknown>) => Promise<void>;
@@ -239,7 +239,7 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
       setError(err instanceof Error ? err.message : String(err));
       return;
     }
-    if (v === "approve" && !termsMatch(p, answer.terms, USDC)) {
+    if (v === "approve" && !termsMatch(p, answer.terms, USDC_NEAR)) {
       setError("The platform's terms for this approval don't match the payout. Not signing.");
       return;
     }

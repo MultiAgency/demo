@@ -1,4 +1,4 @@
-// The same representative helpers as harness.ts, on track A's real FakePlatform (makePlatform({mode:"fake"})).
+// The same representative helpers as harness.ts, on the FakePlatform (makePlatform({mode:"fake"})).
 import { createRuntime, type Runtime } from "../../src/server/app";
 import { loadConfig } from "../../src/server/config";
 import type { FakeControls } from "../../src/server/platform/fake";

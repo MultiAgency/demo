@@ -27,6 +27,7 @@ import {
   planPayout,
   requestIdFor,
   neverRecorded,
+  OPEN_STATES,
   sumLines,
   type Transition,
 } from "./payouts";
@@ -136,7 +137,7 @@ export class Covenant {
 
   /** Contracts with a live payout or attack to follow on the status timer. */
   followUpIds(): string[] {
-    const rows = this.d.db.query("SELECT DISTINCT contract_id FROM payout_attempts WHERE state IN ('pending','blocked','waiting','unknown','held','processing')").all() as { contract_id: string }[];
+    const rows = this.d.db.query("SELECT DISTINCT contract_id FROM payout_attempts WHERE state IN (" + OPEN_STATES.map((s) => `'${s}'`).join(",") + ")").all() as { contract_id: string }[];
     return rows.map((r) => r.contract_id);
   }
 
@@ -278,7 +279,7 @@ export class Covenant {
     return res.value;
   }
 
-  // ================================================================ the agent's run (§4)
+  // ================================================================ the agent's run
 
   async run(id: string): Promise<RunResult> {
     return this.mutex.run(id, () => this.runLocked(id));
@@ -382,7 +383,7 @@ export class Covenant {
     });
   }
 
-  // ================================================================ approval votes (§4 Vote)
+  // ================================================================ approval votes
 
   async vote(requestId: string, verdict: "approve" | "reject") {
     const first = this.attempt(requestId);
@@ -513,7 +514,7 @@ export class Covenant {
   /** Follow every live attempt of a contract, then move its open judgment along. Caller holds the mutex. */
   private async followUpLocked(id: string) {
     for (const att of this.attempts(id)) {
-      if (att.state === "pending" || att.state === "unknown" || att.state === "held" || att.state === "processing" || att.state === "waiting" || att.state === "blocked") {
+      if (OPEN_STATES.includes(att.state)) {
         try {
           await this.followAttempt(att);
         } catch (err) {
@@ -653,7 +654,7 @@ export class Covenant {
     const now = this.d.now().getTime();
     const largest = largestAtomic(terms);
     const payoutConsent = consents.find((c) => c.id === a!.payout_consent_id) ?? consents.find((c) => c.scopes.includes("payout") && !c.revoked);
-    // The local stack only accepts the "invoices" label for the payout grant (platform-gaps G7).
+    // The local stack only accepts the "invoices" label for the payout grant (platform-gaps G9).
     const grant = observed.grants.find((g) => (g.label === "payout" || g.label === "invoices") && !g.revoked && Date.parse(g.expiresAt) > now);
     checks.push(
       { id: "applied", label: "Policy is applied, synced and in force", ok: observed.status === "APPLIED" && observed.synced && observed.notInForce === null, detail: observed.notInForce ?? undefined },
@@ -1045,7 +1046,7 @@ export class Covenant {
   }
 }
 
-/** One platform Organization per contract (`COVENANT_ORG_MODE=company` would change only this). */
+/** One platform Organization per contract. One agent per company would change this and the policy's payee list. */
 export function orgFor(contractId: string): string {
   return contractId;
 }

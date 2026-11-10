@@ -1,4 +1,4 @@
-// The payout attempt state machine and payout planning (plan 04 §4). Pure: no database, no platform calls.
+// The payout attempt state machine and payout planning. Pure: no database, no platform calls.
 //
 // Rules this file encodes:
 // - Only a proven "nothing sent" frees money: a recorded refusal, a vote-proven reject, or a failed payout the
@@ -36,11 +36,14 @@ export function attackIdFor(scenario: string, rand: string): string {
   return `atk-${scenario}-${rand.slice(0, 10)}`;
 }
 
+/** Live attempt states: followed on the status timer, and (with an unresolved `failed`) the open payout slot. */
+export const OPEN_STATES: readonly AttemptState[] = ["pending", "blocked", "waiting", "unknown", "held", "processing"];
+
 /** States that hold the contract's one open payout slot (mirrors the `one_open_payout` index). */
 export function isOpen(a: Pick<AttemptLike, "kind" | "state" | "resolution">): boolean {
   if (a.kind !== "payout") return false;
   if (a.state === "failed") return a.resolution === null;
-  return a.state === "pending" || a.state === "blocked" || a.state === "waiting" || a.state === "unknown" || a.state === "held" || a.state === "processing";
+  return OPEN_STATES.includes(a.state);
 }
 
 /** Committed = money that may have left or may still leave. Attacks are never committed. */

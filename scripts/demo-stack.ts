@@ -6,14 +6,14 @@
  *   pnpm test:e2e:stack --app covenant --no-browser --owner acme.demo --payee maria.demo --builder attacker.demo
  * and pass the directory of the `state.json` it prints.
  *
- * With track B's `scripts/scenario.ts` present, this starts Covenant (PLATFORM=remote, PLATFORM_STACK_DIR) and runs the
- * shared `runScenario` with the stack driver. `--platform-only` (or no scenario.ts yet) runs `platformScenario`: the
- * same money path straight through the `Platform` interface, which proves the SDK client end to end.
+ * This starts Covenant (PLATFORM=remote, PLATFORM_STACK_DIR) and runs the shared `runScenario` (scripts/scenario.ts)
+ * with the stack driver. `--platform-only` runs `platformScenario`: the same money path straight through the
+ * `Platform` interface, which proves the SDK client end to end.
  * Exits non-zero on any failure.
  */
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ScenarioDriver } from "./scenario-driver";
+import { runScenario } from "./scenario";
 import { makePlatform } from "../src/server/platform/index";
 import type { AgentHandle, DemoControls, OwnerAction, OwnerSigner, PlatformKit, Res } from "../src/server/platform/port";
 import { USDC } from "../src/server/platform/port";
@@ -204,7 +204,7 @@ export async function platformScenario(s: PlatformScenarioInput): Promise<{ fail
   return { failures, agentId, agent: name };
 }
 
-/** The stack `ScenarioDriver` for track B's `runScenario`. */
+/** The stack `ScenarioDriver` for `runScenario`. */
 export function stackDriver(stackDir: string, base: string, now = new Date()): ScenarioDriver {
   const stack = readStack(stackDir);
   const day = (n: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + n)).toISOString().slice(0, 10);
@@ -236,7 +236,7 @@ async function main() {
   const stackDir = process.env.PLATFORM_STACK_DIR;
   if (!stackDir) throw new Error("Set PLATFORM_STACK_DIR to the platform stack directory (the folder holding state.json)");
   const stack = readStack(stackDir);
-  const platformOnly = process.argv.includes("--platform-only") || !existsSync(join(import.meta.dir, "scenario.ts"));
+  const platformOnly = process.argv.includes("--platform-only");
   console.log(`Covenant · MultiAgency local stack (${stack.url}) · SIMULATED provider, chain, signatures and settlement`);
   if (platformOnly) {
     console.log("Mode: platform-only (the Platform interface end to end, no Covenant engine)");
@@ -261,8 +261,6 @@ async function main() {
   try {
     const base = `http://localhost:${port}/api`;
     await waitFor(`${base}/config`);
-    const scenarioPath = "./scenario";
-    const { runScenario } = (await import(scenarioPath)) as { runScenario: (d: ScenarioDriver) => Promise<string[]> };
     const failures = await runScenario(stackDriver(stackDir, base));
     console.log(failures.length ? `\nFAILED (${failures.length}):\n - ${failures.join("\n - ")}` : "\nPASS");
     process.exitCode = failures.length ? 1 : 0;
