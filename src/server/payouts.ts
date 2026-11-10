@@ -46,7 +46,7 @@ export function isOpen(a: Pick<AttemptLike, "kind" | "state" | "resolution">): b
 /** Committed = money that may have left or may still leave. Attacks are never committed. */
 export function isCommitted(a: Pick<AttemptLike, "kind" | "state" | "resolution">): boolean {
   if (a.kind !== "payout") return false;
-  if (a.state === "refused" || a.state === "rejected") return false;
+  if (a.state === "refused" || a.state === "rejected" || a.state === "dropped") return false;
   if (a.state === "failed" && (a.resolution === "reowe" || a.resolution === "rejected")) return false;
   return true;
 }
@@ -116,6 +116,8 @@ export interface Transition {
 }
 
 export const DEFAULT_RETRY_MS = 60_000;
+/** A blocked attempt the platform never recorded: Covenant's preflight or a refusal before recording. */
+export const neverRecorded = (a: Pick<AttemptLike, "state" | "code">) => a.state === "blocked" && a.code !== "request_conflict";
 /** Recorded refusals that get one automatic attempt+1 after re-reading the overview. */
 export const AUTO_RETRY_CODES = new Set(["reviewed_policy_changed", "policy_not_in_force"]);
 

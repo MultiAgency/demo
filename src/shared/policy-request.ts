@@ -53,9 +53,10 @@ export function expectations(terms: Terms): Expectations {
  */
 export function policyProblem(o: Overview | null, terms: Terms): { code: string; waiting: boolean; detail: string } | null {
   if (!o || !o.policy) return { code: "policy_not_in_force", waiting: true, detail: "No policy read yet." };
-  if (o.notInForce !== null) return { code: "policy_not_in_force", waiting: true, detail: `Policy not in force: ${o.notInForce}.` };
   const p = o.policy;
+  // Before notInForce: the platform reports a frozen agent as not in force too, and a freeze is not a wait.
   if (p.frozen) return { code: "frozen", waiting: false, detail: "The agent is frozen." };
+  if (o.notInForce !== null) return { code: "policy_not_in_force", waiting: true, detail: `Policy not in force: ${o.notInForce}.` };
   if (!p.owner_approval) return { code: "policy_mismatch", waiting: false, detail: "Owner approval is off." };
   const w = [...p.withdrawals].map((a) => a.toLowerCase());
   if (w.length !== 1 || w[0] !== terms.payee.address) return { code: "policy_mismatch", waiting: false, detail: `Withdrawals are [${w.join(", ")}], not [${terms.payee.address}].` };

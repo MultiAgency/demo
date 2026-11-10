@@ -134,11 +134,19 @@ export class Onboarding {
         if (!o.ok) return wait("Waiting for the platform to read the policy");
         const ov = o.value;
         if (ov.status === "FAILED") {
-          this.setAgent(a.organization, { stage: "needs_policy" });
-          this.d.event(id, "policy", "The policy edit failed at the platform. Sign it again.");
-          return this.next(id);
+          // Stop and tell the owner; don't prepare a new edit. The platform relays the provider's FAILED without a
+          // recovery rule, and a new policy_update needs the owner's signature against the current revision anyway.
+          const signed = this.latestStep(a.organization, "policy_update");
+          if (signed && signed.state !== "failed") {
+            this.setStep(signed.correlation_id, { state: "failed", failure_code: "policy_failed" });
+            this.d.event(id, "alert", `The platform reports the policy edit FAILED (revision ${ov.revision}). Nothing can be paid until a revision applies.`);
+          }
+          throw new UserError(`The platform reports the policy edit FAILED (revision ${ov.revision}). Nothing can be paid until a revision applies; check the agent's policy history before signing a new edit.`, 409);
         }
         if (ov.notInForce !== null || !ov.synced || ov.status !== "APPLIED") return wait("Waiting for the policy to be in force");
+        // An earlier revision still in force must not end the wait: the signed edit has to land above the one it was prepared against.
+        const preparedAt = preparedRevision(this.latestStep(a.organization, "policy_update"));
+        if (preparedAt !== null && (ov.revision === null || ov.revision <= preparedAt)) return wait("Waiting for the signed policy revision to apply");
         const problem = policyProblem(ov, terms);
         if (problem) throw new UserError(`The applied policy does not match the terms: ${problem.detail}`, 409);
         this.setAgent(a.organization, { stage: "ready", policy_revision: ov.revision, policy_digest: ov.digest });
@@ -325,6 +333,17 @@ export class Onboarding {
 
   private iso() {
     return this.d.now().toISOString();
+  }
+}
+
+/** The policy revision a signed policy_update was prepared against, from its stored action. */
+function preparedRevision(s: OwnerStepRow | null): number | null {
+  if (!s || s.state !== "success") return null;
+  try {
+    const r = JSON.parse(s.action)?.expectedPolicy?.revision;
+    return typeof r === "number" ? r : null;
+  } catch {
+    return null;
   }
 }
 

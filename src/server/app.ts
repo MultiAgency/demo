@@ -149,7 +149,17 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     return c.json({ id, contractor_link: `/#/c/${id}/sign?t=${contractorToken}`, contractor_token: contractorToken }, 201);
   });
 
-  app.get("/contracts/:id", async (c) => c.json(await covenant.getContract(c.req.param("id"))));
+  app.get("/contracts/:id", async (c) => {
+    const id = c.req.param("id");
+    // Only the representative's reads move payouts along; anyone else gets the view (the status timer still follows up).
+    let representative = true;
+    try {
+      asRepresentative(c.get("session"), id);
+    } catch {
+      representative = false;
+    }
+    return c.json(representative ? await covenant.getContract(id) : await covenant.viewContract(id));
+  });
 
   app.get("/contracts/:id/signing-request", (c) => {
     const role = c.req.query("role") as Role;

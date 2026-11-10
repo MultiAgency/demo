@@ -22,6 +22,7 @@ export const ATTEMPT: Record<AttemptState, { label: string; tone: Tone }> = {
   rejected: { label: "Rejected", tone: "neutral" },
   failed: { label: "Failed", tone: "danger" },
   resolved: { label: "Resolved", tone: "neutral" },
+  dropped: { label: "Dropped", tone: "neutral" },
 };
 
 const RESOLUTION = { arrived: "Marked as arrived", reowe: "Owed again", rejected: "Counted as rejected" } as const;
@@ -186,6 +187,8 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
       return note("danger", "ban", "Blocked before anything was sent.", clause ?? <span>Code {p.code ?? "unknown"}. Covenant re-asks the same request id once it's fixed.</span>);
     case "refused":
       return note("danger", "shieldCheck", "Refused by the platform. Nothing was sent.", clause ?? <span>{NO_CLAUSE}</span>);
+    case "dropped":
+      return note("neutral", "x", "You dropped it while it was blocked. The platform never recorded it, so nothing was sent.", null);
     case "rejected":
       return note("neutral", "x", p.kind === "attack" ? "Rejected. Nothing moved." : "You rejected it. Nothing moved.", p.kind === "payout" ? <span>Its PRs stay out of later runs.</span> : null);
     case "failed":
@@ -229,7 +232,13 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
 
   const decide = async (v: "approve" | "reject") => {
     setError(null);
-    const answer = await prepareVote(p.request_id, v);
+    let answer: VoteAnswer;
+    try {
+      answer = await prepareVote(p.request_id, v);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    }
     if (v === "approve" && !termsMatch(p, answer.terms, USDC)) {
       setError("The platform's terms for this approval don't match the payout. Not signing.");
       return;

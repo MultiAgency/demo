@@ -26,6 +26,7 @@ import {
   owedFor,
   planPayout,
   requestIdFor,
+  neverRecorded,
   sumLines,
   type Transition,
 } from "./payouts";
@@ -162,6 +163,12 @@ export class Covenant {
           stage: this.stageOf(r, this.onboarding.agentRow(r.organization), null),
         };
       });
+  }
+
+  /** The view only: no follow-up, so no payout is planned or sent. */
+  async viewContract(id: string): Promise<ContractView> {
+    this.row(id);
+    return this.view(id);
   }
 
   async getContract(id: string): Promise<ContractView> {
@@ -348,7 +355,10 @@ export class Covenant {
     return this.mutex.run(id, async () => {
       const j = this.openJudgment(id);
       if (!j) throw new UserError("There is no open judgment to drop.", 409);
-      if (this.attempts(id).some((a) => a.run_id === j.id && isOpen(a))) throw new UserError("A payout of this judgment is still live. Reject it in the approval instead.", 409);
+      const open = this.attempts(id).filter((a) => a.run_id === j.id && isOpen(a));
+      if (open.some((a) => !neverRecorded(a))) throw new UserError("A payout of this judgment is still live. Reject it in the approval instead.", 409);
+      // Blocked before the platform recorded anything: nothing was sent under these ids, so they free their amounts.
+      for (const a of open) this.setAttempt(a.request_id, { state: "dropped", retry_at: null });
       this.closeJudgment(j, "dropped");
       return this.view(id);
     });
@@ -997,6 +1007,8 @@ export class Covenant {
         return `${what} waits (${a.code}); the same request id will be asked again.`;
       case "blocked":
         return `${what} is blocked (${a.code}).`;
+      case "dropped":
+        return `${what} was dropped by the representative while blocked (${a.code}). The platform never recorded it.`;
       default:
         return `${what}: ${a.state}.`;
     }

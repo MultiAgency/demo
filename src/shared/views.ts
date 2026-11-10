@@ -4,7 +4,7 @@ import type { Clause } from "./clauses";
 import type { Deliverable, Terms } from "./terms";
 
 
-export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved";
+export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved" | "dropped";
 export type JudgmentOutcome = "pending" | "approved" | "rejected" | "dropped" | "nothing";
 export type SetupStage =
   | "needs_signatures"
