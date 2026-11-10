@@ -40,8 +40,9 @@ describe("clauseFor (#3: only clauses the code identifies)", () => {
     expect(c?.text).toBe("Funded with exactly the $1,000.00 scope; it can't pay what it doesn't hold.");
   });
 
-  test("frozen is termination", () => {
-    expect(refused("frozen")?.id).toBe("termination");
+  test("frozen is a freeze, not termination: nothing pays until the owner unfreezes", () => {
+    expect(refused("frozen")?.id).toBe("freeze");
+    expect(refused("frozen")?.text).toContain("until they unfreeze");
   });
 
   test("held is the approval clause", () => {

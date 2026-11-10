@@ -90,7 +90,7 @@ export function VerifyPage({ id }: { id: string }) {
               </li>
             ))}
           </ul>
-          {o?.frozen ? <Alert tone="danger" icon="snowflake">The company froze this contract's agent.</Alert> : null}
+          {o?.frozen ? <Alert tone="danger" icon="snowflake">The company froze this contract's agent. Nothing pays until they unfreeze it.</Alert> : null}
 
           <Disclosure label="Signed vs. live policy">
             <table className="table compact compare">

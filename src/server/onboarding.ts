@@ -82,7 +82,7 @@ export class Onboarding {
   async next(id: string): Promise<NextStep> {
     const { row, terms } = this.d.contract(id);
     if (!row.rep_sig || !row.contractor_sig) throw new UserError("Both parties must sign the terms first.");
-    if (row.frozen) throw new UserError("The contract wallet is frozen.");
+    if (row.frozen) throw new UserError("The owner froze this contract's agent. Nothing pays until they unfreeze it.", 409);
     const a = this.ensureAgent(row, terms);
     const now = this.d.now();
     switch (a.stage) {

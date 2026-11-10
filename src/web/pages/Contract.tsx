@@ -81,6 +81,17 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
         <div className="header-actions">
           <Mono copy={c.hash}>{`terms ${short(c.hash, 6, 4)}`}</Mono>
           {c.platform.agent_id ? <Mono copy={verifyLink}>Copy verify link</Mono> : null}
+          {c.platform.agent && c.stage !== "frozen" && c.stage !== "ended" ? (
+            <a
+              className="btn btn-secondary btn-sm"
+              href={walletStopUrl(c)}
+              target="_blank"
+              rel="noreferrer"
+              title="The owner freezes the agent on the platform's wallet stop page (needs platform 0.5.5). Nothing pays until they unfreeze it."
+            >
+              <Icon name="snowflake" /> <span>Freeze on the platform</span>
+            </a>
+          ) : null}
         </div>
       </header>
 
@@ -398,7 +409,11 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
 
   return (
     <>
-      {c.stage === "frozen" ? <Alert tone="danger" icon="snowflake">This contract's agent is frozen. It can't pay anything.</Alert> : null}
+      {c.stage === "frozen" ? (
+        <Alert tone="danger" icon="snowflake">
+          The owner froze this contract's agent. Nothing pays until they unfreeze it on the platform; Covenant then checks the policy against the signed terms and carries on.
+        </Alert>
+      ) : null}
       {c.stage === "ended" ? <Alert tone="info" icon="calendar">This contract ended on {dateText(c.terms.end)}. Covenant can't request payouts any more; you can still approve or reject held ones.</Alert> : null}
       {held.length ? (
         <Alert tone="warning" icon="alert">
@@ -735,4 +750,9 @@ function SimBar({ c, reload }: { c: ContractView; reload: () => Promise<void> })
       </button>
     </div>
   );
+}
+
+/** The platform's wallet stop page, where the owner freezes the agent with their own wallet (platform 0.5.5 and later). */
+function walletStopUrl(c: ContractView): string {
+  return `https://${c.platform.host}/confirm/wallet/stop/${encodeURIComponent(c.platform.agent ?? "")}`;
 }

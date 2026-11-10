@@ -2,7 +2,7 @@ import { usd } from "./money";
 import { endInstant, largestDeliverable, scopeTotal, type Terms } from "./terms";
 
 // Shared by server and web.
-export type ClauseId = "payee" | "cap" | "budget" | "withdraw-only" | "funding" | "term" | "termination" | "approval" | "setup" | "platform";
+export type ClauseId = "payee" | "cap" | "budget" | "withdraw-only" | "funding" | "term" | "freeze" | "approval" | "setup" | "platform";
 export interface Clause {
   id: ClauseId;
   title: string;
@@ -36,7 +36,7 @@ export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held
       return { id: "funding", title: "Funding", text: `Funded with exactly the ${usd(scopeTotal(terms))} scope; it can't pay what it doesn't hold.` };
     case "frozen":
     case "agent_frozen":
-      return { id: "termination", title: "Termination clause", text: `${terms.representative.near_account} froze this contract's agent. It can't pay anything.` };
+      return { id: "freeze", title: "Freeze", text: `${terms.representative.near_account} froze this contract's agent. Nothing pays until they unfreeze it.` };
     case "contract_ending":
       return { id: "term", title: "Term clause", text: `The contract ends ${terms.end}; Covenant stops requesting payouts in its last minutes.` };
     case "policy_mismatch":

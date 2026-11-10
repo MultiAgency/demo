@@ -128,9 +128,9 @@ export class Covenant {
     return { representative: t.representative.near_account, contractor: t.contractor.near_account };
   }
 
-  /** Contracts the merge watcher runs: set up, not frozen, not ended. */
+  /** Contracts the merge watcher runs: set up and not ended. A frozen one is re-read each time, so an unfreeze resumes it. */
   activeContractIds(): string[] {
-    const rows = this.d.db.query("SELECT c.* FROM contracts c JOIN platform_agents a ON a.organization = c.organization WHERE a.stage = 'ready' AND c.frozen = 0").all() as ContractRow[];
+    const rows = this.d.db.query("SELECT c.* FROM contracts c JOIN platform_agents a ON a.organization = c.organization WHERE a.stage = 'ready'").all() as ContractRow[];
     const now = this.d.now().getTime();
     return rows.filter((r) => now < Date.parse(endInstant(this.terms(r)))).map((r) => r.id);
   }
@@ -222,7 +222,10 @@ export class Covenant {
   // ================================================================ onboarding and owner steps
 
   async next(id: string): Promise<NextStep> {
-    return this.mutex.run(id, () => this.onboarding.next(id));
+    return this.mutex.run(id, async () => {
+      await this.refreshFrozen(id);
+      return this.onboarding.next(id);
+    });
   }
 
   async signed(id: string, body: { step: "setup" | "consent_payout" | "consent_owner"; nonce: string; publicKey: string; signature: string }): Promise<NextStep> {
@@ -286,6 +289,7 @@ export class Covenant {
   }
 
   private async runLocked(id: string): Promise<RunResult> {
+    await this.refreshFrozen(id);
     const row = this.row(id);
     const terms = this.terms(row);
     this.requireActive(row, terms);
@@ -455,14 +459,13 @@ export class Covenant {
    */
   private async preflight(row: ContractRow, terms: Terms, a: PlatformAgentRow): Promise<{ expected: { revision: number; digest: string } } | Transition> {
     const blocked = (code: string): Transition => ({ state: "blocked", code, failKind: "blocked", retryAfterMs: this.d.config.statusPollMs });
-    if (row.frozen) return blocked("frozen");
     if (a.stage !== "ready") return blocked("setup");
     if (this.d.now().getTime() >= Date.parse(endInstant(terms)) - END_MARGIN_MS) return blocked("contract_ending");
     const o = await this.onboarding.handle(a).overview();
-    if (!o.ok) return { state: "waiting", code: "overview_unavailable", failKind: null, retryAfterMs: 60_000 };
+    if (!o.ok) return row.frozen ? blocked("frozen") : { state: "waiting", code: "overview_unavailable", failKind: null, retryAfterMs: 60_000 };
+    this.syncFrozen(row, o.value);
     const problem = policyProblem(o.value, terms);
     if (problem) {
-      if (problem.code === "frozen") this.d.db.query("UPDATE contracts SET frozen = 1 WHERE id = ?").run(row.id);
       if (problem.code === "policy_mismatch") return { ...blocked(problem.code), alert: `${problem.detail} Nothing is requested until it matches again.` };
       return problem.waiting ? { state: "waiting", code: problem.code, failKind: null, retryAfterMs: 60_000 } : blocked(problem.code);
     }
@@ -761,7 +764,7 @@ export class Covenant {
     if (a?.agent && a.agent_id) {
       const o = await this.onboarding.handle(a).overview();
       ov = o.ok ? o.value : null;
-      if (ov?.policy?.frozen && !row.frozen) this.d.db.query("UPDATE contracts SET frozen = 1 WHERE id = ?").run(id);
+      if (ov) this.syncFrozen(row, ov);
     }
     const attempts = this.attempts(id);
     const payoutsOnly = attempts.filter((x) => x.kind === "payout");
@@ -885,7 +888,7 @@ export class Covenant {
 
   private stageOf(row: ContractRow, a: PlatformAgentRow | null, ov: Overview | null): SetupStage {
     const terms = this.terms(row);
-    if (row.frozen || ov?.policy?.frozen) return "frozen";
+    if (ov?.policy ? ov.policy.frozen : row.frozen) return "frozen";
     if (!row.rep_sig || !row.contractor_sig) return "needs_signatures";
     if (!a || a.stage === "needs_setup") return "needs_setup";
     if (this.d.now().getTime() > Date.parse(endInstant(terms)) && a.agent_id) return "ended";
@@ -896,6 +899,28 @@ export class Covenant {
   }
 
   // ================================================================ helpers
+
+  /**
+   * A freeze is reversible: contracts.frozen follows the platform's read. Frozen, nothing is requested; once the
+   * owner unfreezes, the flag clears and payouts continue (re-checked against the whole signed policy first).
+   */
+  private syncFrozen(row: ContractRow, ov: Overview) {
+    if (!ov.policy) return;
+    const frozen = ov.policy.frozen ? 1 : 0;
+    if (frozen === row.frozen) return;
+    this.d.db.query("UPDATE contracts SET frozen = ? WHERE id = ?").run(frozen, row.id);
+    row.frozen = frozen;
+    this.event(row.id, "freeze", frozen ? "The owner froze the contract's agent. Nothing pays until they unfreeze it." : "The owner unfroze the contract's agent. Payouts continue.");
+  }
+
+  /** Read the platform's freeze state into contracts.frozen (no-op before the agent exists or when it doesn't answer). */
+  private async refreshFrozen(id: string) {
+    const row = this.row(id);
+    const a = this.onboarding.agentRow(row.organization);
+    if (!a?.agent || !a.agent_id) return;
+    const o = await this.onboarding.handle(a).overview();
+    if (o.ok) this.syncFrozen(row, o.value);
+  }
 
   private handleFor(att: AttemptRow) {
     const row = this.row(att.contract_id);
@@ -993,7 +1018,7 @@ export class Covenant {
   private requireActive(row: ContractRow, terms: Terms) {
     const a = this.onboarding.agentRow(row.organization);
     if (!a || a.stage !== "ready") throw new UserError("The contract's agent is not set up yet.");
-    if (row.frozen) throw new UserError("The contract wallet is frozen.");
+    if (row.frozen) throw new UserError("The owner froze this contract's agent. Nothing pays until they unfreeze it.", 409);
     if (this.d.now().getTime() > Date.parse(endInstant(terms))) throw new UserError("The contract has ended.");
     if (this.d.now().getTime() < Date.parse(startInstant(terms))) throw new UserError(`The contract starts ${terms.start}.`);
   }

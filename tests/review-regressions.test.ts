@@ -4,7 +4,7 @@ import { createRuntime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import type { FakeControls } from "../src/server/platform/fake";
 import { DEMO_TERMS } from "../src/shared/demo";
-import { fakeActivate, fakeVote } from "./support/fake-harness";
+import { fakeActivate, fakeApproveAndSettle, fakeVote } from "./support/fake-harness";
 import { START } from "./support/harness";
 
 const payouts = async (ctx: any) => (await ctx.rt.covenant.getContract(ctx.id)).payouts.filter((p: any) => p.kind === "payout");
@@ -206,4 +206,55 @@ test("a mismatched policy put back to the signed terms lets the same request id 
   await ctx.rt.covenant.getContract(ctx.id);
   expect(ctx.rt.covenant.attempt(att.request_id).state).toBe("held");
   expect((ctx.controls.requests()[0] as any).requestId).toBe(att.request_id);
+});
+
+// ---------------------------------------------------------------- a freeze is reversible
+
+async function freeze(ctx: any) {
+  const a = ctx.rt.covenant.onboarding.agentRow(ctx.id)!;
+  const prepared = await ctx.rt.covenant.onboarding.handle(a).ownerPrepare({ type: "agent_freeze" });
+  if (!prepared.ok || !prepared.value.confirm) throw new Error("freeze not prepared");
+  await ctx.controls.completeConfirm(prepared.value.confirm.url);
+}
+
+test("frozen: the contract shows frozen and nothing is requested; unfrozen: the flag clears and payouts continue", async () => {
+  const ctx = await fakeActivate();
+  const p1 = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+  await fakeApproveAndSettle(ctx, p1); // p2 is requested after p1 settles
+  const p2 = allAttempts(ctx).find((a) => a.kind === "payout" && a.request_id !== p1);
+  await fakeVote(ctx, p2.request_id, "reject"); // close that judgment, so a new run has something to judge
+  await freeze(ctx);
+  const frozen = await ctx.rt.covenant.getContract(ctx.id);
+  expect(frozen.stage).toBe("frozen");
+  const before = ctx.controls.requests().length;
+  await expect(ctx.rt.covenant.run(ctx.id)).rejects.toThrow("until they unfreeze");
+  expect(ctx.controls.requests().length).toBe(before);
+  expect(ctx.rt.covenant.activeContractIds()).toContain(ctx.id); // the merge watcher keeps checking it
+  ctx.controls.editPolicy(agentIdOf(ctx), (p) => (p.frozen = false)); // the owner unfreezes on the platform
+  const back = await ctx.rt.covenant.getContract(ctx.id);
+  expect(back.stage).not.toBe("frozen");
+  expect((ctx.rt.covenant as any).row(ctx.id).frozen).toBe(0);
+  expect(back.events.some((e: any) => e.kind === "freeze" && e.text.includes("unfroze"))).toBe(true);
+  const r = await ctx.rt.covenant.run(ctx.id);
+  expect(r.outcome).not.toBe("deferred");
+});
+
+test("a payout blocked as frozen goes out under the same id once the owner unfreezes", async () => {
+  const ctx = await fakeActivate();
+  const chain = ctx.rt.kit.chain as any;
+  chain.setMissing(DEMO_TERMS.payee.address, true);
+  await ctx.rt.covenant.run(ctx.id); // blocked before recording: recipient_not_found
+  const p1 = allAttempts(ctx).find((a) => a.kind === "payout");
+  await freeze(ctx);
+  chain.setMissing(DEMO_TERMS.payee.address, false);
+  ctx.rt.clock.advance(120_000);
+  await ctx.rt.covenant.followUpAll();
+  expect(`${ctx.rt.covenant.attempt(p1.request_id).state} ${ctx.rt.covenant.attempt(p1.request_id).code}`).toBe("blocked frozen");
+  const sent = ctx.controls.requests().length;
+  ctx.controls.editPolicy(agentIdOf(ctx), (p) => (p.frozen = false));
+  ctx.rt.clock.advance(120_000);
+  await ctx.rt.covenant.followUpAll();
+  expect(ctx.rt.covenant.attempt(p1.request_id).state).toBe("held");
+  expect((ctx.controls.requests()[sent] as any).requestId).toBe(p1.request_id);
+  expect((ctx.rt.covenant as any).row(ctx.id).frozen).toBe(0);
 });

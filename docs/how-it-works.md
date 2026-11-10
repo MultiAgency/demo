@@ -103,7 +103,7 @@ Covenant shows a clause only when the code identifies one (`src/shared/clauses.t
 | `withdraw_not_allowed`, `asset_not_allowed` | Payment: withdraw USDC to the payee only |
 | `insufficient_balance` | Funding: funded with exactly the scope total; it can't pay what it doesn't hold |
 | `forbidden` (`scope`, `no_consent`, `access_ended`) at or after the end | Term |
-| `frozen` | Termination |
+| `frozen` | Freeze: nothing pays until the owner unfreezes |
 | `grant_missing`, `policy_not_in_force`, `recipient_not_registered`, … | Setup |
 | `duplicate_held_payout`, `reviewed_policy_changed`, `request_conflict` | Platform rule (never a contract clause) |
 | bare `policy_denied`, anything else | none: "The policy refused it." |
