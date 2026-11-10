@@ -344,3 +344,22 @@ test("request_conflict: Covenant reads what the platform's record under that id 
   expect(Number((await ctx.rt.covenant.viewContract(ctx.id)).committed_usd)).toBeGreaterThan(0);
 });
 
+// ---------------------------------------------------------------- deferred runs
+
+test("deferred runs are logged once per open judgment, so they can't push the held event out of the list", async () => {
+  const ctx = await fakeActivate();
+  const r = await ctx.rt.covenant.run(ctx.id);
+  expect(r.payouts[0]!.state).toBe("held");
+  for (let i = 0; i < 120; i++) expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("deferred");
+  const evs = await events(ctx);
+  expect(evs.filter((e) => e.kind === "deferred").length).toBe(1);
+  expect(evs.some((e) => e.kind === "held")).toBe(true);
+  // A new open judgment gets its own line.
+  await fakeVote(ctx, r.payouts[0]!.request_id, "reject");
+  (ctx.rt.evidence as any).mergeNext((await ctx.rt.covenant.viewContract(ctx.id)).terms);
+  ctx.rt.clock.advance(60_000);
+  expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("requested");
+  await ctx.rt.covenant.run(ctx.id);
+  await ctx.rt.covenant.run(ctx.id);
+  expect((await events(ctx)).filter((e) => e.kind === "deferred").length).toBe(2);
+});

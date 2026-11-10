@@ -298,7 +298,9 @@ export class Covenant {
     await this.followUpLocked(id);
     const open = this.openJudgment(id);
     if (open) {
-      this.event(id, "deferred", "Agent run deferred: the previous judgment is still open (waiting on its payout). Nothing was judged or requested.");
+      // Logged once per open judgment: the merge watcher defers on every tick, and events keep only the last 100.
+      const said = this.d.db.query("SELECT 1 FROM events WHERE contract_id = ? AND kind = 'deferred' AND text LIKE ?").get(id, `%(${open.id})%`);
+      if (!said) this.event(id, "deferred", `Agent run deferred: the previous judgment (${open.id}) is still open (waiting on its payout). Nothing was judged or requested; later runs wait quietly until it closes.`);
       return { outcome: "deferred", judgment: null, open_judgment: this.openJudgmentView(id, terms), payouts: [] };
     }
 
