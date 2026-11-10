@@ -320,8 +320,9 @@ export class Onboarding {
       }
       case "grant_issue":
         if (a.grant_ok) return;
-        this.setAgent(a.organization, { grant_ok: 1, stage: "needs_policy" });
-        this.d.event(s.contract_id, "grant", "Payout grant issued to the agent.");
+        // A re-issued grant (the first one expired) returns straight to ready: the policy is already in force.
+        this.setAgent(a.organization, { grant_ok: 1, stage: a.policy_revision !== null ? "ready" : "needs_policy" });
+        this.d.event(s.contract_id, "grant", a.policy_revision !== null ? "Payout grant issued to the agent again. Payouts continue." : "Payout grant issued to the agent.");
         return;
       case "policy_update":
         if (a.stage !== "needs_policy") return;
@@ -329,6 +330,18 @@ export class Onboarding {
         this.d.event(s.contract_id, "policy", "Policy edit signed: payee, owner approval, per-payment cap, daily/monthly limits and budget.");
         return;
     }
+  }
+
+  /**
+   * The payout grant is gone or about to expire (the platform issues it for 30 days): back to the grant_issue step,
+   * so the representative issues it again. The old step is marked expired so it isn't taken for the new one.
+   */
+  grantExpired(contractId: string, a: PlatformAgentRow) {
+    if (a.stage === "needs_grant") return;
+    const old = this.latestStep(a.organization, "grant_issue");
+    if (old && old.state === "success") this.setStep(old.correlation_id, { state: "expired" });
+    this.setAgent(a.organization, { grant_ok: 0, stage: "needs_grant" });
+    this.d.event(contractId, "alert", "The agent's payout grant has expired or expires within a day. Nothing is requested until the representative issues it again (next setup step).");
   }
 
   private iso() {

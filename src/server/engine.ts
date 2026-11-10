@@ -48,6 +48,8 @@ export const SCENARIOS: Scenario[] = ["overpay", "redirect", "after_end", "injec
 
 /** No new payout request this close to the end: a lost reply must still be followable under the payout consent. */
 const END_MARGIN_MS = 10 * 60_000;
+/** The payout grant must outlive a request by this much. The platform issues it for 30 days; contracts run up to 365. */
+export const GRANT_MARGIN_MS = 24 * 3_600_000;
 
 export interface Deps {
   db: Database;
@@ -459,6 +461,7 @@ export class Covenant {
    */
   private async preflight(row: ContractRow, terms: Terms, a: PlatformAgentRow): Promise<{ expected: { revision: number; digest: string } } | Transition> {
     const blocked = (code: string): Transition => ({ state: "blocked", code, failKind: "blocked", retryAfterMs: this.d.config.statusPollMs });
+    if (a.stage === "needs_grant" && a.policy_revision !== null) return blocked("grant_expired"); // waiting for the re-issued grant
     if (a.stage !== "ready") return blocked("setup");
     if (this.d.now().getTime() >= Date.parse(endInstant(terms)) - END_MARGIN_MS) return blocked("contract_ending");
     const o = await this.onboarding.handle(a).overview();
@@ -470,6 +473,10 @@ export class Covenant {
       return problem.waiting ? { state: "waiting", code: problem.code, failKind: null, retryAfterMs: 60_000 } : blocked(problem.code);
     }
     if (o.value.revision === null || o.value.digest === null) return { state: "waiting", code: "policy_not_in_force", failKind: null, retryAfterMs: 60_000 };
+    if (!liveGrant(o.value, this.d.now().getTime() + GRANT_MARGIN_MS)) {
+      this.onboarding.grantExpired(row.id, a);
+      return blocked("grant_expired");
+    }
     if (o.value.revision !== a.policy_revision || o.value.digest !== a.policy_digest) {
       // A new revision that still matches the signed terms in full: record it as the reviewed one.
       this.onboarding.setAgent(a.organization, { policy_revision: o.value.revision, policy_digest: o.value.digest });
@@ -669,8 +676,7 @@ export class Covenant {
     const now = this.d.now().getTime();
     const largest = largestAtomic(terms);
     const payoutConsent = consents.find((c) => c.id === a!.payout_consent_id) ?? consents.find((c) => c.scopes.includes("payout") && !c.revoked);
-    // The local stack only accepts the "invoices" label for the payout grant (platform-gaps G9).
-    const grant = observed.grants.find((g) => (g.label === "payout" || g.label === "invoices") && !g.revoked && Date.parse(g.expiresAt) > now);
+    const grant = liveGrant(observed, now);
     checks.push(
       { id: "applied", label: "Policy is applied, synced and in force", ok: observed.status === "APPLIED" && observed.synced && observed.notInForce === null, detail: observed.notInForce ?? undefined },
       { id: "actions", label: "The agent can only withdraw", ok: !!p && p.actions.length === 1 && p.actions[0] === "withdraw", detail: p ? p.actions.join(", ") : undefined },
@@ -1017,6 +1023,7 @@ export class Covenant {
 
   private requireActive(row: ContractRow, terms: Terms) {
     const a = this.onboarding.agentRow(row.organization);
+    if (a?.stage === "needs_grant" && a.policy_revision !== null) throw new UserError("The agent's payout grant has expired. Issue it again (the next setup step), then run the agent.", 409);
     if (!a || a.stage !== "ready") throw new UserError("The contract's agent is not set up yet.");
     if (row.frozen) throw new UserError("The owner froze this contract's agent. Nothing pays until they unfreeze it.", 409);
     if (this.d.now().getTime() > Date.parse(endInstant(terms))) throw new UserError("The contract has ended.");
@@ -1086,6 +1093,11 @@ export class Covenant {
 /** One platform Organization per contract. One agent per company would change this and the policy's payee list. */
 export function orgFor(contractId: string): string {
   return contractId;
+}
+
+/** A live payout grant (label `payout`, or `invoices` on the local stack: platform-gaps G9) that lasts past `until`. */
+function liveGrant(o: Overview, until: number) {
+  return o.grants.find((g) => (g.label === "payout" || g.label === "invoices") && !g.revoked && Date.parse(g.expiresAt) > until) ?? null;
 }
 
 function completionOf(j: Judgment): Record<string, number> {

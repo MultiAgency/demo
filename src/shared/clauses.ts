@@ -42,6 +42,7 @@ export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held
     case "policy_mismatch":
     case "setup":
     case "grant_missing":
+    case "grant_expired":
     case "grant_purpose_denied":
     case "policy_not_in_force":
     case "recipient_not_registered":
@@ -68,6 +69,7 @@ function approvalClause(terms: Terms): Clause {
 function setupClause(code: string, terms: Terms): Clause {
   const text: Record<string, string> = {
     grant_missing: "The agent's payout grant is missing. Issue it again.",
+    grant_expired: "The agent's payout grant has expired (the platform issues it for 30 days). The representative issues it again.",
     grant_purpose_denied: "The agent's grant doesn't cover payouts. Issue a payout grant.",
     policy_not_in_force: "The signed policy isn't in force yet.",
     policy_mismatch: "The live policy no longer matches the signed contract. Covenant won't request payouts until it does.",

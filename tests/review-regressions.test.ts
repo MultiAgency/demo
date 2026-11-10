@@ -258,3 +258,31 @@ test("a payout blocked as frozen goes out under the same id once the owner unfre
   expect((ctx.controls.requests()[sent] as any).requestId).toBe(p1.request_id);
   expect((ctx.rt.covenant as any).row(ctx.id).frozen).toBe(0);
 });
+
+// ---------------------------------------------------------------- the payout grant lasts 30 days, contracts up to 365
+
+test("an expired payout grant blocks the request as grant_expired and sends the representative back to grant_issue", async () => {
+  const ctx = await fakeActivate("1000", { end: "2027-06-30" });
+  // Within the margin of the platform's 30-day grant.
+  ctx.rt.clock.advance(30 * 86_400_000 - 3_600_000);
+  const before = ctx.controls.requests().length;
+  await ctx.rt.covenant.run(ctx.id);
+  expect(ctx.controls.requests().length).toBe(before);
+  const att = allAttempts(ctx).find((a) => a.kind === "payout");
+  expect(`${att.state} ${att.code}`).toBe("blocked grant_expired");
+  expect(ctx.rt.covenant.onboarding.agentRow(ctx.id)!.stage).toBe("needs_grant");
+  expect((await ctx.rt.covenant.viewContract(ctx.id)).stage).toBe("needs_grant");
+  await expect(ctx.rt.covenant.run(ctx.id)).rejects.toThrow("grant has expired");
+  // NextStep shows the grant step; once it is signed the contract is ready again, without a new policy edit.
+  const next: any = await ctx.rt.covenant.next(ctx.id);
+  expect(next.kind).toBe("owner_step");
+  expect(next.action).toBe("grant_issue");
+  await ctx.rt.covenant.submitOwnerStep(next.correlation_id, await ctx.sign(next.sign!));
+  expect((await ctx.rt.covenant.next(ctx.id)).kind).toBe("done");
+  expect(ctx.rt.covenant.onboarding.agentRow(ctx.id)!.stage).toBe("ready");
+  // The blocked payout goes out under the same id.
+  ctx.rt.clock.advance(120_000);
+  await ctx.rt.covenant.getContract(ctx.id);
+  expect(ctx.rt.covenant.attempt(att.request_id).state).toBe("held");
+  expect((ctx.controls.requests()[before] as any).requestId).toBe(att.request_id);
+});
