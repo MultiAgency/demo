@@ -315,3 +315,32 @@ test("submitting an owner step needs the representative's session when sign-in i
   const ok = await ctx.rt.app.request(`/api/owner-steps/${v.correlation_id}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(s) });
   expect(ok.status).toBe(200);
 });
+
+// ---------------------------------------------------------------- request_conflict
+
+test("request_conflict: Covenant reads what the platform's record under that id became, and never re-sends it", async () => {
+  const ctx = await fakeActivate();
+  const row = (ctx.rt.covenant as any).row(ctx.id);
+  const rid = `${row.hash.slice(0, 16)}-p1-1`; // the id Covenant's first payout will use
+  const a = ctx.rt.covenant.onboarding.agentRow(ctx.id)!;
+  const h = ctx.rt.covenant.onboarding.handle(a);
+  const ov: any = await h.overview();
+  // Something else recorded that id first, with other terms.
+  const foreign: any = await h.requestPayout({ requestId: rid, recipient: DEMO_TERMS.payee.address, amount: "1000000", expectedPolicy: { revision: ov.value.revision, digest: ov.value.digest } });
+  expect(foreign.value.state).toBe("held");
+  await ctx.rt.covenant.run(ctx.id);
+  let att = ctx.rt.covenant.attempt(rid);
+  expect(`${att.state} ${att.code}`).toBe("blocked request_conflict");
+  expect(att.platform_record).toBe("held (PENDING_APPROVAL)");
+  const view = (await ctx.rt.covenant.viewContract(ctx.id)).payouts.find((p) => p.request_id === rid)!;
+  expect(view.platform_record).toBe("held (PENDING_APPROVAL)");
+  // Followed on the timer: still blocked and counted, never sent again.
+  const sent = ctx.controls.requests().length;
+  ctx.rt.clock.advance(120_000);
+  await ctx.rt.covenant.followUpAll();
+  att = ctx.rt.covenant.attempt(rid);
+  expect(`${att.state} ${att.code}`).toBe("blocked request_conflict");
+  expect(ctx.controls.requests().length).toBe(sent);
+  expect(Number((await ctx.rt.covenant.viewContract(ctx.id)).committed_usd)).toBeGreaterThan(0);
+});
+

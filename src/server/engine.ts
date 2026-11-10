@@ -31,7 +31,7 @@ import {
   sumLines,
   type Transition,
 } from "./payouts";
-import type { ChainReader, Overview, PayoutAnswer, Platform, Res } from "./platform/port";
+import type { AgentHandle, ChainReader, Overview, PayoutAnswer, Platform, Res } from "./platform/port";
 
 export class UserError extends Error {
   constructor(
@@ -523,6 +523,21 @@ export class Covenant {
       this.log(`ALERT ${cur.request_id}: ${t.alert}`);
     }
     if (cur.state !== att.state || cur.code !== att.code) this.event(cur.contract_id, eventKind(cur.state), this.stateText(cur));
+    if (cur.state === "blocked" && cur.code === "request_conflict" && h) await this.readConflict(cur, h);
+  }
+
+  /**
+   * request_conflict: the platform recorded this id with other terms. Read what that record became and show it.
+   * Information only: the attempt stays blocked and committed, and is never re-sent.
+   */
+  private async readConflict(att: AttemptRow, h: AgentHandle) {
+    const st = await h.payoutStatus(att.request_id);
+    this.setAttempt(att.request_id, { retry_at: new Date(this.d.now().getTime() + this.d.config.statusPollMs).toISOString() });
+    if (!st.ok) return;
+    const record = `${st.value.state}${st.value.status ? ` (${st.value.status})` : ""}`;
+    if (record === att.platform_record) return;
+    this.setAttempt(att.request_id, { platform_record: record });
+    this.event(att.contract_id, "payout", `The platform's own record under ${att.request_id} (other terms) reads ${record}. Covenant keeps its amount counted and never re-sends this id.`);
   }
 
   private async fillHeld(att: AttemptRow) {
@@ -554,8 +569,8 @@ export class Covenant {
     if (!h) return;
     const now = this.d.now().getTime();
     if (att.state === "waiting" || att.state === "blocked") {
-      if (att.code === "request_conflict") return;
       if (att.retry_at && Date.parse(att.retry_at) > now) return;
+      if (att.code === "request_conflict") return this.readConflict(att, h); // look, never re-send
       return this.send(att.request_id); // the same id, never a new one
     }
     const st = await h.payoutStatus(att.request_id);
@@ -854,6 +869,7 @@ export class Covenant {
       tx_hash: p.tx_hash,
       refund_tx_hash: p.refund_tx_hash,
       failure_code: p.failure_code,
+      platform_record: p.platform_record,
       created_at: p.created_at,
     };
   }

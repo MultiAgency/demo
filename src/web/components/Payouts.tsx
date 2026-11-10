@@ -184,6 +184,13 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
     case "unknown":
       return note("warning", "alert", "No answer from the platform yet.", <span>Covenant reads the payout's status before asking again, and never under a new id, so it can't pay twice.</span>);
     case "blocked":
+      if (p.code === "request_conflict")
+        return note(
+          "danger",
+          "alert",
+          "The platform already recorded this request id with other terms. It stays counted and is never re-sent.",
+          <span>{p.platform_record ? `The platform's record under this id reads: ${p.platform_record}.` : "Covenant is reading what the platform's record became."}</span>,
+        );
       return note("danger", "ban", "Blocked before anything was sent.", clause ?? <span>Code {p.code ?? "unknown"}. Covenant re-asks the same request id once it's fixed.</span>);
     case "refused":
       return note("danger", "shieldCheck", "Refused by the platform. Nothing was sent.", clause ?? <span>{NO_CLAUSE}</span>);

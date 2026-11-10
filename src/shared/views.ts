@@ -51,6 +51,8 @@ export interface PayoutView {
   tx_hash: string | null;
   refund_tx_hash: string | null;
   failure_code: string | null;
+  /** request_conflict only: what the platform's record under this request id became (information only). */
+  platform_record: string | null;
   created_at: string;
 }
 

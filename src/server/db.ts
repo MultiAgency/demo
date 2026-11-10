@@ -96,6 +96,8 @@ export interface AttemptRow {
   retry_at: string | null;
   auto_retry: number;
   scenario: string | null;
+  /** request_conflict only: what the platform's own record under this request id reads (information, never acted on). */
+  platform_record: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -214,6 +216,7 @@ export function openDb(path: string): Database {
       retry_at TEXT,
       auto_retry INTEGER NOT NULL DEFAULT 0,
       scenario TEXT,
+      platform_record TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (contract_id, kind, seq, attempt)
@@ -241,6 +244,8 @@ export function openDb(path: string): Database {
       text TEXT NOT NULL
     );
   `);
+  const attemptCols = new Set((db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[]).map((c) => c.name));
+  if (!attemptCols.has("platform_record")) db.exec("ALTER TABLE payout_attempts ADD COLUMN platform_record TEXT");
   return db;
 }
 
