@@ -49,7 +49,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42); production runs 0.5.4 until 0.5.5 is deployed. Covenant pins `@multiagency/sdk` 0.5.4, the published SDK; the local stack above runs a platform that already has it. The owner's freeze link (the platform's wallet stop page) also needs 0.5.5.
+Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42); production runs 0.5.4 until 0.5.5 is deployed. Covenant pins `@multiagency/sdk` 0.5.6; the local stack above runs a platform that already has 0.5.5. The owner's freeze link (the platform's wallet stop page) and recovering a lost setup reply through `reservations` also need 0.5.5; on 0.5.4 a lost setup reply shows the setup error as before.
 
 ## Do X → see Y (browser demo)
 
