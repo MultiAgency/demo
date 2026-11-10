@@ -2,9 +2,12 @@
   "name": "covenant",
   "version": "0.1.0",
   "private": true,
-  "description": "Covenant: every signed contract becomes its own NEAR Intents agent wallet. The contract is the spending limit.",
+  "description": "Covenant: pay-on-merge contractor payroll on the MultiAgency platform. A signed scope becomes a platform agent's policy; a judge sizes each payout and the company approves it.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "bun": ">=1.4"
+  },
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
     "demo": "bun src/server/index.ts",

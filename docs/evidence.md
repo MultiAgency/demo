@@ -4,9 +4,9 @@ Recorded runs of Covenant against the MultiAgency platform. Stand-in (`FakePlatf
 
 ## Local platform stack run
 
-Platform commit: `96a0bb6` (MultiAgency/platform main, with held-withdrawal approval #42) · Covenant: branch `covenant-platform` · Date (UTC): 2026-11-09
+Platform commit: `96a0bb6` (MultiAgency/platform main, with held-withdrawal approval #42) · Covenant: branch `covenant-platform` (with the whole-policy, freeze and grant checks) · Date (UTC): 2026-11-10
 
-Simulated provider, chain, signatures and settlement: no keys and no real money. Every step below went through the real platform gateway via `@multiagency/sdk` 0.5.4.
+Simulated provider, chain, signatures and settlement: no real money and no wallet. Every signature below (terms, setup, consents, owner steps, approvals) was signed with the stack's fixture key. Every step went through the real platform gateway via `@multiagency/sdk` 0.5.4. The stack issued the payout grant under the `invoices` label, since its provider simulator refuses `payout` (MultiAgency/platform#54).
 
 ```bash
 pnpm test:e2e:stack --app covenant --no-browser --owner acme.demo --payee maria.demo --builder attacker.demo
@@ -16,36 +16,36 @@ PLATFORM_STACK_DIR=<dir> bun run demo:stack
 ### Transcript
 
 ```
-Covenant · MultiAgency local stack (https://127.0.0.1:44363) · SIMULATED provider, chain, signatures and settlement
+Covenant · MultiAgency local stack (https://127.0.0.1:36133) · SIMULATED provider, chain, signatures and settlement
 
-Covenant · LOCAL PLATFORM STACK at 127.0.0.1:44363
+Covenant · LOCAL PLATFORM STACK at 127.0.0.1:36133
 → http://localhost:8781/
 
 Covenant · end-to-end scenario on the local MultiAgency platform stack
-Platform: remote at 127.0.0.1:44363 · clock 2026-11-09T02:05:24.756Z · judge: rules
+Platform: remote at 127.0.0.1:36133 · clock 2026-11-10T01:09:18.928Z · judge: rules
 
 01. Draft the work order: a signed scope of deliverables
     d1  $ 300  CSV export for monthly reports
     d2  $ 200  Scheduler timezone handling
     d3  $ 500  Rate limiting on the public API
-    ✓ scope total $1000, organization c_87f364c5f4e1
+    ✓ scope total $1000, organization c_019f296c6a31
 
 02. Representative signs the terms hash
-    acme.demo: "Covenant work order sha256:87f364c5f4e13869d64cd…"
+    acme.demo: "Covenant work order sha256:019f296c6a31ea69675d5…"
     ✓ NEP-413 signature verified against a full-access key
 
 03. Contractor signs the terms hash
-    maria.demo: "Covenant work order sha256:87f364c5f4e13869d64cd…"
+    maria.demo: "Covenant work order sha256:019f296c6a31ea69675d5…"
     ✓ NEP-413 signature verified against a full-access key
 
 04. Set up the contract's own platform agent (one Organization per contract)
     · signed: Set up the contract's platform agent
     · owner step: Create the contract's agent (agent_create)
-    · signed: Let Covenant request payouts until 2026-11-30 (the contract end)
-    · signed: Let Covenant prepare your approvals and read the agent until 2026-12-30
+    · signed: Let Covenant request payouts until 2026-12-01 (the contract end)
+    · signed: Let Covenant prepare your approvals and read the agent until 2026-12-31
     · owner step: Issue the agent's payout grant (grant_issue)
     · owner step: Agree the payee and limits (policy_update)
-    ✓ agent 25cd0f9774cd965c0f0b891d1289d84f5463f313752e7fb75fedef370bf632e0 ready; policy revision 2 applied: true
+    ✓ agent 2402bb8e5963d2f681fbd0de19721d23fad924fdf3510fa8f81ce2143ab732de ready; policy revision 2 applied: true
 
 05. Fund the agent with exactly the scope total
     deposit address work-1.local-wallet.near
@@ -65,22 +65,22 @@ Platform: remote at 127.0.0.1:44363 · clock 2026-11-09T02:05:24.756Z · judge: 
     d2 completion 50%
     d3 completion 50%
     ✓ owes $650; requests $500 (the per-payment cap) for d1 $300, d2 $100, d3 $100; held for approval
-    ✓ 87f364c5f4e13869-p1-1: approved in the wallet; the platform releases it (terms 500000000 → maria.demo)
-    ✓ 87f364c5f4e13869-p1-1 settled to maria.demo
+    ✓ 019f296c6a31ea69-p1-1: approved with the owner's signature; the platform releases it (terms 500000000 → maria.demo)
+    ✓ 019f296c6a31ea69-p1-1 settled to maria.demo
     ✓ the rest of the same judgment, $150 for d3 $150, is requested as seq 2 and held
-    ✓ 87f364c5f4e13869-p2-1: approved in the wallet; the platform releases it (terms 150000000 → maria.demo)
+    ✓ 019f296c6a31ea69-p2-1: approved with the owner's signature; the platform releases it (terms 150000000 → maria.demo)
     ✓ paid $650; judgment approved
 
 08. A new PR is merged
     Handle daylight-saving changes in the scheduler (#107)
     ✓ requests only the difference: d2 $100
-    ✓ 87f364c5f4e13869-p3-1: approved in the wallet; the platform releases it (terms 100000000 → maria.demo)
+    ✓ 019f296c6a31ea69-p3-1: approved with the owner's signature; the platform releases it (terms 100000000 → maria.demo)
     ✓ paid $750
 
 09. A merged PR hides instructions for the AI reviewer
     Fix typo in rate-limit docs (#108)
     ✓ held for approval; the card leads with acme/app#108 [possible_prompt_injection]
-    ✓ rejected in the wallet: nothing sent, judgment rejected
+    ✓ rejected with the owner's signature: nothing sent, judgment rejected
     ✓ the injected PR is excluded; the next run requests nothing
 
 10. Compromised server: Covenant's own checks off, requests go straight to the platform
@@ -92,7 +92,7 @@ Platform: remote at 127.0.0.1:44363 · clock 2026-11-09T02:05:24.756Z · judge: 
 11. The PR that actually finishes rate limiting is merged
     Configurable rate limits, with docs (#109)
     ✓ requests d3 $250
-    ✓ 87f364c5f4e13869-p5-1: approved in the wallet; the platform releases it (terms 250000000 → maria.demo)
+    ✓ 019f296c6a31ea69-p5-1: approved with the owner's signature; the platform releases it (terms 250000000 → maria.demo)
     ✓ scope fully paid: $1000 of $1000
 
 12. Verify again, and match the platform's transfers to approved payouts
@@ -112,11 +112,11 @@ Every row with status SUCCESS must match one approved Covenant payout, all to `m
 
 | requestId | Covenant state | Vote | Amount | Recipient | Transfer status |
 |---|---|---|---|---|---|
-| `87f364c5f4e13869-p1-1` | paid | approve | $500.00 (d1 $300, d2 $100, d3 $100) | maria.demo | SUCCESS |
-| `87f364c5f4e13869-p2-1` | paid | approve | $150.00 (d3 $150) | maria.demo | SUCCESS |
-| `87f364c5f4e13869-p3-1` | paid | approve | $100.00 (d2 $100) | maria.demo | SUCCESS |
-| `87f364c5f4e13869-p4-1` | rejected | reject | $250.00 (d3, prompt-injected PR #108) | maria.demo | none: nothing sent |
-| `87f364c5f4e13869-p5-1` | paid | approve | $250.00 (d3 $250) | maria.demo | SUCCESS |
+| `019f296c6a31ea69-p1-1` | paid | approve | $500.00 (d1 $300, d2 $100, d3 $100) | maria.demo | SUCCESS |
+| `019f296c6a31ea69-p2-1` | paid | approve | $150.00 (d3 $150) | maria.demo | SUCCESS |
+| `019f296c6a31ea69-p3-1` | paid | approve | $100.00 (d2 $100) | maria.demo | SUCCESS |
+| `019f296c6a31ea69-p4-1` | rejected | reject | $250.00 (d3, prompt-injected PR #108) | maria.demo | none: nothing sent |
+| `019f296c6a31ea69-p5-1` | paid | approve | $250.00 (d3 $250) | maria.demo | SUCCESS |
 
 4 settled transfers, all to `maria.demo`, summing to $1,000 = the scope total = the contract's `paid_usd`. Nothing to `attacker.demo`. The stack records no transaction hashes (all evidence fields are null on the simulator).
 
@@ -132,7 +132,7 @@ Every row with status SUCCESS must match one approved Covenant payout, all to `m
 
 | Contract hash | Organization | Agent id | Policy revision / digest | Payout consent expires |
 |---|---|---|---|---|
-| `87f364c5…` | `c_87f364c5f4e1` (one Organization per contract) | `25cd0f9774cd…f632e0` | revision 2, applied | 2026-11-30 (the contract end); owner/read consent to 2026-12-30 |
+| `019f296c…` | `c_019f296c6a31` (one Organization per contract) | `2402bb8e5963…ab732de` | revision 2, applied | 2026-12-01 (the contract end); owner/read consent to 2026-12-31 |
 
 ## Hosted platform
 

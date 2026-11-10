@@ -2,15 +2,17 @@
 
 **The contract is the spending limit.**
 
-Covenant is MultiAgency's payroll app for pay-on-merge contracts. A company and a contractor sign a scope of deliverables, each with a value. Covenant sets the contract up on the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk`: an agent made for this contract, whose signed policy pays only the contractor, never more than the largest deliverable in one payment, funded with exactly the scope total. Every time one of the contractor's PRs is merged, a judge decides how complete each deliverable is, Covenant requests the difference, and the platform holds that payout until the company approves it.
+Covenant is MultiAgency's payroll app for pay-on-merge contracts. A company and a contractor sign a scope of deliverables, each with a value. Covenant sets the contract up on the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk`: an agent made for this contract, whose signed policy pays only the contractor, never more than the largest deliverable in one payment, funded with the scope total. Every time one of the contractor's PRs is merged, a judge decides how complete each deliverable is, Covenant requests the difference, and the platform holds that payout until the company approves it.
 
 > The judge decides how much. The company approves each payout. The contract decides the most it could ever be.
 
-Covenant's server holds only its app credential. It never holds an owner key or a provider key.
+Covenant's server holds only its app credential. In production it never holds an owner or provider key; the keyless demo and the local stack use a demo signer.
 
 Tracks: Real-World Money, AI Security & Defense.
 
 ## Run it
+
+Prerequisites: Bun 1.4+ (if `bun install` says "Unknown lockfile version", run `bun upgrade`).
 
 ### Keyless, on the platform stand-in
 
@@ -27,14 +29,15 @@ bun run demo      # the same flow in the browser at http://localhost:3000, on th
 bun run typecheck
 ```
 
-Requires Bun 1.4+.
+If port 3000 is taken: `PORT=3001 bun run demo`.
 
 ### Against the local platform stack
 
-The platform repo ships an isolated stack (gateway, confirm page, provider simulator, local chain). `demo:stack` drives one contract end to end against it, headless:
+The platform repo ships an isolated stack (gateway, confirm page, provider simulator, local chain). `demo:stack` drives one contract end to end against it, headless. It needs a clone of [MultiAgency/platform](https://github.com/MultiAgency/platform), Node 24 and pnpm (`corepack enable`):
 
 ```bash
-# in the platform checkout
+git clone https://github.com/MultiAgency/platform && cd platform
+corepack enable
 pnpm install && pnpm build:web
 pnpm test:e2e:stack --app covenant --no-browser --owner acme.demo --payee maria.demo --builder attacker.demo
 # wait for "Isolated stack ready: <dir>/state.json", then in this repo:
@@ -42,7 +45,11 @@ PLATFORM_STACK_DIR=<dir> bun run demo:stack
 touch <dir>/stop
 ```
 
-It reads the stack's `state.json` (gateway URL, app credential file, TLS certificate, chain RPC), starts Covenant with `PLATFORM=remote`, and runs the same scenario as `demo:e2e`: setup, consents, grant, policy, funding with exactly the total, a judged payout held, approved and settled, an injected payout held and rejected, and the policy refusing the redirect and overpay attacks. The recorded run is in [docs/evidence.md](docs/evidence.md).
+It reads the stack's `state.json` (gateway URL, app credential file, TLS certificate, chain RPC), starts Covenant with `PLATFORM=remote`, and runs the same scenario as `demo:e2e`: setup, consents, grant, policy, funding with the total, a judged payout held, approved and settled, an injected payout held and rejected, and the policy refusing the redirect and overpay attacks. The stack simulates the provider, chain and signatures (every owner signature is the stack's fixture key). The recorded run is in [docs/evidence.md](docs/evidence.md).
+
+### Platform version
+
+Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42); production runs 0.5.4 until 0.5.5 is deployed. Covenant pins `@multiagency/sdk` 0.5.4, the published SDK; the local stack above runs a platform that already has it. The owner's freeze link (the platform's wallet stop page) also needs 0.5.5.
 
 ## Do X → see Y (browser demo)
 
@@ -65,14 +72,15 @@ signed scope ──setup──▶ one platform Organization and agent per contra
   largest item     ──▶ limits.per_transaction = largest       (provider-enforced)
   every payout     ──▶ owner_approval = true                  (held until the company votes)
   end date         ──▶ Covenant's payout consent expires at the end
-  scope total      ──▶ the agent is funded with exactly the total
+  scope total      ──▶ the agent is funded with the total (information on Verify, not a cap)
 
 merged PR ──precheck──▶ judge ──▶ owed = value × completion − already committed
           ──▶ payouts/request (requestId saved first) ──▶ held ──▶ approval_vote ──▶ settled
 ```
 
 - **The company approves every payout.** Nothing is paid by default after a merge: the platform's payout policy holds every payout for the owner. The representative approves or rejects each one with an `approval_vote`; the platform checks the vote against the provider's request before the owner signs. A rejected payout's PRs stay out of later runs.
-- **Money stays bounded whatever the judge says.** The policy refuses any other payee and any payment above the largest deliverable. The agent holds exactly the scope total, so it can't pay more than the contract: the daily and monthly limits reset and are not what caps it.
+- **Money stays bounded whatever the judge says.** The policy refuses any other payee and any payment above the largest deliverable, and the company approves every payout. Covenant requests only what is owed against the scope, counting every payout that may have moved. The agent is funded with the scope total and Verify shows paid + balance against it, but that is information, not a cap: the company could deposit more, and the daily and monthly limits reset.
+- **Only under the policy both parties signed.** Before every payout request Covenant checks the whole live policy (actions, assets, owner approval, payee, per-payment, daily and monthly limits, USD budget) against what it signed. Any difference and nothing is requested, with an alert, and Verify turns red. A new revision that still matches (a freeze and unfreeze) is fine. It also checks the payout grant, which the platform issues for 30 days, and asks the representative to issue it again when it runs out.
 - **Never twice.** Each attempt is saved with its requestId before the call. A lost reply is followed with `payouts/status`, never resent under a new id. Only a `refused` answer (nothing sent) frees the amount for a new attempt. A `failed` payout stays committed until the representative says whether it arrived.
 - **One open judgment per contract.** A run while a payout is open waits. A judgment closes approved, rejected, or dropped by the representative.
 
@@ -80,23 +88,36 @@ See [docs/how-it-works.md](docs/how-it-works.md).
 
 ### One Organization per contract, by default
 
-Covenant uses one platform Organization per contract (organization = contract id) instead of one per company. The platform keeps each Organization's agent separate, so each contract gets its own payee list, per-payment cap, balance, consent expiry and freeze. With one shared company agent, the withdrawal list would be every contractor, the cap would have to fit the largest deliverable of any contract, and the balance would be pooled. Switching to one agent per company is one function (`orgFor`) plus a union of payees in the policy edit; we left it out this week. The cost of the default (agents per deployment are limited and never released) is filed in [docs/platform-gaps.md](docs/platform-gaps.md).
+Covenant uses one platform Organization per contract (organization = contract id) instead of one per company. The platform keeps each Organization's agent separate, so each contract gets its own payee list, per-payment cap, balance, consent expiry and freeze. With one shared company agent, the withdrawal list would be every contractor, the cap would have to fit the largest deliverable of any contract, and the balance would be pooled.
+
+The limit: the platform hosts at most 16 agents per deployment and never releases them (MultiAgency/platform#46), so one Covenant deployment can set up at most 16 contracts, ever. Switching to one agent per company means changing `orgFor()` (in `src/server/engine.ts`) and making the policy's payee list every contractor of that company (`policyChanges` and the whole-policy check in `src/shared/policy-request.ts`).
 
 ## What we claim, and what we don't
 
 We claim:
 - each contract has its own platform agent whose policy, read back from the platform, allows only withdrawals of USDC to the payee, no single payment above the largest deliverable, and owner approval on every payout;
-- the agent is funded with the scope total, so paid + balance never exceeds it;
+- Covenant requests a payout only while the whole live policy matches what both parties signed;
+- the agent is funded with the scope total; Verify shows paid + balance against it, as information (the company could deposit more);
 - Covenant's payout consent ends at the contract end;
-- Covenant holds no owner key;
+- Covenant holds no owner key in production (the keyless demo and the local stack use a demo signer);
 - a prompt-injected PR can fool the judge, but the payout still waits for the company, which sees the judge's flags and the proven terms.
 
 We don't claim:
 - that anything judges the quality of the work but the judge;
 - a cryptographic proof to the contractor: the Verify page relays the platform's read through Covenant;
-- escrow: the company owns the agent, can reject a payout or freeze the agent;
+- escrow: the company owns the agent, can reject a payout or freeze the agent (nothing pays until it unfreezes);
 - guaranteed payment for the contractor;
-- that the stand-in proves the hosted platform's behaviour. The stack run is the integration evidence; hosted platforms get held-withdrawal approval with the 0.5.5 deploy.
+- that the stand-in proves the hosted platform's behaviour. The stack run is the integration evidence; hosted platforms get held-withdrawal approval with the 0.5.5 deploy;
+- a mainnet run: the recorded runs are on the platform's local stack, with a simulated chain.
+
+## What's NEAR here
+
+- **Two-party signing with NEP-413.** Both parties sign the terms hash with their NEAR wallet; Covenant checks each signature against a full-access key of the account. The company also signs every platform owner step (setup, consents, grant, policy, approvals) with NEP-413.
+- **Sign in with NEAR** through Better-Auth and [better-near-auth](https://www.npmjs.com/package/better-near-auth).
+- **USDC on NEAR**, paid out through the MultiAgency platform's NEAR Intents agent: one agent per contract, withdrawals only to the payee's NEAR account.
+- **NEAR AI Cloud** judges the merged work when `NEARAI_API_KEY` is set; otherwise a rule-based judge runs.
+
+The recorded runs are on the platform's local stack (simulated provider and chain), not mainnet.
 
 ## Sign in with NEAR
 

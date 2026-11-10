@@ -9,7 +9,7 @@ A company and a contractor sign a scope of deliverables, each with a value. Cove
 | **When** is a payout requested? | A merged PR (objective, on GitHub) |
 | **How much** is the work worth? | The judge, against the signed scope |
 | **Does this payout go out?** | The company, voting on the held payout |
-| **What's the most** that can move, to whom? | The platform policy and the funded total |
+| **What's the most** that can move, to whom? | The platform policy (payee, per-payment cap, approval) and Covenant's count of what may have moved |
 
 ## Roles
 
@@ -43,7 +43,7 @@ Each contract is its own platform Organization (`organization = contract id`). T
 | 1 | Set up | The representative signs a setup message for the `payables` area; `setup` reserves the Organization's agent |
 | 2 | Create | `owner/prepare agent_create` (role `payout`), signed by the representative |
 | 3 | Consents | `[payout]` until the contract end; `[owner, read]` until the end plus a grace period, so held payouts can still be voted on |
-| 4 | Grant | `owner/prepare grant_issue` (label `payout`) |
+| 4 | Grant | `owner/prepare grant_issue` (label `payout`; the local stack takes `invoices`, MultiAgency/platform#54). The platform issues it for 30 days, so a longer contract re-issues it: when less than a day is left, Covenant requests nothing and sends the representative back to this step |
 | 5 | Policy | One `owner/prepare policy_update`: `withdrawals: [payee]`, `owner_approval: true`, `limits.per_transaction` = largest deliverable, daily and monthly = total, a USD budget sized from the total |
 | 6 | Fund | `deposit` gives a one-time address; the representative sends exactly the scope total |
 
@@ -56,12 +56,15 @@ An owner step is either a NEP-413 message the representative signs, or a link to
 | Payee | Policy `withdrawals = [payee]` (provider) |
 | No payment above the largest deliverable | `limits.per_transaction` (provider) |
 | Every payout approved by the company | `owner_approval: true` (platform holds, company votes) |
-| Never more than the scope | The agent is funded with exactly the total |
+| Never more than the scope | Covenant requests only what is owed against the scope, counting every payout that may have moved; the company approves each one |
+| The whole signed policy | Covenant, before every payout request: any difference from what was signed and nothing is requested (`policy_mismatch`) |
 | End date | Covenant's `[payout]` consent expires at the end; Covenant also stops requesting 10 minutes before |
 | Start date, acceptance, repos | Covenant, before judging |
 | Completion of each deliverable | Covenant's judge |
 
-The daily and monthly limits are set too, but they reset (monthly on the same date each month), so they are not what caps a contract longer than a month. The funded total is.
+The daily and monthly limits are set too, but they reset (monthly on the same date each month), so they are not what caps a contract longer than a month. The agent is funded with the scope total, and Verify shows paid + balance against it, but that is information, not a cap: the company could deposit more.
+
+A freeze is the owner's, on the platform (from platform 0.5.5, its wallet stop page `https://<platform host>/confirm/wallet/stop/<agent>`). While the agent is frozen nothing pays; when the owner unfreezes, Covenant checks the policy against the signed terms again and carries on.
 
 ## A payout run
 
@@ -69,7 +72,7 @@ The daily and monthly limits are set too, but they reset (monthly on the same da
 2. **Prechecks** (hard rules no judge can override): right author, merged by someone else, listed repo, inside the term. PRs the representative rejected earlier are dropped.
 3. **Judge:** completion per deliverable, one of 0, 25, 50, 75, 100%. Only approved judgments carry forward.
 4. **Owed** = Σ value × completion − already committed. One payout, at most the largest deliverable, covers the deliverables in scope order.
-5. **Before the request:** the platform's policy must be in force, with owner approval on, the payee as the only withdrawal destination and the right per-payment cap. Otherwise no request is made.
+5. **Before the request:** the platform's policy must be in force and not frozen, a live payout grant must exist, and the whole live policy must equal what was signed: withdraw only, USDC only, owner approval on, the payee as the only withdrawal destination, the per-payment cap, the daily and monthly limits and the USD budget. Otherwise no request is made. A new revision that still matches in full (a freeze and unfreeze, say) is fine and becomes the reviewed one.
 6. **Request:** the attempt is saved with its requestId (`<hash16>-p<seq>-<attempt>`) before `payouts/request`.
 7. **Held:** the platform holds it. The approval card leads with the judge's flags and shows the terms the platform proved for this approval: payee, USDC, amount, a public withdrawal on NEAR that may arrive less a route fee. Covenant refuses to ask for an approval signature if those terms don't match the attempt.
 8. **Vote:** approve → the platform releases it → `succeeded` with the transaction. Reject → nothing moves, the judgment closes rejected, and its PRs stay out of later runs.
