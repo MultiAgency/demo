@@ -115,6 +115,11 @@ export class SdkPlatform implements Platform {
     return map(await this.app.setup(s), (v) => ({ agent: v.agent, consent: toConsent(v.consent) }));
   }
 
+  async reservations(organization: string, owner: string) {
+    const r = await this.app.reservations({ organization, owner, area: "payables" });
+    return map(r, (v) => v.agents.filter((a) => a.area === "payables").map((a) => ({ agent: a.agent, owner: a.owner, released: a.released === true })));
+  }
+
   async submitConsent(s: Signed413) {
     return map(await this.app.consents.submit(s), (v) => toConsent(v.consent));
   }

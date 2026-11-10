@@ -125,12 +125,12 @@ describe("FakePlatform: setup and consents", () => {
     expect(await w.fake.agent("other-org", setup.agent).overview()).toMatchObject({ ok: false, kind: "forbidden", code: "no_consent" });
   });
 
-  test("consents expire on the fake's own clock: forbidden `scope` while [owner,read] lives, `no_consent` after", async () => {
+  test("consents expire on the fake's own clock: forbidden `scope` for sends while [owner,read] lives, `no_consent` after", async () => {
     const w = world();
     const c = await onboard(w, { fund: TOTAL });
     w.controls.advance(21 * DAY + 1);
     expect(await c.ask("after-end-1", 1_000_000n)).toMatchObject({ ok: false, kind: "forbidden", code: "scope" });
-    expect(await c.agent.payoutStatus("x")).toMatchObject({ ok: false, kind: "forbidden", code: "scope" });
+    expect(await c.agent.payoutStatus("x")).toMatchObject({ ok: true }); // a read since SDK 0.5.6: the app follows its own requests
     expect((await c.agent.held()).ok).toBe(true); // held is a read too
     w.controls.advance(14 * DAY);
     expect(await c.agent.overview()).toMatchObject({ ok: false, kind: "forbidden", code: "no_consent" });

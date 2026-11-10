@@ -105,7 +105,7 @@ We claim:
 We don't claim:
 - that anything judges the quality of the work but the judge;
 - a cryptographic proof to the contractor: the Verify page relays the platform's read through Covenant;
-- escrow: the company owns the agent, can reject a payout or freeze the agent (nothing pays until it unfreezes);
+- escrow: the company owns the agent, can reject a payout or freeze the agent on the platform's wallet stop page (nothing pays until it unfreezes);
 - guaranteed payment for the contractor;
 - that the stand-in proves the hosted platform's behaviour. The stack run is the integration evidence; hosted platforms get held-withdrawal approval with the 0.5.5 deploy;
 - a mainnet run: the recorded runs are on the platform's local stack, with a simulated chain.
@@ -146,7 +146,7 @@ See [.env.example](.env.example). The defaults run the stand-in with no keys. `P
 
 ## Built with
 
-Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.4, Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
+Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.6, Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
 
 Written with AI assistance.
 

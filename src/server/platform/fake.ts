@@ -274,18 +274,28 @@ export class FakePlatform implements Platform {
     if (expires - this.now() > SETUP_MAX_MS) return fail.refused("too_long");
     const bad = await this.verify(s, parsed.owner);
     if (bad) return bad;
-    const name = `own-${hex(12)}`;
-    this.state.agents.set(name, {
-      name, organization: parsed.organization, owner: parsed.owner, setupKey: s.publicKey, ownerKey: null, agentId: null,
-      revision: 0, status: "NONE", synced: false, policy: null, grants: [], funded: 0n, ops: new Map(),
-    });
+    // One hosted agent per Organization, owner and area: a new setup finds the same agent until it is created.
+    const reserved = [...this.state.agents.values()].find((x) => x.organization === parsed.organization && x.owner === parsed.owner);
+    if (reserved?.agentId) return fail.refused("already_created");
+    const name = reserved?.name ?? `own-${hex(12)}`;
+    if (reserved) reserved.setupKey = s.publicKey;
+    else
+      this.state.agents.set(name, {
+        name, organization: parsed.organization, owner: parsed.owner, setupKey: s.publicKey, ownerKey: null, agentId: null,
+        revision: 0, status: "NONE", synced: false, policy: null, grants: [], funded: 0n, ops: new Map(),
+      });
     const consent: StoredConsent = {
       id: hex(32), organization: parsed.organization, owner: parsed.owner, agent: name, agentId: "unborn", scopes: ["owner"],
       expiresAtMs: expires, publicKey: s.publicKey, revoked: false, signedBody: body,
     };
     this.state.consents.set(consent.id, consent);
     this.state.setups.set(body, { agent: name, consentId: consent.id });
-    return ok({ agent: name, consent: this.consentView(consent) });
+    return this.takeDroppedReply() ? fail.unknown("reply lost (dropNextReply)") : ok({ agent: name, consent: this.consentView(consent) });
+  }
+
+  async reservations(organization: string, owner: string): Promise<Res<{ agent: string; owner: string; released: boolean }[]>> {
+    if (this.state.unavailable) return fail.unavailable();
+    return ok([...this.state.agents.values()].filter((a) => a.organization === organization && a.owner === owner).map((a) => ({ agent: a.name, owner: a.owner, released: false })));
   }
 
   async submitConsent(s: Signed413): Promise<Res<Consent>> {

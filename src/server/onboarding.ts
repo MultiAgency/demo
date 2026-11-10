@@ -12,6 +12,8 @@ import { nonceToString, randomNonce } from "./nep413";
 const SETUP_TTL_MS = 30 * 60_000;
 const MAX_CONSENT_MS = 366 * 86_400_000;
 const WAIT_MS = 2_000;
+/** Setup refusals after which the agent may still exist: the body expired before a resend, or the agent was created. */
+const RECOVERABLE_SETUP_CODES = new Set(["already_created", "expired", "signed_expired"]);
 
 export interface OnboardingDeps {
   db: Database;
@@ -171,11 +173,18 @@ export class Onboarding {
     if (!a || !pending || pending.step !== body.step || pending.nonce !== body.nonce) throw new UserError("This signature doesn't answer the current step. Ask for the next step again.", 409);
     const s: Signed413 = { message: pending.message, nonce: pending.nonce, publicKey: body.publicKey, signature: body.signature };
     if (body.step === "setup") {
+      // Resending the same body while it is unexpired answers the same agent and consent and reserves nothing new.
       let res = await this.d.platform.setup(s);
-      for (let i = 0; i < 2 && !res.ok && res.kind === "unavailable"; i++) res = await this.d.platform.setup(s); // resend the same body
-      if (!res.ok) throw failError(res, "setup");
-      this.setAgent(a.organization, { agent: res.value.agent, setup_consent_id: res.value.consent.id, owner_public_key: body.publicKey, stage: "needs_create", pending_sign: null });
-      this.d.event(id, "setup", `Platform agent ${res.value.agent} reserved for organization ${a.organization}.`);
+      for (let i = 0; i < 2 && !res.ok && (res.kind === "unavailable" || res.kind === "unknown"); i++) res = await this.d.platform.setup(s);
+      if (res.ok) {
+        this.setAgent(a.organization, { agent: res.value.agent, setup_consent_id: res.value.consent.id, owner_public_key: body.publicKey, stage: "needs_create", pending_sign: null });
+        this.d.event(id, "setup", `Platform agent ${res.value.agent} reserved for organization ${a.organization}.`);
+      } else {
+        const agent = await this.reservedAgent(a, res);
+        if (!agent) throw failError(res, "setup");
+        this.setAgent(a.organization, { agent, setup_consent_id: null, owner_public_key: body.publicKey, stage: "needs_create", pending_sign: null });
+        this.d.event(id, "setup", `The setup reply was lost (${failCode(res)}); the platform lists agent ${agent} as reserved for organization ${a.organization}.`);
+      }
     } else {
       const res = await this.d.platform.submitConsent(s);
       if (!res.ok) throw failError(res, "consent");
@@ -188,6 +197,21 @@ export class Onboarding {
       }
     }
     return this.next(id);
+  }
+
+  /**
+   * The agent a setup reserved when its reply was lost, the signed setup expired before it could be resent, or the
+   * platform answered `already_created`: `reservations` lists this deployment's agents for the Organization and owner.
+   * Null when the platform names none, or more than one, or predates 0.5.5 (refused 404).
+   */
+  private async reservedAgent(a: PlatformAgentRow, f: Fail): Promise<string | null> {
+    const code = "code" in f ? f.code : undefined;
+    const lost = f.kind === "unknown" || f.kind === "unavailable";
+    if (!lost && !(code && RECOVERABLE_SETUP_CODES.has(code))) return null;
+    const r = await this.d.platform.reservations(a.organization, a.owner);
+    if (!r.ok) return null;
+    const live = r.value.filter((x) => !x.released && x.owner === a.owner);
+    return live.length === 1 ? live[0]!.agent : null;
   }
 
   // ---------------------------------------------------------------- owner steps

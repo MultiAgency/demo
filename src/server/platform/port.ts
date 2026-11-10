@@ -141,6 +141,8 @@ export interface Platform {
   consentMessage(i: { organization: string; owner: string; agent: string; agentId: string; scopes: ("owner" | "payout" | "read")[]; expiresAt: string }): string;
   identity(agent: string): Promise<Res<{ agentId: string | null; created: boolean; owner: string }>>;
   setup(s: Signed413): Promise<Res<{ agent: string; consent: Consent }>>;
+  /** The agents this deployment's setups reserved for an Organization and owner (area "payables"): a lost setup reply's agent. Platforms before 0.5.5 answer refused. */
+  reservations(organization: string, owner: string): Promise<Res<{ agent: string; owner: string; released: boolean }[]>>;
   submitConsent(s: Signed413): Promise<Res<Consent>>;
   listConsents(organization: string): Promise<Res<Consent[]>>;
   agent(organization: string, agent: string): AgentHandle;

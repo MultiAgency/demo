@@ -2,6 +2,10 @@
 
 Issues filed on `MultiAgency/platform`, met while moving Covenant onto `@multiagency/sdk` 0.5.4 (platform `96a0bb6`).
 
+Covenant now runs on 0.5.6. Per the platform's review of MultiAgency/demo#6, 0.5.5 carries this feedback except G1, which 0.5.6
+answers with an owner-archived hosting release (`release`). Covenant doesn't call `release` yet. What Covenant uses from those releases:
+`payouts/status` under `read` (G8), `reservations` for a lost setup reply, and the platform's wallet stop page for freezing.
+
 | # | Gap | Issue |
 |---|---|---|
 | G1 | Organization agents are never released, 16 per deployment | [MultiAgency/platform#46](https://github.com/MultiAgency/platform/issues/46) |
@@ -62,7 +66,9 @@ Issues filed on `MultiAgency/platform`, met while moving Covenant onto `@multiag
 **Mitigation in Covenant:** it stops requesting 10 minutes before the end, and after the end it can still find a held payout through `held` (read) and vote on it within the `[owner, read]` grace period.
 **Ask:** `payouts/status` under `read`.
 
-## Only if hit
+**Since 0.5.6:** `payouts/status` is a `read`, so Covenant can follow its own requests after the `[payout]` consent ends.
 
-- **Lost `setup` reply recovery:** no way to look up the agent name by (Organization, owner, area) after the setup expires.
-- **TLS for non-Node apps on the stack:** document the Bun route for the stack's self-signed certificate.
+## Only if hit (answered in 0.5.5)
+
+- **Lost `setup` reply recovery:** Covenant resends the same signed body while it is unexpired. After it expires, or on `already_created`, it asks `reservations` for the Organization and owner and takes the one live agent listed. A platform before 0.5.5 answers `refused` 404, and the setup error is shown as before.
+- **TLS for non-Node apps on the stack:** the app-server skill now documents the Bun route (`appClient` with a `fetch` adding `tls: { ca }`), which is what `caFetch` does.

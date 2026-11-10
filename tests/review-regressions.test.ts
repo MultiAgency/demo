@@ -373,3 +373,54 @@ describe("destinations mode", () => {
     expect(withdrawalsOf({ destinations: { mode: "except", list } })).not.toContain("maria.demo");
   });
 });
+
+async function signedTerms() {
+  const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules" }), { clockStart: START, log: () => {} });
+  const { id, contractorToken } = rt.covenant.createContract({ ...DEMO_TERMS });
+  const sign = (p: any) => rt.kit.devSigner!.sign413(p);
+  for (const role of ["representative", "contractor"] as const) {
+    const req = rt.covenant.signingRequest(id, role);
+    const s = await sign(req);
+    await rt.covenant.addSignature(id, role, { account_id: req.account_id, public_key: s.publicKey, signature: s.signature, nonce: req.nonce }, contractorToken);
+  }
+  return { rt, id, sign, controls: rt.kit.controls as FakeControls };
+}
+
+test("a lost setup reply is resent with the same body and answers the same agent", async () => {
+  const { rt, id, sign, controls } = await signedTerms();
+  const next: any = await rt.covenant.next(id);
+  expect(next.step).toBe("setup");
+  controls.dropNextReply();
+  const s = await sign(next.sign);
+  const after: any = await rt.covenant.signed(id, { step: "setup", nonce: next.sign.nonce, publicKey: s.publicKey, signature: s.signature });
+  const a = rt.covenant.onboarding.agentRow(id)!;
+  expect(a.agent).toMatch(/^own-/);
+  expect(a.setup_consent_id).not.toBeNull(); // the resend answered the same consent
+  expect(after.kind).toBe("owner_step");
+});
+
+test("a setup refused already_created learns the agent from reservations", async () => {
+  const { rt, id, sign } = await signedTerms();
+  let next: any = await rt.covenant.next(id);
+  for (let i = 0; i < 20 && rt.covenant.onboarding.agentRow(id)?.agent_id == null; i++) {
+    if (next.kind === "sign") {
+      const s = await sign(next.sign);
+      next = await rt.covenant.signed(id, { step: next.step, nonce: next.sign.nonce, publicKey: s.publicKey, signature: s.signature });
+    } else if (next.kind === "owner_step") {
+      await rt.covenant.submitOwnerStep(next.correlation_id, await sign(next.sign!));
+      next = await rt.covenant.next(id);
+    } else next = await rt.covenant.next(id);
+  }
+  const a = rt.covenant.onboarding.agentRow(id)!;
+  expect(a.agent_id).not.toBeNull();
+  // Covenant lost its record of the setup: back to needs_setup, as if the reply never arrived.
+  rt.covenant.onboarding.setAgent(id, { agent: null, agent_id: null, setup_consent_id: null, stage: "needs_setup", payout_consent_id: null, owner_consent_id: null });
+  next = await rt.covenant.next(id);
+  expect(next.step).toBe("setup");
+  const s = await sign(next.sign);
+  await rt.covenant.signed(id, { step: "setup", nonce: next.sign.nonce, publicKey: s.publicKey, signature: s.signature });
+  const b = rt.covenant.onboarding.agentRow(id)!;
+  expect(b.agent).toBe(a.agent);
+  expect(b.agent_id).toBe(a.agent_id); // identity read: already created, so on to the consents
+  expect(b.stage).toBe("needs_consent");
+});

@@ -133,6 +133,11 @@ export class StubPlatform implements Platform {
     if (!a) return { ok: false, kind: "refused", code: "agent_not_found" } as Fail;
     return ok({ agentId: a.agentId, created: a.agentId !== null, owner: a.owner });
   }
+  async reservations(organization: string, owner: string) {
+    if (this.script.unavailable) return { ok: false, kind: "unavailable" } as Fail;
+    return { ok: true as const, value: [...this.agents.values()].filter((a) => a.org === organization && a.owner === owner).map((a) => ({ agent: a.name, owner: a.owner, released: false })) };
+  }
+
   async setup(s: Signed413) {
     if (this.script.unavailable) return { ok: false, kind: "unavailable" } as Fail;
     if (!this.verify(s)) return refused("bad_signature");
