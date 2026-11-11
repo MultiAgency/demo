@@ -139,3 +139,6 @@ Every row with status SUCCESS must match one approved Covenant payout, all to `m
 ## Hosted platform
 
 None yet. Held-withdrawal approval reaches hosted platforms with the 0.5.5 deploy.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

@@ -31,7 +31,7 @@ describe("access rules when sign-in is required", () => {
 
   test("company actions on a contract need the representative", async () => {
     const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", REQUIRE_AUTH: "true" }));
-    const { id } = rt.covenant.createContract(DEMO_TERMS);
+    const { id } = rt.engine.createContract(DEMO_TERMS);
     for (const [path, body] of [
       [`/api/contracts/${id}/onboarding/next`, {}],
       [`/api/contracts/${id}/run`, {}],
@@ -44,7 +44,7 @@ describe("access rules when sign-in is required", () => {
 
   test("the list only shows contracts you're a party to; verify stays public", async () => {
     const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", REQUIRE_AUTH: "true" }));
-    const { id } = rt.covenant.createContract(DEMO_TERMS);
+    const { id } = rt.engine.createContract(DEMO_TERMS);
     expect(await (await rt.app.request("/api/contracts")).json()).toEqual([]);
     expect((await rt.app.request(`/api/contracts/${id}/verify`)).status).toBe(200);
   });

@@ -84,13 +84,13 @@ export class Onboarding {
   async next(id: string): Promise<NextStep> {
     const { row, terms } = this.d.contract(id);
     if (!row.rep_sig || !row.contractor_sig) throw new UserError("Both parties must sign the terms first.");
-    if (row.frozen) throw new UserError("The owner froze this contract's agent. Nothing pays until they unfreeze it.", 409);
+    if (row.frozen) throw new UserError("The owner froze this job's agent. Nothing pays until they unfreeze it.", 409);
     const a = this.ensureAgent(row, terms);
     const now = this.d.now();
     switch (a.stage) {
       case "needs_setup": {
         const expiresAt = new Date(now.getTime() + SETUP_TTL_MS).toISOString();
-        return this.signRequest(a, "setup", (expiry) => this.d.platform.setupMessage({ organization: a.organization, owner: a.owner, expiresAt: expiry }), expiresAt, "Set up the contract's platform agent");
+        return this.signRequest(a, "setup", (expiry) => this.d.platform.setupMessage({ organization: a.organization, owner: a.owner, expiresAt: expiry }), expiresAt, "Set up the job's platform agent");
       }
       case "needs_create": {
         const pending = this.latestStep(a.organization, "agent_create");
@@ -103,7 +103,7 @@ export class Onboarding {
             return this.next(id);
           }
         }
-        return this.ownerStepFor(id, a, "agent_create", "Create the contract's agent", () => ({
+        return this.ownerStepFor(id, a, "agent_create", "Create the job's agent", () => ({
           type: "agent_create",
           owner: { type: "near", account_id: a.owner, public_key: a.owner_public_key! },
           role: "payout",
@@ -111,14 +111,14 @@ export class Onboarding {
       }
       case "needs_consent": {
         const end = Date.parse(endInstant(terms));
-        if (end <= now.getTime() + 2 * 60_000) throw new UserError("The contract ends too soon to give Covenant access.");
+        if (end <= now.getTime() + 2 * 60_000) throw new UserError("The job ends too soon to give Paperwork access.");
         const cap = now.getTime() + MAX_CONSENT_MS;
         if (!a.payout_consent_id) {
           const expiresAt = new Date(Math.min(end, cap)).toISOString();
-          return this.signRequest(a, "consent_payout", (expiry) => this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["payout"], expiresAt: expiry }), expiresAt, `Let Covenant request payouts until ${expiresAt.slice(0, 10)} (the contract end)`);
+          return this.signRequest(a, "consent_payout", (expiry) => this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["payout"], expiresAt: expiry }), expiresAt, `Let Paperwork request payouts until ${expiresAt.slice(0, 10)} (the job end)`);
         }
         const expiresAt = new Date(Math.min(end + this.d.graceDays * 86_400_000, cap)).toISOString();
-        return this.signRequest(a, "consent_owner", (expiry) => this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["owner", "read"], expiresAt: expiry }), expiresAt, `Let Covenant prepare your approvals and read the agent until ${expiresAt.slice(0, 10)}`);
+        return this.signRequest(a, "consent_owner", (expiry) => this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["owner", "read"], expiresAt: expiry }), expiresAt, `Let Paperwork prepare your approvals and read the agent until ${expiresAt.slice(0, 10)}`);
       }
       case "needs_grant":
         return this.ownerStepFor(id, a, "grant_issue", "Issue the agent's payout grant", () => ({ type: "grant_issue", label: "payout" }));
@@ -192,10 +192,10 @@ export class Onboarding {
       if (!res.ok) throw failError(res, "consent");
       if (body.step === "consent_payout") {
         this.setAgent(a.organization, { payout_consent_id: res.value.id, payout_consent_expires_at: res.value.expiresAt, pending_sign: null });
-        this.d.event(id, "consent", `Covenant may request payouts until ${res.value.expiresAt} (the contract end).`);
+        this.d.event(id, "consent", `Paperwork may request payouts until ${res.value.expiresAt} (the job end).`);
       } else {
         this.setAgent(a.organization, { owner_consent_id: res.value.id, owner_consent_expires_at: res.value.expiresAt, pending_sign: null, stage: "needs_grant" });
-        this.d.event(id, "consent", `Covenant may prepare approvals and read the agent until ${res.value.expiresAt}.`);
+        this.d.event(id, "consent", `Paperwork may prepare approvals and read the agent until ${res.value.expiresAt}.`);
       }
     }
     return this.next(id);

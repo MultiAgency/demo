@@ -179,3 +179,6 @@ gives for payouts.
   but the refusal can only be recognised by its text.
 - **DAO `agent_create` right after the setup vote** answered 503 (`unknown`) once while the hosted agent started; the
   next prepare succeeded. Covenant waits and prepares again, recovering through `owner/pending` if the first one landed.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

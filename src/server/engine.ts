@@ -87,7 +87,7 @@ export interface AttackReport {
   pull_request?: unknown;
 }
 
-export class Covenant {
+export class Engine {
   readonly onboarding: Onboarding;
   private mutex = new KeyedMutex();
   private log: (msg: string) => void;
@@ -121,8 +121,8 @@ export class Covenant {
     const id = `c_${hash.slice(0, 12)}`;
     const contractorToken = sha256Hex(randomNonce()).slice(0, 32);
     this.d.db
-      .query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, organization) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, canonicalJson(terms), hash, this.nowIso(), sha256Hex(contractorToken), orgFor(id));
+      .query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, organization, signing_recipient) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, canonicalJson(terms), hash, this.nowIso(), sha256Hex(contractorToken), orgFor(id), TERMS_RECIPIENT);
     this.event(id, "draft", `Draft created: ${terms.company} funds ${terms.scope.length} deliverables worth $${scopeTotal(terms)} for ${terms.contractor.name}, until ${terms.end}.`);
     return { id, contractorToken };
   }
@@ -210,8 +210,8 @@ export class Covenant {
     return {
       role,
       account_id: role === "representative" ? terms.representative.near_account : terms.contractor.near_account,
-      message: termsSigningMessage(row.hash),
-      recipient: TERMS_RECIPIENT,
+      message: termsSigningMessage(row.hash, row.signing_recipient),
+      recipient: row.signing_recipient,
       nonce: nonceToString(randomNonce()),
     };
   }
@@ -223,7 +223,7 @@ export class Covenant {
     if (role === "contractor" && sha256Hex(contractorToken ?? "") !== row.contractor_link_hash) throw new UserError("This signing link is not valid for the contractor.", 403);
     if ((role === "representative" ? row.rep_sig : row.contractor_sig) !== null) throw new UserError(`The ${role} already signed.`, 409);
     if (signed.account_id.toLowerCase() !== expected) throw new UserError(`The ${role} must sign as ${expected}, not ${signed.account_id}.`, 403);
-    const ok = verifyNep413({ message: termsSigningMessage(row.hash), nonce: nonceFromString(signed.nonce), recipient: TERMS_RECIPIENT }, signed);
+    const ok = verifyNep413({ message: termsSigningMessage(row.hash, row.signing_recipient), nonce: nonceFromString(signed.nonce), recipient: row.signing_recipient }, signed);
     if (!ok) throw new UserError("The signature does not match these terms.", 400);
     if (!(await this.d.chain.isFullAccessKey(expected, signed.public_key))) throw new UserError(`${signed.public_key} is not a full-access key of ${expected}.`, 403);
     const record: SignatureRecord = { ...signed, account_id: expected, signed_at: this.nowIso() };
@@ -659,7 +659,7 @@ export class Covenant {
       }
       expected = pre.expected;
     } else {
-      // Attacks: a compromised server skips Covenant's checks; only the platform stands in the way.
+      // Attacks: a compromised server skips Paperwork's checks; only the platform stands in the way.
       const o = await this.onboarding.handle(a).overview();
       expected = o.ok && o.value.revision !== null && o.value.digest !== null ? { revision: o.value.revision, digest: o.value.digest } : { revision: a.policy_revision ?? 0, digest: a.policy_digest ?? "" };
     }
@@ -668,7 +668,7 @@ export class Covenant {
   }
 
   /**
-   * Before every payout request: active, not near the end, and the whole live policy matches what Covenant signed.
+   * Before every payout request: active, not near the end, and the whole live policy matches what Paperwork signed.
    * Any other policy, whichever revision it is, blocks the request (`policy_mismatch`) until it matches again.
    */
   private async preflight(row: ContractRow, terms: Terms, a: PlatformAgentRow): Promise<{ expected: { revision: number; digest: string } } | Transition> {
@@ -692,7 +692,7 @@ export class Covenant {
     if (o.value.revision !== a.policy_revision || o.value.digest !== a.policy_digest) {
       // A new revision that still matches the signed terms in full: record it as the reviewed one.
       this.onboarding.setAgent(a.organization, { policy_revision: o.value.revision, policy_digest: o.value.digest });
-      this.event(row.id, "policy", `Policy revision ${o.value.revision} still matches the signed terms in full; Covenant continues under it.`);
+      this.event(row.id, "policy", `Policy revision ${o.value.revision} still matches the signed terms in full; Paperwork continues under it.`);
     }
     return { expected: { revision: o.value.revision, digest: o.value.digest } };
   }
@@ -760,7 +760,7 @@ export class Covenant {
     const record = `${st.value.state}${st.value.status ? ` (${st.value.status})` : ""}`;
     if (record === att.platform_record) return;
     this.setAttempt(att.request_id, { platform_record: record });
-    this.event(att.contract_id, "payout", `The platform's own record under ${att.request_id} (other terms) reads ${record}. Covenant keeps its amount counted and never re-sends this id.`);
+    this.event(att.contract_id, "payout", `The platform's own record under ${att.request_id} (other terms) reads ${record}. Paperwork keeps its amount counted and never re-sends this id.`);
   }
 
   private async fillHeld(att: AttemptRow) {
@@ -860,7 +860,7 @@ export class Covenant {
           if (!(await this.newAttempt(j, last!.seq, last!.attempt + 1, false))) return;
           break;
         case "auto_retry":
-          this.event(id, "retry", `The platform refused with ${last!.code}; Covenant re-read the policy and retries once.`);
+          this.event(id, "retry", `The platform refused with ${last!.code}; Paperwork re-read the policy and retries once.`);
           if (!(await this.newAttempt(j, last!.seq, last!.attempt + 1, true))) return;
           break;
       }
@@ -951,7 +951,7 @@ export class Covenant {
     checks.push({ id: "terms", label: "Terms hash matches the terms", ok: termsHash(terms) === row.hash });
     for (const role of ["representative", "contractor"] as const) {
       const s = sig(role === "representative" ? row.rep_sig : row.contractor_sig);
-      const ok = !!s && verifyNep413({ message: termsSigningMessage(row.hash), nonce: nonceFromString(s.nonce), recipient: TERMS_RECIPIENT }, s) && (await this.d.chain.isFullAccessKey(s.account_id, s.public_key));
+      const ok = !!s && verifyNep413({ message: termsSigningMessage(row.hash, row.signing_recipient), nonce: nonceFromString(s.nonce), recipient: row.signing_recipient }, s) && (await this.d.chain.isFullAccessKey(s.account_id, s.public_key));
       checks.push({ id: `sig-${role}`, label: `${role === "representative" ? "Representative" : "Contractor"} signature verifies with a full-access key`, ok, detail: s?.account_id });
     }
     const a = this.onboarding.agentRow(row.organization);
@@ -983,7 +983,7 @@ export class Covenant {
       { id: "grant", label: "A live payout grant exists", ok: !!grant, detail: grant ? `The platform chose its expiry: ${grant.expiresAt}` : undefined },
       {
         id: "consent",
-        label: "Covenant's payout access ends at or before the contract end",
+        label: "Paperwork's payout access ends at or before the contract end",
         ok: !!payoutConsent && !payoutConsent.revoked && Date.parse(payoutConsent.expiresAt) > now && Date.parse(payoutConsent.expiresAt) <= Date.parse(endInstant(terms)),
         detail: payoutConsent?.expiresAt,
       },
@@ -993,7 +993,7 @@ export class Covenant {
     checks.push(
       { id: "funded", label: "Paid plus balance against the scope total (information: the company could deposit more)", ok: paid + balance <= BigInt(totalAtomic(terms)), info: true, detail: `paid ${usdText(paid)} + balance ${usdText(balance)} of ${usdText(totalAtomic(terms))}` },
       { id: "signed", label: "The whole live policy matches what both parties signed (limits and USD budget included)", ok: !!p && policyDifferences(p, terms).length === 0, detail: p ? policyDifferences(p, terms).join("; ") || undefined : undefined },
-      { id: "relay", label: "Covenant relays the platform's read of the policy", ok: true, info: true },
+      { id: "relay", label: "Paperwork relays the platform's read of the policy", ok: true, info: true },
     );
     const real = checks.filter((c) => !c.info);
     return { overall: real.every((c) => c.ok) ? "green" : "red", checks, expected, observed, consents };
@@ -1357,7 +1357,7 @@ export class Covenant {
       case "failed":
         return `${what} failed${a.failure_code ? ` (${a.failure_code})` : ""}. It stays counted until the representative checks the evidence.`;
       case "unknown":
-        return `${what}: no answer from the platform. Covenant will ask for its status; it is never sent under a new id.`;
+        return `${what}: no answer from the platform. Paperwork will ask for its status; it is never sent under a new id.`;
       case "waiting":
         return `${what} waits (${a.code}); the same request id will be asked again.`;
       case "blocked":

@@ -105,9 +105,9 @@ export function NewContract({ config }: { config: AppConfig }) {
       <header className="page-header">
         <div>
           <a href="#/" className="crumb">
-            <Icon name="chevronLeft" size={14} /> Contracts
+            <Icon name="chevronLeft" size={14} /> Jobs
           </a>
-          <h1>New contract</h1>
+          <h1>New job</h1>
           <p className="page-sub">Agree the scope, budget and deadline. The agency approves every payout.</p>
         </div>
       </header>
@@ -145,10 +145,10 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Field label="Representative" hint="NEAR account that signs, owns the agent and approves payouts">
                 <input value={f.rep} onChange={set("rep")} required />
               </Field>
-              <Field label="Contractor">
+              <Field label="Builder">
                 <input value={f.contractorName} onChange={set("contractorName")} required />
               </Field>
-              <Field label="Contractor's NEAR account">
+              <Field label="Builder's NEAR account">
                 <input value={f.contractorAccount} onChange={set("contractorAccount")} required />
               </Field>
               <Field label="GitHub username" hint={f.workflow === "report_and_invoice" ? "Builder identity for supporting code evidence" : "Whose merged PRs count"}>
@@ -207,7 +207,7 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Field label="Start">
                 <input type="date" value={f.start} onChange={set("start")} required />
               </Field>
-              <Field label="End" hint="Covenant's payout permission ends then">
+              <Field label="End" hint="Paperwork's payout permission ends then">
                 <input type="date" value={f.end} onChange={set("end")} required />
               </Field>
               <Field label="Repositories" hint="owner/name, comma separated" wide>
@@ -234,7 +234,7 @@ export function NewContract({ config }: { config: AppConfig }) {
             <div className="side-label">Live preview</div>
             <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.rep} standIn={config.platform === "fake"} reportWorkflow={f.workflow === "report_and_invoice"} />
             <p className="side-note">
-              <Icon name="info" size={14} /> {config.platform === "fake" ? "On the platform stand-in the locked rows are simulated." : "Locked rows become the MultiAgency platform's policy."} Nothing is created until both parties sign.
+              <Icon name="info" size={14} /> {config.platform === "fake" ? "On the platform stand-in the locked rows are simulated." : "Locked rows become the MultiAgency platform's policy."} The platform agent is created after both parties sign.
             </p>
           </div>
         </aside>

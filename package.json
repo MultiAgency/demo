@@ -1,8 +1,8 @@
 {
-  "name": "covenant",
+  "name": "multiagency-paperwork",
   "version": "0.1.0",
   "private": true,
-  "description": "Covenant: pay-on-merge contractor payroll on the MultiAgency platform. A signed scope becomes a platform agent's policy; a judge sizes each payout and the company approves it.",
+  "description": "MultiAgency Paperwork: signed builder jobs on the MultiAgency platform, with report and invoice submissions, bounded compensation and explicit agency payout approval.",
   "license": "MIT",
   "type": "module",
   "engines": {

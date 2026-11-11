@@ -51,3 +51,6 @@ bun run demo:job:restart
 ```
 
 Run receipts and exact tested source fingerprints are recorded in [job-evidence.md](job-evidence.md). Before any hosted walkthrough, satisfy the separate [staging acceptance plan](staging-acceptance.md), including explicit operational/funds authorization and actual wallet evidence. No deployment or real signing is authorized by this implementation or its tests.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

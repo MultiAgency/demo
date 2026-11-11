@@ -1,5 +1,5 @@
 // The agency as a worker: its listed agent's jobs arrive as `hire.*` webhooks (at least once, unordered) and are also
-// polled, because a webhook can be lost. A person at the agency writes and submits each deliverable: Covenant never
+// polled, because a webhook can be lost. A person at the agency writes and submits each deliverable: Paperwork never
 // hands a buyer's brief to a model or acts on what it says. An x402 job is accepted on delivery; the earnings land in
 // the market account, which the owner withdraws to the agency agent's deposit address.
 import type { Database } from "bun:sqlite";

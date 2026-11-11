@@ -71,18 +71,18 @@ export async function submitVote(config: AppConfig, v: VoteAnswer, walletSigner?
   }
 }
 
-/** Per-browser memory of contractor links (only a convenience; safe to lose). */
+/** Current links use Paperwork; legacy links remain readable without changing their private token. */
 export const links = {
   save(id: string, token: string) {
     try {
-      localStorage.setItem(`covenant.link.${id}`, token);
+      localStorage.setItem(`paperwork.link.${id}`, token);
     } catch {
       /* storage unavailable */
     }
   },
   get(id: string): string | null {
     try {
-      return localStorage.getItem(`covenant.link.${id}`);
+      return localStorage.getItem(`paperwork.link.${id}`) ?? localStorage.getItem(`covenant.link.${id}`);
     } catch {
       return null;
     }

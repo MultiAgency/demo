@@ -13,7 +13,7 @@ import { JOB_DEMO_TERMS } from "../src/shared/demo";
 import { AgencyJobWorkflow } from "../src/web/components/JobWorkflow";
 import { activate, castVote, START } from "./support/harness";
 
-const dbOf = (rt: Runtime) => (rt.covenant as unknown as { d: { db: Database } }).d.db;
+const dbOf = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
 async function close(rt: Runtime) {
   await (await rt.auth.$context).checkSchema?.();
   dbOf(rt).close();
@@ -24,7 +24,7 @@ function asAccount(rt: Runtime, account: string | null) {
 }
 async function failedJob(overrides: Record<string, unknown> = {}, env: Record<string, string> = {}) {
   const ctx = await activate("300", { ...JOB_DEMO_TERMS, ...overrides }, env);
-  const c = ctx.rt.covenant;
+  const c = ctx.rt.engine;
   const view = await c.viewContract(ctx.id);
   const body = { client_request_id: "disputed-original-submission", report: "The agreed CSV export and acceptance evidence are ready for review.",
     evidence: view.terms.scope.map(d => ({ deliverable_id: d.id, label: `${d.id} acceptance tests`, url: `https://evidence.invalid/${d.id}` })), invoice: { number: "DISPUTE-001", amount_usd: "300" } };
@@ -108,7 +108,7 @@ describe("disputed review closure — simulated platform and fixture sessions", 
   });
 
   test("a disputed job survives database reopen and late full settlement is confirmed under its original request", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "covenant-dispute-"));
+    const directory = mkdtempSync(join(tmpdir(), "paperwork-dispute-"));
     let current: Runtime | null = null;
     try {
       const path = join(directory, "job.sqlite");
@@ -125,11 +125,11 @@ describe("disputed review closure — simulated platform and fixture sessions", 
       expect(() => dbOf(rt).query(`INSERT INTO payout_attempts
         (request_id, contract_id, seq, attempt, recipient, amount_atomic, state, created_at, updated_at)
         VALUES ('must-not-replace-after-reopen', ?, 999, 1, 'maria.demo', '300000000', 'pending', '2026-11-20', '2026-11-20')`).run(ctx.id)).toThrow(/UNIQUE/);
-      expect(rt.covenant.followUpIds()).toContain(ctx.id);
-      expect((await rt.covenant.getContract(ctx.id)).submissions[0]!.state).toBe("disputed");
+      expect(rt.engine.followUpIds()).toContain(ctx.id);
+      expect((await rt.engine.getContract(ctx.id)).submissions[0]!.state).toBe("disputed");
       Object.assign(provider, { state: "processing", status: "PROCESSING", failureCode: null });
       ctx.stub.settle(payout.payment_correlation_id!);
-      const settled = await rt.covenant.getContract(ctx.id);
+      const settled = await rt.engine.getContract(ctx.id);
       expect(settled.submissions[0]).toMatchObject({ id: submission.id, invoice: submission.invoice, state: "settled", paid_usd: "300", payout_request_ids: [payout.request_id] });
       expect(settled.payouts[0]).toMatchObject({ request_id: payout.request_id, payment_correlation_id: payout.payment_correlation_id, state: "paid" });
       expect(settled.hash).toBe(hash);
@@ -175,23 +175,23 @@ describe("disputed review closure — simulated platform and fixture sessions", 
 
   test("legacy merged-work jobs can close disputed without authorizing a replacement run", async () => {
     const ctx = await activate();
-    const result = await ctx.rt.covenant.run(ctx.id);
+    const result = await ctx.rt.engine.run(ctx.id);
     const payout = result.payouts[0]!;
     Object.assign(ctx.stub.payouts.get(payout.request_id)!, { state: "failed", status: "FAILED", failureCode: "outcome_unknown", txHash: null });
-    await ctx.rt.covenant.getContract(ctx.id);
-    const disputed = await ctx.rt.covenant.resolve(payout.request_id, "disputed");
+    await ctx.rt.engine.getContract(ctx.id);
+    const disputed = await ctx.rt.engine.resolve(payout.request_id, "disputed");
     expect(disputed.payouts[0]).toMatchObject({ resolution: "disputed", state: "disputed" });
     expect(disputed.paid_usd).toBe("0");
-    expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("deferred");
+    expect((await ctx.rt.engine.run(ctx.id)).outcome).toBe("deferred");
     expect(ctx.stub.calls.requestPayout).toBe(1);
     // A late success can resolve this payment without completing the larger original proposal. The merge watcher
     // must not bypass the still-disputed business review by opening another judgment for the remaining amount.
     Object.assign(ctx.stub.payouts.get(payout.request_id)!, { state: "processing", status: "PROCESSING", failureCode: null });
     ctx.stub.settle(payout.payment_correlation_id!);
-    const partial = await ctx.rt.covenant.getContract(ctx.id);
+    const partial = await ctx.rt.engine.getContract(ctx.id);
     expect(partial.paid_usd).toBe("500");
     expect(partial.judgment).toMatchObject({ outcome: "disputed" });
-    expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("deferred");
+    expect((await ctx.rt.engine.run(ctx.id)).outcome).toBe("deferred");
     expect(ctx.stub.calls.requestPayout).toBe(1);
   });
 });

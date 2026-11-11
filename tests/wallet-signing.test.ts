@@ -21,8 +21,8 @@ function fixture(timeoutMs?: number) {
   const publicKey = wallet.addAccount(account);
   wallet.addAccount(other);
   const request: SignRequest = {
-    account_id: account, message: "Covenant work order sha256:fixture\nReview café export criteria.",
-    recipient: "covenant", nonce: nonceToString(Uint8Array.from({ length: 32 }, (_, i) => i)),
+    account_id: account, message: "Paperwork terms sha256:fixture\nReview café export criteria.",
+    recipient: "multiagency-paperwork", nonce: nonceToString(Uint8Array.from({ length: 32 }, (_, i) => i)),
   };
   const response = (owner: string, payload: Payload) => {
     const signed = wallet.sign(owner, payload);

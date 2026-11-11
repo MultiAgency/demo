@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import type { AttemptState, JudgmentOutcome, PayoutResolution } from "../shared/views";
 import { OPEN_STATES } from "./payouts";
 import type { JobSubmissionState } from "../shared/jobs";
+import type { TermsRecipient } from "../shared/terms";
 
 export interface JobRow {
   id: string; contract_id: string; client_request_id: string; content_hash: string; revision: number;
@@ -31,6 +32,7 @@ export interface ContractRow {
   organization: string;
   payee_registered: number | null;
   frozen: number;
+  signing_recipient: TermsRecipient;
 }
 
 export type AgentStage = "needs_setup" | "needs_create" | "needs_consent" | "needs_grant" | "needs_policy" | "policy_pending" | "ready";
@@ -90,7 +92,7 @@ export interface AttemptRow {
   amount_atomic: string;
   state: AttemptState;
   code: string | null;
-  /** How the code arrived: refused (recorded or thrown), forbidden, session, blocked (Covenant's own check). */
+  /** How the code arrived: refused (recorded or thrown), forbidden, session, blocked (Paperwork's own check). */
   fail_kind: string | null;
   correlation_id: string | null;
   approval_id: string | null;
@@ -158,7 +160,9 @@ export function openDb(path: string): Database {
       contractor_sig TEXT,
       organization TEXT NOT NULL,
       payee_registered INTEGER,
-      frozen INTEGER NOT NULL DEFAULT 0
+      frozen INTEGER NOT NULL DEFAULT 0,
+      signing_recipient TEXT NOT NULL DEFAULT 'multiagency-paperwork'
+        CHECK (signing_recipient IN ('covenant', 'multiagency-paperwork'))
     );
     CREATE TABLE IF NOT EXISTS platform_agents (
       organization TEXT PRIMARY KEY,
@@ -289,6 +293,9 @@ export function openDb(path: string): Database {
       text TEXT NOT NULL
     );
   `);
+  const contractCols = new Set((db.query("SELECT name FROM pragma_table_info('contracts')").all() as { name: string }[]).map((c) => c.name));
+  // Additive only: existing signatures and partially signed drafts keep their original domain and exact bytes.
+  if (!contractCols.has("signing_recipient")) db.exec("ALTER TABLE contracts ADD COLUMN signing_recipient TEXT NOT NULL DEFAULT 'covenant' CHECK (signing_recipient IN ('covenant', 'multiagency-paperwork'))");
   const attemptCols = new Set((db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[]).map((c) => c.name));
   if (!attemptCols.has("platform_record")) db.exec("ALTER TABLE payout_attempts ADD COLUMN platform_record TEXT");
   if (!attemptCols.has("never_executed")) db.exec("ALTER TABLE payout_attempts ADD COLUMN never_executed INTEGER NOT NULL DEFAULT 0");
@@ -301,13 +308,32 @@ export function openDb(path: string): Database {
   return db;
 }
 
+/** A new deployment must never treat another deployment's retained request IDs as absent and resend them. */
+export function bindAppDeployment(db: Database, deployment: string): void {
+  db.transaction(() => {
+    const table = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'app_identity'").get();
+    const bound = table ? db.query("SELECT deployment FROM app_identity WHERE id = 1").get() as { deployment: string } | null : null;
+    if (bound) {
+      if (bound.deployment !== deployment) throw new Error(`This database belongs to deployment ${bound.deployment}, not ${deployment}. Preserve it and recover its original payment identities using the original deployment and credential.`);
+      return;
+    }
+    const oldJobs = db.query("SELECT 1 FROM contracts LIMIT 1").get();
+    const marketTable = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'market_agencies'").get();
+    const oldAgencies = marketTable ? db.query("SELECT 1 FROM market_agencies LIMIT 1").get() : null;
+    if (deployment === "multiagency-paperwork" && (oldJobs || oldAgencies))
+      throw new Error("This database has existing records without a deployment binding. Preserve it and use its original PLATFORM_DEPLOYMENT and credential for recovery; do not attach it to multiagency-paperwork.");
+    db.exec("CREATE TABLE IF NOT EXISTS app_identity (id INTEGER PRIMARY KEY CHECK (id = 1), deployment TEXT NOT NULL)");
+    db.query("INSERT INTO app_identity (id, deployment) VALUES (1, ?)").run(deployment);
+  })();
+}
+
 /** A database from the provider-adapter era can't be migrated: refuse it instead of guessing. */
 function refuseOldSchema(db: Database) {
   const cols = db.query("SELECT name FROM pragma_table_info('contracts')").all() as { name: string }[];
   if (cols.length === 0) return;
   const names = new Set(cols.map((c) => c.name));
   if (names.has("credential_enc") || !names.has("organization"))
-    throw new Error("This database was made by an older Covenant (provider adapter). Preserve it; recovery or migration needs review before this app can use it.");
+    throw new Error("This database was made by an older Paperwork (provider adapter). Preserve it; recovery or migration needs review before this app can use it.");
 }
 
 /** Older rejection inference was insufficient. Refuse it without rewriting history or freeing money. */

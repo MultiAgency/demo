@@ -1,4 +1,4 @@
-# Repeatable browser job
+# Paperwork browser demo
 
 ```bash
 bun run demo:browser
@@ -6,7 +6,7 @@ bun run demo:browser
 
 Prerequisites: Bun 1.4+, the installed project dependencies, `agent-browser` and its Chrome installation. The verified browser tool is agent-browser 0.26.0 with Chrome for Testing 148. The command needs permission to listen on loopback and use its own browser session sockets.
 
-The runner starts an isolated in-memory Covenant server with explicit manual simulated settlement and separate agency/builder browser sessions. It uses actual form inputs, trusted clicks, and the existing demo-wallet controls. It never invokes a workflow mutation through a test-only engine shortcut. Read-only application checks inspect record links and the independent stand-in's transfer count.
+The runner starts an isolated in-memory Paperwork server with explicit manual simulated settlement and separate agency/builder browser sessions. It uses actual form inputs, trusted clicks, and the existing demo-wallet controls. It never invokes a workflow mutation through a test-only engine shortcut. Read-only application checks inspect record links and the independent stand-in's transfer count.
 
 The browser journey performs:
 
@@ -16,8 +16,10 @@ The browser journey performs:
 4. Propose compensation, request changes, show the builder waiting for cancellation, and sign rejection of the held payout.
 5. Submit an immutable revision with a distinct invoice and the original terms hash.
 6. Propose and approve compensation; show processing while confirmed paid remains zero.
-7. Use the explicit settlement control, refresh both party views, and confirm the same payment request and one successful simulated transfer.
+7. Use the explicit settlement control, wait for both party views to update, and confirm the same payment request and one successful simulated transfer.
 8. Capture both outcomes at desktop 1440×1000 and mobile 390×844, checking for horizontal page overflow.
+
+Visible agency and builder job views check status every five seconds and when focused; **Refresh status** is also available. Proposals and agency decisions remain explicit actions.
 
 The command prints its temporary artifact directory. `receipt.json` links the job, accepted terms, revised report/invoice, proposal, approval, payment request/correlation and labelled fake transaction. Screenshots cover the held proposal, cancellation wait, approval before settlement and both parties' desktop/mobile outcomes. All signatures, provider/chain behavior and settlement in this browser proof are simulated. Production authentication is not exercised; named-role 401/403 checks remain in `tests/job-workflow.test.ts`.
 
@@ -42,3 +44,6 @@ The browser journey passed again after the cancellation-proof, finalization and 
 ## Earlier evidence — November 11, 2026
 
 The final check passed with Bun 1.4.2, agent-browser 0.26.0 and Chrome for Testing 148. Seven phase/party/size screenshots and `receipt.json` are retained under `/private/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/covenant-browser-UCY0jO/`. Both mobile views passed the page-width assertion, and both party screens displayed payment request `5048d896ad774ea9-p2-1`. The receipt records proposal `r_d7d8f80203268d363879b44e`, approval `3f5f7ca9-1df3-4790-8f1a-232dcfca5f65`, payment correlation `35b28286-fdc6-4181-81fc-e5ec2418c61f` and one successful simulated $300 payment. The runner closed both sessions and its fixture server.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

@@ -11,7 +11,7 @@ export class MarketHttpError extends Error {
   }
 }
 
-/** One of the agent's assignments as `GET /v1/agents/me/assignments` lists it (`MyAssignmentItem`), as Covenant keeps it. */
+/** One of the agent's assignments as `GET /v1/agents/me/assignments` lists it (`MyAssignmentItem`), as Paperwork keeps it. */
 export interface MarketAssignment {
   assignmentId: string;
   jobId: string;

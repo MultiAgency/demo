@@ -18,7 +18,7 @@ function agencyApp(rt: Runtime) {
 /** SQLite faults model interruption between related finalization writes; all provider actions are fixtures. */
 async function heldJob(key: string) {
   const ctx = await activate("300", JOB_DEMO_TERMS);
-  const c = ctx.rt.covenant;
+  const c = ctx.rt.engine;
   const submission = await c.submitJob(ctx.id, {
     client_request_id: key,
     report: "CSV export and acceptance tests are complete for agency review.",

@@ -14,29 +14,20 @@ import type { AppConfig, ContractView, Deposit, Judgment, NextStep, TermsSigning
 import { STAGES } from "./Home";
 import { useSession } from "../session";
 
-const LIVE_STATES = new Set(["pending", "waiting", "unknown", "processing"]);
-
 export function ContractPage({ id, config }: { id: string; config: AppConfig }) {
   const read = useCallback(async () => {
     const contract = await api<ContractView>("GET", `/contracts/${id}`);
     const verify = contract.platform.agent_id ? await api<VerifyView>("GET", `/contracts/${id}/verify`) : null;
     return { contract, verify };
   }, [id]);
-  const resource = useAccountResource(`contract:${id}`, read);
+  const resource = useAccountResource(`contract:${id}`, read, { refreshMs: 5000 });
   const c = resource.value?.contract ?? null;
   const verify = resource.value?.verify ?? null;
   const load = resource.reload;
   const [actionError, setActionError] = useState<{ scope: string | null; message: string } | null>(null);
-  const error = resource.error ?? (actionError?.scope === resource.scope ? actionError.message : null);
-
-  // Follow attempts the platform hasn't finished with, and onboarding waits.
-  useEffect(() => {
-    if (!c) return;
-    const live = c.payouts.some((p) => LIVE_STATES.has(p.state)) || c.next_step?.kind === "wait";
-    if (!live) return;
-    const t = setInterval(() => void load(), c.next_step?.kind === "wait" ? Math.max(1000, c.next_step.retry_ms) : 5000);
-    return () => clearInterval(t);
-  }, [c, load]);
+  const error = resource.error
+    ? c ? `Status could not refresh. Showing the last confirmed status. ${resource.error}` : resource.error
+    : (actionError?.scope === resource.scope ? actionError.message : null);
 
   const act: Act = async (fn) => {
     setActionError(null);
@@ -60,7 +51,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
       <header className="page-header">
         <div>
           <a href="#/" className="crumb">
-            <Icon name="chevronLeft" size={14} /> Contracts
+            <Icon name="chevronLeft" size={14} /> Jobs
           </a>
           <div className="title-row">
             <Avatar name={c.terms.contractor.name} tone="accent" />
@@ -143,7 +134,7 @@ function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Ac
 
         <Card pad={false}>
           <div className="card-pad-x">
-            <CardHeader title="Set up this contract" sub={`${doneCount} of ${SETUP.length} done`} />
+            <CardHeader title="Set up this job" sub={`${doneCount} of ${SETUP.length} done`} />
             <Progress value={doneCount} max={SETUP.length} />
           </div>
           <ol className="checklist">
@@ -156,7 +147,7 @@ function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Ac
 
       <aside className="split-side">
         <div className="sticky">
-          <div className="side-label">Contract policy</div>
+          <div className="side-label">Job policy</div>
           <PolicyCard
             payee={c.terms.payee.address}
             scope={c.terms.scope}
@@ -262,7 +253,7 @@ function StepAction({ step, c, config, act }: { step: StepId; c: ContractView; c
           {link ? (
             <div className="share">
               <Icon name="link" size={14} />
-              <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Contractor signing link" />
+              <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Builder signing link" />
               <Mono copy={link}>Copy</Mono>
               <a className="btn btn-ghost btn-sm" href={`#/c/${c.id}/sign?t=${token}`} target="_blank" rel="noreferrer">
                 <Icon name="external" /> <span>Open</span>
@@ -413,10 +404,10 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
     <>
       {c.stage === "frozen" ? (
         <Alert tone="danger" icon="snowflake">
-          The owner froze this contract's agent. Nothing pays until they unfreeze it on the platform; Covenant then checks the policy against the signed terms and carries on.
+          The owner froze this job's agent. Nothing pays until they unfreeze it on the platform; Paperwork then checks the policy against the signed terms and carries on.
         </Alert>
       ) : null}
-      {c.stage === "ended" ? <Alert tone="info" icon="calendar">This contract ended on {dateText(c.terms.end)}. Covenant can't request payouts any more; you can still approve or reject held ones.</Alert> : null}
+      {c.stage === "ended" ? <Alert tone="info" icon="calendar">This job ended on {dateText(c.terms.end)}. Paperwork can't request payouts any more; you can still approve or reject held ones.</Alert> : null}
       {held.length ? (
         <Alert tone="warning" icon="alert">
           {held.length} payout{held.length === 1 ? "" : "s"} wait{held.length === 1 ? "s" : ""} for your approval. See {c.terms.v === 3 ? "Submission & review" : "Payouts"}.
@@ -434,7 +425,7 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
         </Stat>
         <Stat label="Agent balance" icon="wallet" value={c.platform.balance_usd === null ? "—" : usd(c.platform.balance_usd)} sub="USDC" />
         <Stat label="Awaiting approval" icon="shield" value={held.length ? usd(held.reduce((n, p) => n + Number(p.amount_usd), 0)) : "—"} sub={held.length ? `${held.length} held` : "Nothing held"} />
-        <Stat label="Contract ends" icon="calendar" value={dateText(c.terms.end)} sub={daysLeft > 0 ? `${daysLeft} days left` : "Ended"} />
+        <Stat label="Job ends" icon="calendar" value={dateText(c.terms.end)} sub={daysLeft > 0 ? `${daysLeft} days left` : "Ended"} />
       </div>
 
       <Tabs<TabId>
@@ -545,7 +536,7 @@ const ATTACKS: { id: string; icon: IconName; title: string; text: string; fakeOn
   { id: "redirect", icon: "send", title: "Redirect", text: "Pay attacker.demo instead of the payee" },
   { id: "overpay", icon: "coins", title: "Overpay", text: "Pay $1 more than the largest deliverable" },
   { id: "injected", icon: "bot", title: "Prompt injection", text: "A PR talks the judge into an in-cap payout" },
-  { id: "after_end", icon: "calendar", title: "After the end", text: "Request a payout once the contract ended", fakeOnly: true },
+  { id: "after_end", icon: "calendar", title: "After the end", text: "Request a payout once the job ended", fakeOnly: true },
 ];
 
 function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
@@ -569,7 +560,7 @@ function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; a
       <CardHeader
         icon="shield"
         title="Compromised-server test"
-        sub="Real payout requests with Covenant's own checks skipped. The platform's policy and your approval are what stop them."
+        sub="Real payout requests with Paperwork's own checks skipped. The platform's policy and your approval are what stop them."
         actions={
           <Button icon="zap" onClick={runAll} disabled={!allowed || (c.stage !== "active" && c.stage !== "ended")}>
             Run all

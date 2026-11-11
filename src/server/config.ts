@@ -48,9 +48,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const cfg: Config = {
     platform,
     port: Number(env.PORT ?? 3000),
-    dbPath: env.DB_PATH || (production ? "data/covenant.sqlite" : ":memory:"),
+    // The default is a fresh Paperwork database; existing records require their original deployment binding.
+    dbPath: env.DB_PATH || (production ? "data/paperwork.sqlite" : ":memory:"),
     platformUrl: env.PLATFORM_URL || null,
-    deployment: env.PLATFORM_DEPLOYMENT || "covenant",
+    deployment: env.PLATFORM_DEPLOYMENT || "multiagency-paperwork",
     credential,
     caPem,
     stackDir,
@@ -64,7 +65,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       apiKey: env.NEARAI_API_KEY || null,
       model: env.NEARAI_MODEL || "z-ai/glm-5.3-flash",
       baseUrl: env.NEARAI_BASE_URL || "https://cloud-api.near.ai/v1",
-      assessmentTimeoutMs: Number(env.JOB_ASSESSMENT_TIMEOUT_MS ?? 30_000),
+      assessmentTimeoutMs: Number(env.PAPERWORK_ASSESSMENT_TIMEOUT_MS ?? 30_000),
     },
     pollMs: env.AGENT_POLL_MS ? Number(env.AGENT_POLL_MS) : 0,
     auth: {
@@ -94,7 +95,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   }
   if (cfg.evidence !== "fake" && cfg.evidence !== "github") throw new Error("GITHUB must be fake or github");
   if (!Number.isSafeInteger(cfg.judge.assessmentTimeoutMs) || cfg.judge.assessmentTimeoutMs <= 0 || cfg.judge.assessmentTimeoutMs > 2_147_483_647)
-    throw new Error("JOB_ASSESSMENT_TIMEOUT_MS must be a positive integer no greater than 2147483647.");
+    throw new Error("PAPERWORK_ASSESSMENT_TIMEOUT_MS must be a positive integer no greater than 2147483647.");
   if (!Number.isFinite(cfg.consentGraceDays) || cfg.consentGraceDays < 0) throw new Error("CONSENT_GRACE_DAYS must be a number of days");
   if (!Number.isFinite(cfg.statusPollMs) || cfg.statusPollMs <= 0) throw new Error("STATUS_POLL_MS must be a positive number of ms");
   return cfg;
@@ -107,7 +108,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
  * the next deploy, with every saved requestId and vote with it. Railway's `requiredMountPath` can't be set from
  * `.railway/railway.ts` (as for Treasury's service), so the server checks.
  */
-export function volumeProblem(env: Record<string, string | undefined>, dbPath = env.DB_PATH || "data/covenant.sqlite"): string | null {
+export function volumeProblem(env: Record<string, string | undefined>, dbPath = env.DB_PATH || "data/paperwork.sqlite"): string | null {
   const required = env.REQUIRED_MOUNT;
   if (!required) return null;
   if (!isAbsolute(required)) return `REQUIRED_MOUNT must be an absolute path, not ${required}`;

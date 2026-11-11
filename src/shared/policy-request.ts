@@ -1,4 +1,4 @@
-// What Covenant asks the platform to enforce, and what Verify expects to read back, both compiled from
+// What Paperwork asks the platform to enforce, and what Verify expects to read back, both compiled from
 // the signed terms. Pure: same terms, same output. Replaces the provider-era compile.ts.
 import type { Budget, Overview, PolicyChanges } from "../server/platform/port";
 import type { Expectations } from "./views";
@@ -52,7 +52,7 @@ type LivePolicy = NonNullable<Overview["policy"]>;
 const usdEq = (a: string | null | undefined, b: string | null) => (a ?? null) === null || b === null ? (a ?? null) === b : normalizeDecimal(String(a)) === normalizeDecimal(b);
 
 /**
- * Every difference between the live policy and what Covenant signed for these terms, as text; empty when they match.
+ * Every difference between the live policy and what Paperwork signed for these terms, as text; empty when they match.
  * The whole signed policy, not just the payee: actions, assets, owner approval, withdrawals, the per-payment cap,
  * the daily and monthly limits and the USD budget. A revision bump that leaves all of these equal (a freeze and
  * unfreeze, say) is not a difference.
@@ -80,7 +80,7 @@ export function policyDifferences(p: LivePolicy, terms: Terms): string[] {
 
 /**
  * The policy facts every payout request depends on. Returns the first problem, or null when the platform's
- * read is in force, not frozen, and the whole live policy matches what Covenant signed (policyDifferences).
+ * read is in force, not frozen, and the whole live policy matches what Paperwork signed (policyDifferences).
  */
 export function policyProblem(o: Overview | null, terms: Terms): { code: string; waiting: boolean; detail: string } | null {
   if (!o || !o.policy) return { code: "policy_not_in_force", waiting: true, detail: "No policy read yet." };

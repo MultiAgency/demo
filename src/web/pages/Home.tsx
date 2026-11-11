@@ -26,7 +26,7 @@ export function Home() {
   const resource = useAccountResource("contracts", read);
   const rows = resource.value;
   if (!resource.enabled) return <AccountReadGate />;
-  if (resource.error) return <div className="page stack"><Alert tone="danger">{resource.error}</Alert><Button variant="secondary" onClick={resource.reload}>Retry loading contracts</Button></div>;
+  if (resource.error) return <div className="page stack"><Alert tone="danger">{resource.error}</Alert><Button variant="secondary" onClick={resource.reload}>Retry loading jobs</Button></div>;
   if (rows === null) return <PageLoading />;
   if (rows.length === 0) return <Welcome />;
 
@@ -38,25 +38,25 @@ export function Home() {
     <div className="page">
       <header className="page-header">
         <div>
-          <h1>Contracts</h1>
-          <p className="page-sub">Each contract has its own platform agent and limits.</p>
+          <h1>Jobs</h1>
+          <p className="page-sub">Each job has its own platform agent and agreed limits.</p>
         </div>
         <LinkButton href="#/new" variant="primary" icon="plus">
-          New contract
+          New job
         </LinkButton>
       </header>
 
       <div className="stats-row">
         <div className="stat">
-          <div className="stat-label">Active contracts</div>
+          <div className="stat-label">Active jobs</div>
           <div className="stat-value">{active.length}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Scope under contract</div>
+          <div className="stat-label">Agreed scope</div>
           <div className="stat-value">{usd(committed)}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Paid for merged work</div>
+          <div className="stat-label">Paid to builders</div>
           <div className="stat-value">{usd(used)}</div>
         </div>
       </div>
@@ -65,7 +65,7 @@ export function Home() {
         <table className="table">
           <thead>
             <tr>
-              <th>Contractor</th>
+              <th>Builder</th>
               <th>Scope</th>
               <th className="hide-sm">Paid</th>
               <th className="hide-sm">Term</th>
@@ -121,12 +121,12 @@ function Welcome() {
     <div className="page">
       <section className="welcome">
         <div className="welcome-copy">
-          <Badge tone="accent">Pay-on-merge, judged against the scope</Badge>
-          <h1 className="display">The contract is the spending limit.</h1>
-          <p className="lede">Sign a scope. Every merged PR is judged against it, and you approve each payout. The platform enforces the most it can ever be.</p>
+          <Badge tone="accent">Agreed scope. Explicit payout approval.</Badge>
+          <h1 className="display">Agree the work. Approve the payment.</h1>
+          <p className="lede">Sign the scope, budget and payment terms. The builder submits a report and invoice, an agent proposes compensation, and you approve each payout before settlement.</p>
           <div className="row gap">
             <LinkButton href="#/new" variant="primary" icon="plus">
-              Create a contract
+              Create a job
             </LinkButton>
             <LinkButton href="#/guide" variant="ghost" icon="book">
               How it works
@@ -134,17 +134,17 @@ function Welcome() {
           </div>
         </div>
         <div className="welcome-visual">
-          <PolicyCard payee="maria.near" scope={[{ value_usd: "1200" }, { value_usd: "500" }, { value_usd: "300" }]} start="2026-11-01" end="2026-12-31" repos={["acme/app"]} approver="acme.near" status="live" agentId="agent · Acme → Maria" />
+          <PolicyCard payee="maria.near" scope={[{ value_usd: "1200" }, { value_usd: "500" }, { value_usd: "300" }]} start="2026-11-01" end="2026-12-31" repos={["acme/app"]} approver="acme.near" status="live" agentId="agent · Acme → Maria" reportWorkflow />
         </div>
       </section>
 
       <section className="features">
         {(
           [
-            ["pen", "Sign a scope", "Deliverables with a value each, signed by both sides."],
+            ["pen", "Agree the terms", "Scope, acceptance criteria and payment terms, signed by both sides."],
             ["wallet", "Fund its own agent", "The scope becomes the agent's policy and balance."],
-            ["bot", "Approve on merge", "A judge decides how much each merge completes; you approve the payout."],
-            ["shieldCheck", "Anyone can verify", "The live policy, checked against what was signed."],
+            ["bot", "Review the work", "Report and invoice is the default. Pay on merge remains available for code work."],
+            ["shieldCheck", "Confirm payment", "Both parties see payment status and the policy checked against the signed terms."],
           ] as const
         ).map(([icon, t, d]) => (
           <div className="feature" key={t}>

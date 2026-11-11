@@ -79,6 +79,83 @@ test("an expired-session read clears private data and an explicit reload can rec
   expect(resource.forScope("agency.near").error).toBeNull();
 });
 
+test("automatic refresh skips slow or manual reads instead of starving their responses", async () => {
+  const resource = new AccountResource<string>();
+  const slow = deferred<string>();
+  resource.setScope("agency.near");
+  const initial = resource.load("agency.near", () => slow.promise);
+  let duplicateReads = 0;
+  await resource.refresh("agency.near", async () => { duplicateReads++; return "duplicate"; });
+  slow.resolve("accepted submission");
+  await initial;
+  expect(duplicateReads).toBe(0);
+  expect(resource.forScope("agency.near").value).toBe("accepted submission");
+
+  const poll = deferred<string>();
+  const pending = resource.refresh("agency.near", () => poll.promise);
+  await resource.refresh("agency.near", async () => { duplicateReads++; return "overlapping poll"; });
+  poll.resolve("new submission");
+  await pending;
+  expect(duplicateReads).toBe(0);
+  expect(resource.forScope("agency.near").value).toBe("new submission");
+});
+
+test("a post-mutation reload supersedes a background read that started before the change", async () => {
+  const resource = new AccountResource<string>();
+  resource.setScope("agency.near");
+  await resource.load("agency.near", async () => "awaiting submission");
+  const old = deferred<string>();
+  const pending = resource.refresh("agency.near", () => old.promise);
+  await resource.load("agency.near", async () => "compensation proposed");
+  old.resolve("awaiting submission");
+  await pending;
+  expect(resource.forScope("agency.near").value).toBe("compensation proposed");
+  expect(resource.forScope("agency.near").loading).toBe(false);
+});
+
+for (const failure of ["network", 408, 429, 500, 503] as const) {
+  test(`background ${failure} failure keeps the current form mounted and recovers on the next read`, async () => {
+    const resource = new AccountResource<{ submission: string }>();
+    const current = { submission: "awaiting proposal" };
+    resource.setScope("builder.near");
+    await resource.load("builder.near", async () => current);
+    const error = failure === "network" ? new TypeError("Network unavailable") : Object.assign(new Error("Status temporarily unavailable"), { status: failure });
+    await resource.refresh("builder.near", async () => { throw error; });
+    expect(resource.forScope("builder.near").value).toBe(current);
+    expect(resource.forScope("builder.near").error).toBe(error.message);
+    expect(resource.forScope("builder.near").loading).toBe(false);
+    await resource.refresh("builder.near", async () => ({ submission: "payment complete" }));
+    expect(resource.forScope("builder.near").value?.submission).toBe("payment complete");
+    expect(resource.forScope("builder.near").error).toBeNull();
+  });
+}
+
+for (const status of [401, 403, 404]) {
+  test(`background ${status} refusal clears private data even while retaining network failures is enabled`, async () => {
+    const resource = new AccountResource<string>();
+    resource.setScope("builder.near");
+    await resource.load("builder.near", async () => "private report");
+    await resource.refresh("builder.near", async () => { throw Object.assign(new Error("Access unavailable"), { status }); });
+    expect(resource.forScope("builder.near").value).toBeNull();
+    expect(resource.forScope("builder.near").error).toBe("Access unavailable");
+  });
+}
+
+test("signout invalidates an in-flight automatic read and prevents later refreshes for the old account", async () => {
+  const resource = new AccountResource<string>();
+  resource.setScope("agency.near");
+  await resource.load("agency.near", async () => "private report");
+  const old = deferred<string>();
+  const pending = resource.refresh("agency.near", () => old.promise);
+  resource.setScope(null);
+  old.resolve("private updated report");
+  await pending;
+  let called = false;
+  await resource.refresh("agency.near", async () => { called = true; return "wrong account"; });
+  expect(called).toBe(false);
+  expect(resource.getSnapshot()).toEqual({ scope: null, value: null, error: null, loading: false });
+});
+
 test("sign-in refresh rejection settles and reports the error instead of hanging the sign-in button", async () => {
   const errors: string[] = [];
   await signInAndRefresh(async (callbacks) => callbacks.onSuccess(), async () => { throw new Error("Session refresh unavailable"); }, (error) => errors.push(error.message));

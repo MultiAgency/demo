@@ -1,6 +1,6 @@
-# Full app process restart
+# Paperwork process restart
 
-This proof runs Covenant as two distinct operating-system processes against the independent local platform gateway through SDK 0.5.6. Both app processes use the same durable SQLite database. The platform provider, chain, signatures, deposits and settlement remain simulated; this is neither hosted acceptance nor a real payment.
+The current command runs Paperwork as two distinct operating-system processes against the independent local platform gateway through SDK 0.5.7. Dated evidence below retains the SDK version used by each recorded run. Both app processes use the same durable SQLite database. The platform provider, chain, signatures, deposits and settlement remain simulated; this is neither hosted acceptance nor a real payment.
 
 The injected fault is specifically a lost **app HTTP proposal response**. A loopback proxy forwards the proposal, lets the application persist its judgment/payment identity and complete the SDK request, then suppresses the HTTP response and aborts the caller. The runner kills that app process with `SIGKILL`, starts a new one, and recovers the existing held payout by reading its retained identity. It never replaces the uncertain proposal with a new payment request.
 
@@ -13,6 +13,8 @@ bun run demo:job:restart
 ```
 
 The default command needs no environment variables or placeholder path. It launches `scripts/demo-job-restart-local.ts`, which finds the workspace's pinned platform snapshot `36a66cb4212faef9d651a342baead7203238eb19d866acf9a8b2ec6ef1e76518` and matching installed Node 24.22.2, verifies the source and dependencies, and copies them into a unique temporary directory. It starts the existing prebuilt offline stack, reads its actual ready `state.json` path, invokes the restart runner with that path and stops its owned stack afterward. It never rebuilds or mutates the sibling checkout or frozen artifact, installs dependencies, calls a hosted gateway or issues a live credential.
+
+The selected platform harness must support the exact `--app multiagency-paperwork` namespace. Earlier Covenant receipts and the older snapshot pin do not establish that support for this candidate.
 
 The launcher preserves public dependency bytes and internal symlinks, compares before-copy, copied and after-copy fingerprints, and sanitizes child environments. Its `launcher-receipt.json` records snapshot provenance, child results and retained job receipt paths. Logs and failed-run artifacts remain available. Only process groups created by this launcher are signalled during bounded cleanup.
 
@@ -31,7 +33,7 @@ bun scripts/demo-job-restart-local.ts --bootstrap-only
 To add the existing provider withdrawal-response fault on its own fresh stack:
 
 ```bash
-JOB_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart
+PAPERWORK_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart
 ```
 
 In that mode the initial platform correlation may be unknown. Submission, invoice, judgment and request IDs must remain unchanged; a correlation is accepted only when the original SDK request later supplies it. A bounded unresolved result fails with its database and IDs retained. It never creates another payment to obtain a successful receipt. Verification status for this optional mode is recorded separately from the default app-HTTP proof.
@@ -119,3 +121,6 @@ That earlier run extended the SQLite connection-reopen check to a true applicati
 ## Independent developer reproduction
 
 The user independently reported a passing `bun run demo:browser` run and supplied its artifact `covenant-browser-N2Lmuu`. The retained receipt at `/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/covenant-browser-N2Lmuu/receipt.json` records the simulated job `c_5048d896ad77`, $300 paid and one successful transfer. This is a separate developer reproduction of the earlier browser command, reported by the user and corroborated by its local receipt; it is not hosted authentication, real-wallet or real-payment evidence. No external actor was contacted.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

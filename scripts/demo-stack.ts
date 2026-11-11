@@ -1,12 +1,12 @@
 /**
  * bun run demo:stack   (PLATFORM_STACK_DIR=<platform stack dir> required)
  *
- * Covenant against the MultiAgency platform's isolated local stack: simulated provider, chain, signatures and
+ * Paperwork against the MultiAgency platform's isolated local stack: simulated provider, chain, signatures and
  * settlement; the real gateway, app routes, consents, policy and payout rules. Start the stack in the platform checkout:
- *   pnpm test:e2e:stack --app covenant --no-browser --owner acme.demo --payee maria.demo --builder attacker.demo
+ *   pnpm test:e2e:stack --app multiagency-paperwork --no-browser --owner acme.demo --payee maria.demo --builder attacker.demo
  * and pass the directory of the `state.json` it prints.
  *
- * This starts Covenant (PLATFORM=remote, PLATFORM_STACK_DIR) and runs the shared `runScenario` (scripts/scenario.ts)
+ * This starts Paperwork (PLATFORM=remote, PLATFORM_STACK_DIR) and runs the shared `runScenario` (scripts/scenario.ts)
  * with the stack driver. `--platform-only` runs `platformScenario`: the same money path straight through the
  * `Platform` interface, which proves the SDK client end to end.
  * Exits non-zero on any failure.
@@ -44,7 +44,7 @@ export interface PlatformScenarioInput {
 }
 
 /**
- * One contract's money path through the `Platform` interface only (what Covenant's engine does, without the engine):
+ * One contract's money path through the `Platform` interface only (what Paperwork's engine does, without the engine):
  * setup → create → [payout] and [owner,read] consents → grant → one policy edit → fund the total → attacks refused →
  * a judged payout held → approved → settled → succeeded → the remainder held → rejected → failed, unpaid. Returns
  * the failures (empty = pass).
@@ -229,7 +229,7 @@ async function waitFor(url: string, ms = 30_000) {
       // not up yet
     }
   }
-  throw new Error(`Covenant did not come up at ${url}`);
+  throw new Error(`Paperwork did not come up at ${url}`);
 }
 
 async function main() {
@@ -237,9 +237,9 @@ async function main() {
   if (!stackDir) throw new Error("Set PLATFORM_STACK_DIR to the platform stack directory (the folder holding state.json)");
   const stack = readStack(stackDir);
   const platformOnly = process.argv.includes("--platform-only");
-  console.log(`Covenant · MultiAgency local stack (${stack.url}) · SIMULATED provider, chain, signatures and settlement`);
+  console.log(`Paperwork · MultiAgency local stack (${stack.url}) · SIMULATED provider, chain, signatures and settlement`);
   if (platformOnly) {
-    console.log("Mode: platform-only (the Platform interface end to end, no Covenant engine)");
+    console.log("Mode: platform-only (the Platform interface end to end, no Paperwork engine)");
     const now = new Date();
     const kit = makePlatform({ mode: "remote", deployment: stack.deployment, stackDir, now: () => new Date() });
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 21)).toISOString();
@@ -250,7 +250,7 @@ async function main() {
     console.log(failures.length ? `\nFAILED (${failures.length}):\n - ${failures.join("\n - ")}` : "\nPASS: every step held on the platform stack");
     process.exit(failures.length ? 1 : 0);
   }
-  // Covenant itself, as its own process, on the stack: PLATFORM=remote with the stack dir (dev only).
+  // Paperwork itself, as its own process, on the stack: PLATFORM=remote with the stack dir (dev only).
   const port = Number(process.env.PORT ?? 8781);
   const child = Bun.spawn(["bun", "src/server/index.ts"], {
     cwd: join(import.meta.dir, ".."),

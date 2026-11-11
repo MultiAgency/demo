@@ -26,7 +26,7 @@ import {
 } from "./port";
 
 /**
- * A platform stand-in for the keyless demo and the tests. It reproduces the MultiAgency rules Covenant depends on,
+ * A platform stand-in for the keyless demo and the tests. It reproduces the MultiAgency rules Paperwork depends on,
  * as read from platform 96a0bb6 and observed on its local stack: NEP-413 setup and consents checked
  * against the owner's full-access key, consent scopes and expiry on its own clock, one hosted agent per setup, owner
  * actions signed by the owner's key, the payout `authorize` rules (recorded refusals vs refusals thrown before

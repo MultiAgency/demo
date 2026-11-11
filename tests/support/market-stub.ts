@@ -1,4 +1,4 @@
-// A scripted stand-in for Covenant's market port (src/server/market/port.ts), for unit tests of Covenant's own state
+// A scripted stand-in for Paperwork's market port (src/server/market/port.ts), for unit tests of Paperwork's own state
 // machines: what it records before a call, and how it follows lost answers and DAO votes. It is not a simulated
 // market or platform: each test sets the answers. The platform behaviour itself is exercised by `demo:market`.
 import { Database } from "bun:sqlite";
@@ -24,7 +24,7 @@ const request = (id: string): DaoRequest => ({ id, hash: id.padEnd(64, "0"), des
 
 export class StubMarket implements MarketPlatform {
   readonly host = "platform.test";
-  readonly deployment = "covenant";
+  readonly deployment = "multiagency-paperwork";
   /** Every agent call, in order: [method, ...args]. */
   calls: unknown[][] = [];
   hireAnswers: Res<HireAnswer>[] = [];
@@ -35,7 +35,7 @@ export class StubMarket implements MarketPlatform {
   daoHireRecoveryAnswers: Res<FiledDaoHire>[] = [];
   account: MarketAccount = { account: "f".repeat(64), registered: true, opened: false, usdc: "0", registration: null };
   isFrozen = false;
-  /** Overrides: set to script one answer each (tests of Covenant's handling). */
+  /** Overrides: set to script one answer each (tests of Paperwork's handling). */
   frozenAnswer: Res<boolean> | null = null;
   identityAnswer: Res<{ agentId: string | null; created: boolean; owner: string; signer: "wallet" | "dao" }> | null = null;
   setupAnswer: Res<{ agent: string }> | null = null;

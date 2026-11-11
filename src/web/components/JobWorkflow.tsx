@@ -130,10 +130,17 @@ function readPending(key: string): SubmissionPayload | null {
   } catch { return null; }
 }
 
+function forgetPending(keys: string[], requestId: string) {
+  for (const key of keys) {
+    if (readPending(key)?.client_request_id === requestId) localStorage.removeItem(key);
+  }
+}
+
 export function BuilderJobWorkflow({ c, token, config, reload }: { c: ContractView; token: string | null; config: AppConfig; reload: () => Promise<void> }) {
-  const key = `covenant.submission.${c.id}`;
+  const key = `paperwork.submission.${c.id}`;
+  const legacyKey = `covenant.submission.${c.id}`;
   const latest = [...c.submissions].sort((a, b) => b.revision - a.revision)[0];
-  const [pending, setPending] = useState<SubmissionPayload | null>(() => readPending(key));
+  const [pending, setPending] = useState<SubmissionPayload | null>(() => readPending(key) ?? readPending(legacyKey));
   const [report, setReport] = useState(pending?.report ?? "");
   const [number, setNumber] = useState(pending?.invoice.number ?? `INV-${String((latest?.revision ?? 0) + 1).padStart(3, "0")}`);
   const [amount, setAmount] = useState(pending?.invoice.amount_usd ?? c.total_usd);
@@ -160,12 +167,12 @@ export function BuilderJobWorkflow({ c, token, config, reload }: { c: ContractVi
         const validated = jobSubmissionSchema.safeParse(candidate);
         if (!validated.success) throw new Error(validated.error.issues.map((i) => i.message).join("; "));
         payload = validated.data;
-        // Persist the identity and exact contents before the request. A lost reply is retried unchanged.
-        localStorage.setItem(key, JSON.stringify(payload));
-        setPending(payload);
       }
+      // Migrate any legacy draft with its exact identity and contents before sending. Never replace its request id.
+      localStorage.setItem(key, JSON.stringify(payload));
+      setPending(payload);
       await api("POST", `/contracts/${c.id}/submissions`, { ...payload, ...(token ? { contractor_token: token } : {}) });
-      localStorage.removeItem(key);
+      forgetPending([key, legacyKey], payload.client_request_id);
       setPending(null);
       setReport("");
       setNumber(`INV-${String((latest?.revision ?? 0) + 2).padStart(3, "0")}`);
@@ -187,7 +194,7 @@ export function BuilderJobWorkflow({ c, token, config, reload }: { c: ContractVi
         <SignInGate account={c.terms.contractor.near_account} role="builder" />
         {pending ? <Alert tone="warning">A submission is saved in this browser awaiting confirmation. Retry sends the same identity and contents; the form stays locked until it is confirmed.</Alert> : null}
         {pending && rejected ? <Button variant="secondary" onClick={() => {
-          localStorage.removeItem(key);
+          forgetPending([key, legacyKey], pending.client_request_id);
           setPending(null);
           setRejected(false);
         }}>Edit submission after server rejection</Button> : null}

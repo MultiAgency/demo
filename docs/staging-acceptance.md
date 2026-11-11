@@ -1,12 +1,12 @@
-# Staging acceptance plan
+# Paperwork staging acceptance plan
 
 Prepared **2026-11-11** for review. This document authorizes no deployment, credential issuance, wallet signature, account mutation, external message or funds movement. The current milestone remains the isolated demonstration in [job-demo.md](job-demo.md). Follow workspace [AGENTS.md](../../AGENTS.md), the current coordination decisions and the repository's operational boundaries when an operator later executes an approved run.
 
 ## What is being accepted
 
-One agency representative, one builder, one v3 report/invoice job, and one confirmed payment through **Covenant → SDK 0.5.6 → platform held payout**. The offer, both acceptances, submission, invoice, compensation proposal, agency approval and settlement must retain their linked identities across refreshes and an app restart. This job creates no payable Agent Market assignment and no x402 authorization. See [workflow-map.md](workflow-map.md) and [market-boundary.md](market-boundary.md).
+One agency representative, one builder, one v3 report/invoice job, and one confirmed payment through **Paperwork → SDK 0.5.7 → platform held payout**. The offer, both acceptances, submission, invoice, compensation proposal, agency approval and settlement must retain their linked identities across refreshes and an app restart. This job creates no payable Agent Market assignment and no x402 authorization. See [workflow-map.md](workflow-map.md) and [market-boundary.md](market-boundary.md).
 
-The SDK integration already exists in open demo PR #6 at `11e1b16861ecdb3463137ec57f52326ca609870b`; the builder-job slice is currently uncommitted on top of it. Preserve peer changes. A later acceptance run must identify its actual final candidate, not just PR #6 or this document's date.
+The held-payout integration originated in demo PR #6 at `11e1b16861ecdb3463137ec57f52326ca609870b` with SDK 0.5.6. The current app pins SDK 0.5.7 and includes the builder-job workflow. Preserve peer changes. A later acceptance run must identify its actual final candidate, not just PR #6 or this document's date.
 
 ## Environment and evidence categories
 
@@ -19,7 +19,7 @@ The SDK integration already exists in open demo PR #6 at `11e1b16861ecdb3463137e
 
 There is no established “simulated real-provider payment” mode on the existing staging host. A browser fixture or injected network response is not hosted real-provider evidence. The existing `demo:job` stack mode deliberately permits loopback URLs only; do not repoint or loosen it for staging.
 
-The public checks recorded on November 11 returned healthy/credential-refused responses but no version. A committed deployment record reports staging 0.5.6 at `f7caad4` as of November 10; that is dated deployment evidence. Reconfirm the actual operator-reported deployment/image and capabilities before a hosted run. Do not infer today's host version from npm, source or `/health`.
+The public checks recorded on November 11 returned healthy/credential-refused responses but no version. The initial deployment record reported staging 0.5.6 at `f7caad4` as of November 10. The later record committed at `764197a` reports staging 0.5.7 deployed from `cc90604` on November 11; both are dated deployment evidence. Reconfirm the actual operator-reported deployment/image and capabilities before a hosted run. Do not infer today's host version from npm, source or `/health`.
 
 ## Readiness gates before any hosted mutation
 
@@ -62,10 +62,10 @@ The scope value bounds total application compensation; the live policy must also
 | 3. Builder | Sign in as the agreed builder, open the private link, inspect the identical scope/payment terms and accept. | Same job/hash, builder account and verified acceptance; no terms edits after signing |
 | 4. Agency | Review and sign each setup/creation, split consent, grant and policy action on its supported surface. Pause if action/payee/asset/amount differs. | Agent name/ID, host/deployment, consent IDs/expiry, grant expiry, owner correlation IDs, policy revision/digest and read-back match |
 | 5. Agency/operator | Inspect the one-time deposit and its minimum/memo/expiry; separately approve and fund only the authorized amount. | Funding observation, credited balance and deposit receipt; deposit instructions alone are not credited funding |
-| 6. Builder | Deliver the actual agreed artifact, file a report with immutable HTTPS evidence and the unique invoice. Refresh the page. | Submission ID/revision, content/terms hashes, invoice ID/number/amount and builder. State is submitted, proposed amount/paid amount remain zero. |
+| 6. Builder | Deliver the actual agreed artifact, file a report with immutable HTTPS evidence and the unique invoice. Wait for the job status update, or select **Refresh status**. | Submission ID/revision, content/terms hashes, invoice ID/number/amount and builder. State is submitted, proposed amount/paid amount remain zero. |
 | 7. Agency | Request the agent proposal, then inspect the report, evidence, criteria, invoice and proposed amount. | Judgment ID, bounded amount/lines, payout `requestId`, platform correlation and held approval ID/expiry. No approval and no settlement yet. |
 | 8. Agency | Approve only after comparing the platform's proven payee, asset, amount and chain with the signed terms and reviewed submission. Sign the exact approval. | Owner-step correlation, verdict and proven terms. Processing/approval is still unpaid. |
-| 9. Both parties | Observe the same payout identity through status reads until the platform proves success or a consequential failure. Builder verifies received funds independently. Refresh both pages; then reopen the app over the same durable DB if that restart was separately authorized and has no active write. | Confirmed settlement state, same request/correlation, amount/payee, available destination transaction evidence and builder receipt. One payout obligation, one successful payment. |
+| 9. Both parties | Observe the same payout identity through status reads until the platform proves success or a consequential failure. Builder verifies received funds independently. Wait for both job views to update, using **Refresh status** if needed; then reopen the app over the same durable DB if that restart was separately authorized and has no active write. | Confirmed settlement state, same request/correlation, amount/payee, available destination transaction evidence and builder receipt. One payout obligation, one successful payment. |
 
 The platform's vote text may show identifiers/hash rather than readable payee/amount; do not sign without the proven terms displayed and compared in the app. If only platform success is available but destination transaction evidence or independent receipt is absent, record those fields as missing. Do not claim “builder receipt verified” from approval, or fabricate a transaction hash. Local stack G12 is an existing simulator evidence limitation, not proof that a hosted payment lacks receipts.
 
@@ -103,3 +103,6 @@ Acceptance is complete only when the finalized job traverses offer → acceptanc
 ## Stop and rollback
 
 On a blocker, stop initiating new writes; keep observing the same identities if authorized. Preserve the durable database, platform records, owner actions, pending browser submission and complete frontend artifact. Do not reset state, remove attempts, restore an older DB, reissue identities, replace an uncertain payment, or pay manually to obtain a clean transcript. App rollback must be compatible with the new v3/job records and cannot erase them; retain old hashed assets for open clients. Platform downgrade after market/shared-state changes has its own compatibility boundary and is not part of this plan. Any restart, deploy or rollback affecting a hosted environment requires its own operational authorization.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

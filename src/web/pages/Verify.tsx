@@ -12,7 +12,7 @@ const detailText = (d: string) =>
   d.replace(/\b\d{4}-\d{2}-\d{2}T[\d:.]+Z\b/g, (t) => timeText(t)).replace(/^\d{7,}$/, (a) => atomicUsd(a));
 const list = (xs: string[] | "any" | undefined) => (xs === undefined ? "—" : xs === "any" ? "any" : xs.length ? xs.map((x) => (x.startsWith("nep141:") ? "USDC" : x)).join(", ") : "none");
 
-/** The contractor's view: the live platform policy, read through Covenant, against what they signed. */
+/** The contractor's view: the live platform policy, read through Paperwork, against what they signed. */
 export function VerifyPage({ id }: { id: string }) {
   const [c, setC] = useState<ContractView | null>(null);
   const [v, setV] = useState<VerifyView | null>(null);
@@ -90,7 +90,7 @@ export function VerifyPage({ id }: { id: string }) {
               </li>
             ))}
           </ul>
-          {o?.frozen ? <Alert tone="danger" icon="snowflake">The company froze this contract's agent. Nothing pays until they unfreeze it.</Alert> : null}
+          {o?.frozen ? <Alert tone="danger" icon="snowflake">The company froze this job's agent. Nothing pays until they unfreeze it.</Alert> : null}
 
           <Disclosure label="Signed vs. live policy">
             <table className="table compact compare">
@@ -118,13 +118,13 @@ export function VerifyPage({ id }: { id: string }) {
               <Icon name="coins" size={14} />
               <span>
                 Paid {usd(c.paid_usd)} + balance {balance === null ? "—" : atomicUsd(balance.toString())} {within === false ? ">" : "≤"} total {atomicUsd(e.total)}.
-                {" "}The funded total is what caps the contract.
+                {" "}The funded total is what caps the job.
               </span>
             </li>
             <li>
               <Icon name="info" size={14} />
               <span>
-                Daily {atomicUsd(o?.limits.daily?.[usdc])} and monthly {atomicUsd(o?.limits.monthly?.[usdc])} limits are set too. Monthly and daily are not what caps the contract: they reset.
+                Daily {atomicUsd(o?.limits.daily?.[usdc])} and monthly {atomicUsd(o?.limits.monthly?.[usdc])} limits are set too. Monthly and daily are not what caps the job: they reset.
               </span>
             </li>
             {infoChecks
@@ -166,7 +166,7 @@ export function VerifyPage({ id }: { id: string }) {
               <Mono copy={c.hash}>{short(c.hash, 10, 6)}</Mono>
             </div>
           </Disclosure>
-          <p className="fineprint">Covenant relays the platform's read of this contract's agent; it compares it with the policy the signed terms call for.</p>
+          <p className="fineprint">Paperwork relays the platform's read of this job's agent; it compares it with the policy the signed terms call for.</p>
         </div>
         <PolicyCard
           payee={t.payee.address}
@@ -178,6 +178,7 @@ export function VerifyPage({ id }: { id: string }) {
           status={o?.frozen ? "frozen" : v.observed ? "live" : "draft"}
           agentId={v.observed?.agentId ?? c.platform.agent_id}
           standIn={c.platform.mode === "fake"}
+          reportWorkflow={t.v === 3}
         />
       </div>
     </div>

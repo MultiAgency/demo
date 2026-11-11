@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
 import { BuilderJobWorkflow } from "../components/JobWorkflow";
@@ -12,16 +12,13 @@ import { useSession } from "../session";
 export function ContractorSign({ id, token, config }: { id: string; token: string | null; config: AppConfig }) {
   const session = useSession();
   const read = useCallback(() => api<ContractView>("GET", `/contracts/${id}`), [id]);
-  const resource = useAccountResource(`builder:${id}`, read);
+  const resource = useAccountResource(`builder:${id}`, read, { refreshMs: 5000 });
   const c = resource.value;
   const reload = resource.reload;
   const [actionError, setActionError] = useState<{ scope: string | null; message: string } | null>(null);
-  const error = resource.error ?? (actionError?.scope === resource.scope ? actionError.message : null);
-  useEffect(() => {
-    if (!c?.signatures.contractor || c.terms.v !== 3) return;
-    const timer = setInterval(() => void reload(), 5000);
-    return () => clearInterval(timer);
-  }, [c?.signatures.contractor, c?.terms.v, reload]);
+  const error = resource.error
+    ? c ? `Status could not refresh. Showing the last confirmed status; your draft is kept. ${resource.error}` : resource.error
+    : (actionError?.scope === resource.scope ? actionError.message : null);
 
   if (!resource.enabled) return <AccountReadGate className="narrow" />;
   if (!c) return error ? <div className="narrow stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={reload}>Retry loading job</Button></div> : <PageLoading />;
@@ -47,7 +44,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           <Avatar name={t.company} tone="accent" />
           <div>
             <div className="doc-kicker">Job from {t.company}</div>
-            <h1>{signed ? "You signed this contract" : `${t.contractor.name.split(" ")[0]}, review and sign`}</h1>
+            <h1>{signed ? "You accepted this job" : `${t.contractor.name.split(" ")[0]}, review and sign`}</h1>
           </div>
         </div>
 
@@ -98,7 +95,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
             <Icon name="shieldCheck" size={15} />
             <span>Enforced</span>
             <strong>{config.platform === "fake" ? "By the platform stand-in (simulated)" : "By the MultiAgency platform"}</strong>
-            <em>an agent just for this contract; every payout approved by {t.company}</em>
+            <em>an agent just for this job; every payout approved by {t.company}</em>
           </li>
         </ul>
 
@@ -128,7 +125,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
             </span>
             <div>
               <strong>Signed {timeText(signed.signed_at)}</strong>
-              <span>You can check the contract's policy at any time.</span>
+              <span>You can check the job's policy at any time.</span>
             </div>
             <a className="btn btn-primary btn-md" href={`#/c/${id}/verify`}>
               <Icon name="shieldCheck" /> <span>Verify policy</span>

@@ -1,12 +1,12 @@
 /**
  * bun run demo:market   (PLATFORM_STACK_DIR=<platform stack dir> required)
  *
- * Covenant's agent-market hires against the MultiAgency platform's local stack, through Covenant's own HTTP API (the
+ * Paperwork's agent-market hires against the MultiAgency platform's local stack, through Paperwork's own HTTP API (the
  * routes the browser uses). Simulated: provider, chain, wallet signatures, the DAO's votes and the agent market
  * (listed agents `writer`, which delivers, and `refuser`, which rejects). Real: the gateway, `/apps/v1`, the market
  * agent, its payment key, x402 payment and its resolution from the chain. Start the stack in the platform checkout:
- *   pnpm test:e2e:stack --app covenant --market --no-browser                  # wallet agency
- *   pnpm test:e2e:stack --app covenant --market --dao-treasury --no-browser   # and a DAO agency
+ *   pnpm test:e2e:stack --app multiagency-paperwork --market --no-browser                  # wallet agency
+ *   pnpm test:e2e:stack --app multiagency-paperwork --market --dao-treasury --no-browser   # and a DAO agency
  *
  * Each run creates new agencies. Needs platform 0.5.7 or later: M1 and M2 are fixed there
  * (docs/platform-gaps.md). The one check marked "gap" (M3) passes while that gap holds, so a fix shows as a failure.
@@ -93,7 +93,7 @@ async function followUntil(rid: string, done: (h: HireView) => boolean, tries = 
 
 const cfg = await ok("GET", "/config");
 const stackState = JSON.parse(await Bun.file(`${dir}/state.json`).text()) as { ownerAccount: string };
-console.log(`\nCovenant · agent market on the LOCAL PLATFORM STACK at ${rt.kit.platform.host}\n`);
+console.log(`\nPaperwork · agent market on the LOCAL PLATFORM STACK at ${rt.kit.platform.host}\n`);
 
 // ---------------------------------------------------------------- a wallet-owned agency
 console.log("1. A wallet-owned agency sets up its market agent");

@@ -1,7 +1,7 @@
 /**
- * True Covenant process restart on an independent, isolated SDK gateway.
+ * True Paperwork process restart on an independent, isolated SDK gateway.
  * Default fault: the local proxy suppresses the completed proposal's app HTTP response.
- * JOB_RESTART_DROP_WITHDRAW=1 additionally uses the existing stack's provider-response-loss control.
+ * PAPERWORK_RESTART_DROP_WITHDRAW=1 additionally uses the existing stack's provider-response-loss control.
  * PLATFORM_STACK_DIR=<fresh loopback stack directory> bun scripts/demo-job-restart.ts
  */
 import { Database } from "bun:sqlite";
@@ -19,16 +19,16 @@ const root = resolve(import.meta.dir, "..");
 const stackDir = process.env.PLATFORM_STACK_DIR;
 if (!stackDir) throw new Error("Set PLATFORM_STACK_DIR to a fresh isolated platform stack holding state.json.");
 const stack = readStack(stackDir);
-const dropWithdrawResponse = process.env.JOB_RESTART_DROP_WITHDRAW === "1";
+const dropWithdrawResponse = process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1";
 for (const value of [stack.url, stack.rpcUrl]) {
   const host = new URL(value).hostname;
   if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) throw new Error("This proof only supports an isolated loopback stack.");
 }
 const initialState = JSON.parse(readFileSync(stack.stateFile, "utf8")) as StackState;
 if (initialState.transfers.length || initialState.createdAgents.length) throw new Error("Use a fresh stack with no created Organization agents or payments; do not replay this job in a used stack.");
-const artifactDir = mkdtempSync(join(process.env.JOB_RESTART_ARTIFACTS ?? "/tmp", "covenant-job-restart-"));
+const artifactDir = mkdtempSync(join(process.env.PAPERWORK_RESTART_ARTIFACTS ?? "/tmp", "paperwork-job-restart-"));
 const appSnapshot = join(artifactDir, "app");
-const databasePath = join(artifactDir, "state", "covenant.sqlite");
+const databasePath = join(artifactDir, "state", "paperwork.sqlite");
 mkdirSync(appSnapshot);
 mkdirSync(dirname(databasePath));
 const hash = (contents: string | Uint8Array) => createHash("sha256").update(contents).digest("hex");
@@ -109,7 +109,7 @@ async function startApp(generation: number): Promise<ChildApp> {
       ...(process.env.TMPDIR && { TMPDIR: process.env.TMPDIR }),
       PLATFORM: "remote", PLATFORM_STACK_DIR: stackDir!, PLATFORM_DEPLOYMENT: stack.deployment,
       DB_PATH: databasePath, PORT: "0", GITHUB: "fake", JUDGE: "rules", AGENT_POLL_MS: "0", STATUS_POLL_MS: "3600000",
-      BETTER_AUTH_SECRET: "covenant-process-restart-fixture-secret-only-not-for-hosting",
+      BETTER_AUTH_SECRET: "paperwork-process-restart-fixture-secret-only-not-for-hosting",
     },
     stdout: "pipe", stderr: "pipe",
   });
@@ -198,6 +198,7 @@ function report(message: string) {
   transcript.push(message);
   writeFileSync(join(artifactDir, "transcript.txt"), transcript.join("\n") + "\n");
 }
+const platformSnapshotFile = join(resolve(stackDir, "../../../.."), "SNAPSHOT.json");
 const receipt: Record<string, unknown> = {
   scope: "True app process kill/restart with durable SQLite and independent SDK gateway; simulated provider/chain/signatures/settlement only",
   fault_boundary: dropWithdrawResponse ? "Provider accepts withdrawal and its response is dropped by existing stack control; app HTTP proposal response also suppressed" : "Completed proposal app HTTP response suppressed by local proxy; not a lost gateway/provider response",
@@ -205,13 +206,14 @@ const receipt: Record<string, unknown> = {
   started_at: new Date().toISOString(), sdk: sdkVersion, bun: Bun.version, platform_node: nodeVersion,
   app_source_sha256: sourceBefore.sha256,
   dependencies_sha256: dependenciesCopied.sha256,
-  database_relative_path: "state/covenant.sqlite",
+  database_relative_path: "state/paperwork.sqlite",
   platform_manifest: JSON.parse(readFileSync(join(stackDir, "../manifest.json"), "utf8")),
-  platform_snapshot: JSON.parse(readFileSync(join(resolve(stackDir, "../../../.."), "SNAPSHOT.json"), "utf8")),
+  platform_snapshot: existsSync(platformSnapshotFile) ? JSON.parse(readFileSync(platformSnapshotFile, "utf8")) : null,
+  platform_provenance_scope: existsSync(platformSnapshotFile) ? "Pinned platform snapshot and E2E manifest" : "Caller-owned standalone E2E manifest; no release snapshot supplied",
 };
 
 try {
-  report("Covenant · TRUE APP PROCESS RESTART · independent SDK gateway");
+  report("Paperwork · TRUE APP PROCESS RESTART · independent SDK gateway");
   report(dropWithdrawResponse ? "SIMULATED provider, chain, signatures and funds. Faults: provider withdrawal response dropped by existing stack control, plus lost app HTTP proposal response." : "SIMULATED provider, chain, signatures and funds. Fault: lost app HTTP proposal response; no gateway/provider loss is claimed.");
   active = await startApp(1);
   const firstPid = active.pid;

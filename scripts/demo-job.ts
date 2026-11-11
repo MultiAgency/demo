@@ -1,7 +1,7 @@
 /**
- * One job, using Covenant's real workflow code and existing FakePlatform.
+ * One job, using Paperwork's real workflow code and existing FakePlatform.
  * Simulated signatures, provider, settlement and rule-based assessment; no network or real funds.
- * Optional fault/revision walkthrough: DEMO_JOB_CHANGES=1 DEMO_JOB_LOST_REPLY=1 bun run demo:job
+ * Optional fault/revision walkthrough: PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_LOST_REPLY=1 bun run demo:job
  */
 import { createRuntime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
@@ -14,12 +14,12 @@ import { readStack } from "../src/server/platform/stack";
 function check(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
 }
-const withChanges = process.env.DEMO_JOB_CHANGES === "1";
-const lostReply = process.env.DEMO_JOB_LOST_REPLY === "1";
+const withChanges = process.env.PAPERWORK_JOB_CHANGES === "1";
+const lostReply = process.env.PAPERWORK_JOB_LOST_REPLY === "1";
 const stackDir = process.env.PLATFORM_STACK_DIR;
 const stack = stackDir ? readStack(stackDir) : null;
 if (stack && !["127.0.0.1", "localhost", "[::1]"].includes(new URL(stack.url).hostname)) throw new Error("The job recipe only supports an isolated loopback platform stack.");
-if (stack && lostReply) throw new Error("DEMO_JOB_LOST_REPLY is stand-in-only in this recipe. Use JOB_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart for the gateway/provider fault.");
+if (stack && lostReply) throw new Error("PAPERWORK_JOB_LOST_REPLY is stand-in-only in this recipe. Use PAPERWORK_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart for the gateway/provider fault.");
 const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
 const terms = parseTerms({
   ...JOB_DEMO_TERMS,
@@ -29,14 +29,14 @@ const terms = parseTerms({
     payee: { chain: "near", address: stack.payees[0]! },
     start: day(-7), end: day(21),
   }),
-  scope: JOB_DEMO_TERMS.scope.map((d) => ({ ...d, value_usd: process.env.DEMO_BUDGET_USD ?? d.value_usd })),
+  scope: JOB_DEMO_TERMS.scope.map((d) => ({ ...d, value_usd: process.env.PAPERWORK_BUDGET_USD ?? d.value_usd })),
 });
-const amount = process.env.DEMO_INVOICE_USD ?? scopeTotal(terms);
+const amount = process.env.PAPERWORK_INVOICE_USD ?? scopeTotal(terms);
 const rt = await createRuntime(loadConfig({
   PLATFORM: stack ? "remote" : "fake", GITHUB: "fake", JUDGE: "rules",
   ...(stackDir && stack && { PLATFORM_STACK_DIR: stackDir, PLATFORM_DEPLOYMENT: stack.deployment }),
 }), stack ? {} : { clockStart: Date.parse("2026-11-20T12:00:00Z") });
-const c = rt.covenant;
+const c = rt.engine;
 const kit = rt.kit;
 const sign = kit.devSigner!.sign413.bind(kit.devSigner!);
 const controls = kit.controls!;
@@ -44,7 +44,7 @@ const { id, contractorToken } = c.createContract(terms);
 const step = (number: string, title: string) => console.log(`\n${number}. ${title}`);
 const show = (message: string) => console.log(`    ${message}`);
 
-console.log(`Covenant · ONE BUILDER JOB · ${stack ? `LOCAL PLATFORM GATEWAY via SDK 0.5.6 (${new URL(stack.url).host})` : "PLATFORM STAND-IN"}`);
+console.log(`Paperwork · ONE BUILDER JOB · ${stack ? `LOCAL PLATFORM GATEWAY via SDK 0.5.7 (${new URL(stack.url).host})` : "PLATFORM STAND-IN"}`);
 console.log(`SIMULATED signatures, provider and settlement. Rule-based proposal; evidence links are references, not fetched or verified. ${stack ? "Loopback integration only; no hosted services or real funds." : "No real funds or network."}`);
 const wait = async () => { await Bun.sleep(250); };
 async function observe(checkState: (view: Awaited<ReturnType<typeof c.getContract>>) => boolean, label: string) {
@@ -86,8 +86,8 @@ show("The contract has its own policy-bound platform agent, funded with exactly 
 
 const body = (revision: number): JobSubmissionInput => ({
   client_request_id: `job-demo-revision-${revision}`,
-  report: process.env.DEMO_REPORT ?? "CSV export is complete. The linked change includes monthly report export and the acceptance tests. Please review the evidence against the signed criteria.",
-  evidence: [{ deliverable_id: "d1", label: "CSV export and acceptance tests", url: process.env.DEMO_EVIDENCE_URL ?? "https://github.com/acme/app/pull/101" }],
+  report: process.env.PAPERWORK_REPORT ?? "CSV export is complete. The linked change includes monthly report export and the acceptance tests. Please review the evidence against the signed criteria.",
+  evidence: [{ deliverable_id: "d1", label: "CSV export and acceptance tests", url: process.env.PAPERWORK_EVIDENCE_URL ?? "https://github.com/acme/app/pull/101" }],
   invoice: { number: revision === 1 ? "INV-DEMO-001" : `INV-DEMO-001-R${revision}`, amount_usd: amount },
 });
 let submitted = await c.submitJob(id, body(1), terms.contractor.near_account);

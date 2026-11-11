@@ -36,5 +36,5 @@ export default defineRailway(() => {
     },
   });
 
-  return project("jobs", { resources: [server, data] });
+  return project("paperwork", { resources: [server, data] });
 });

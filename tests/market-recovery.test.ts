@@ -19,7 +19,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 
 function fixture(signer: "wallet" | "dao" = "wallet") {
-  const dir = mkdtempSync(join(tmpdir(), "covenant-market-recovery-"));
+  const dir = mkdtempSync(join(tmpdir(), "paperwork-market-recovery-"));
   const path = join(dir, "market.sqlite");
   let db = new Database(path);
   const stub = new StubMarket();
@@ -619,7 +619,7 @@ describe("SDK DAO job recovery uses a non-creating capability check", () => {
     approved: input().approved, validUntil: "2026-11-12T00:00:00.000Z", votingUntil: NOW + 60_000,
     description: "Original DAO job approval" }, transactions: { proposal: null, proposalAndVote: null } });
   const adapter = (handler: (body: any, init: RequestInit) => Response) => new SdkMarket({
-    url: "https://platform.invalid", credential: "tap_fixture_not_a_live_credential", deployment: "covenant",
+    url: "https://platform.invalid", credential: "tap_fixture_not_a_live_credential", deployment: "multiagency-paperwork",
     fetch: (async (url: RequestInfo | URL, init?: RequestInit) => {
       expect(String(url)).toBe("https://platform.invalid/apps/v1/dao-hires");
       expect(init?.method).toBe("POST");

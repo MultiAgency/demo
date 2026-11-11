@@ -6,7 +6,7 @@ Read workspace `AGENTS.md`, `HANDOFF.md`, coordination README and current Covena
 
 | Step / actor | UI and durable records | App / SDK behavior | Baseline and current verification |
 | --- | --- | --- | --- |
-| Agency offers work | New contract form; immutable canonical `contracts.terms`, hash and representative signature | `createContract`, NEP-413; platform `setup`, `identity`, consents, `owner/prepare` and `owner/submit` for creation/grant/policy | Scope, values, criteria, payee and dates existed. New signed v3 adds report/invoice acceptance and explicit payment clauses. v2 hashes/behavior preserved. |
+| Agency offers work | New job form; immutable canonical `contracts.terms`, hash and representative signature | `createContract`, NEP-413; platform `setup`, `identity`, consents, `owner/prepare` and `owner/submit` for creation/grant/policy | Scope, values, criteria, payee and dates existed. New signed v3 adds report/invoice acceptance and explicit payment clauses. v2 hashes/behavior preserved. |
 | Builder accepts | Private signing page; `contractor_sig` signs identical terms hash | Existing full-access-key/NEP-413 verification; production uses signed-in account | Existing behavior. Submission requires both signatures and the agreed builder identity. Wallet UI signing now reuses the existing sign-in client with exact-payload/account/session/network guards and offline fixtures; an actual wallet/hosted walkthrough remains unverified. See [wallet-signing.md](wallet-signing.md). |
 | Builder submits | Builder page: report, invoice, HTTPS evidence references; `job_submissions` + `job_invoices` | New idempotent `submitJob`; same client key/body returns same revision and invoice. New content needs a new revision and invoice number. | Missing at baseline; now implemented and locally tested. Snapshots retain builder, terms hash, content hash, revision and evidence; references are never fetched by the server. |
 | Agent proposes | Agency Submission & review tab; existing `judgments`, `payout_attempts`, `payout_lines` linked to submission/invoice | `proposeJob` records assessment and attempt before existing SDK `payouts/request`; policy requires `owner_approval` | New submission assessment; existing payout path. Amount ≤ assessed scope less committed amounts, invoice and remaining budget; each payment ≤ largest deliverable. Optional NEAR AI assesses descriptions; keyless rule proposer needs human quality review. |
@@ -18,11 +18,11 @@ For v3, both the legacy `/run` route and merge watcher are gated off: unsubmitte
 
 ## Ownership and payment boundary
 
-Covenant owns signed business terms and report/invoice/review records, as the current Covenant-on-platform decision permits. The platform owns financial authority, consent, provider access, guarded dispatch, approval and settlement. Covenant holds only its app credential remotely and adds no executor, provider key or independent money path.
+Paperwork owns signed business terms and report/invoice/review records, as the recorded Covenant-on-platform decision permits. The platform owns financial authority, consent, provider access, guarded dispatch, approval and settlement. Paperwork holds only its app credential remotely and adds no executor, provider key or independent money path.
 
 Current official Market APIs support human `asSelf` workers and listed-agent workers. Standard assignments support submitted work and requested changes, with awarded pricing and automatic acceptance after 3–7 days. Listed-agent A2A/x402 calls automatically accept and settle on delivery. Their shared assignment shape does not imply a shared review lifecycle. Exact endpoints, actors, sources and current observations: [market-boundary.md](market-boundary.md).
 
-The builder job creates no payable Market assignment. The combined app's separate listed-agent service has its own budget and payment identity. A switch of the builder job to Market settlement would require a decision on fixed pricing, fees/custody and automatic acceptance; the same obligation must never also be paid by a Covenant withdrawal.
+The builder job creates no payable Market assignment. The combined app's separate listed-agent service has its own budget and payment identity. A switch of the builder job to Market settlement would require a decision on fixed pricing, fees/custody and automatic acceptance; the same obligation must never also be paid by a Paperwork withdrawal.
 
 ## Limits and concrete gaps
 
@@ -31,3 +31,6 @@ The builder job creates no payable Market assignment. The combined app's separat
 - App-server workflow-record APIs, rejection proof and dropped-response identity recovery are concrete platform cases in [platform-gaps.md](platform-gaps.md). App-local records are not advertised as platform-owned records.
 - The keyless proposer counts references as completion. It verifies no remote deliverable quality. Optional cloud assessment is implemented but not called in offline validation.
 - Current implementation, fresh simulated checks, prior real-gateway stack evidence, public health observations and real-payment observations are recorded separately in [job-evidence.md](job-evidence.md).
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

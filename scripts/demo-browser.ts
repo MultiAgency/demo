@@ -11,12 +11,12 @@ import { readStack } from "../src/server/platform/stack";
 import type { HireView } from "../src/shared/market";
 
 type Actor = "agency" | "builder";
-const full = process.env.DEMO_BROWSER_FULL === "1";
+const full = process.env.PAPERWORK_BROWSER_FULL === "1";
 const stack = full && process.env.PLATFORM_STACK_DIR ? readStack(process.env.PLATFORM_STACK_DIR) : null;
 if (full && (!stack?.marketUrl || ![stack.url, stack.rpcUrl, stack.marketUrl].every(url => ["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname))))
   throw new Error("The combined browser check requires the isolated loopback stack and --market simulator.");
-const dir = mkdtempSync(join(process.env.COVENANT_DEMO_ARTIFACTS ?? tmpdir(), "covenant-browser-"));
-const sessions: Record<Actor, string> = { agency: `covenant-agency-${process.pid}`, builder: `covenant-builder-${process.pid}` };
+const dir = mkdtempSync(join(process.env.PAPERWORK_DEMO_ARTIFACTS ?? tmpdir(), "paperwork-browser-"));
+const sessions: Record<Actor, string> = { agency: `paperwork-agency-${process.pid}`, builder: `paperwork-builder-${process.pid}` };
 const opened = new Set<Actor>();
 const steps: string[] = [];
 const captures: string[] = [];
@@ -95,7 +95,7 @@ async function capture(actor: Actor, name: string) {
   await command(actor, "screenshot", path, "--full");
   captures.push(path);
 }
-async function view() { return rt.covenant.viewContract(contractId); }
+async function view() { return rt.engine.viewContract(contractId); }
 async function state(predicate: (v: ContractView) => boolean, label: string) {
   for (const end = Date.now() + 12_000; Date.now() < end; await pause()) {
     const v = await view();
@@ -110,7 +110,6 @@ async function open(actor: Actor, url: string) {
   await command(actor, "set", "viewport", "1440", "1000");
 }
 async function submitRevision(revision: number) {
-  await command("builder", "reload");
   await pageWait("builder", "!!document.querySelector('.job-builder textarea')", "builder report form");
   await fill("builder", "Work report", revision === 1
     ? "CSV export is complete. Please review the linked implementation and acceptance tests."
@@ -119,6 +118,34 @@ async function submitRevision(revision: number) {
   await fill("builder", "Invoice amount · USDC", "300");
   await fill("builder", "d1 evidence URL", "https://github.com/acme/app/pull/101");
   await fill("builder", "d1 evidence description", revision === 1 ? "CSV export implementation" : "CSV export, sample and acceptance test output");
+  if (revision === 1) {
+    // Fail one automatic GET while the builder is editing. The form must stay mounted, then recover.
+    await evaluate("builder", `(() => {
+      const original = window.fetch.bind(window);
+      const statusPath = ${JSON.stringify(`/api/contracts/${contractId}`)};
+      window.__jobStatusProbe = { failed: false, recovered: false,
+        draft: [...document.querySelectorAll('.job-builder input,.job-builder textarea')].map(e => e.value) };
+      window.fetch = async (...args) => {
+        const url = new URL(args[0] instanceof Request ? args[0].url : args[0], location.href);
+        const method = args[1]?.method ?? (args[0] instanceof Request ? args[0].method : 'GET');
+        if (method === 'GET' && url.pathname === statusPath) {
+          if (!window.__jobStatusProbe.failed) {
+            window.__jobStatusProbe.failed = true;
+            return new Response(JSON.stringify({ error: 'Simulated status read outage' }), { status: 503, headers: { 'content-type': 'application/json' } });
+          }
+          const response = await original(...args);
+          if (response.ok) window.__jobStatusProbe.recovered = true;
+          return response;
+        }
+        return original(...args);
+      };
+    })()`);
+    await pageWait("builder", "document.body.innerText.includes('Status could not refresh')", "visible temporary status failure");
+    check(await evaluate<boolean>("builder", "JSON.stringify([...document.querySelectorAll('.job-builder input,.job-builder textarea')].map(e=>e.value))===JSON.stringify(window.__jobStatusProbe.draft)"), "A failed background read must preserve the builder's unfinished report, invoice and evidence");
+    await pageWait("builder", "window.__jobStatusProbe.recovered&&!document.body.innerText.includes('Status could not refresh')", "automatic recovery after temporary status failure");
+    check(await evaluate<boolean>("builder", "JSON.stringify([...document.querySelectorAll('.job-builder input,.job-builder textarea')].map(e=>e.value))===JSON.stringify(window.__jobStatusProbe.draft)"), "A successful background read must preserve the same unfinished draft");
+    step("Automatic status reads recover from a simulated 503 without losing the builder's report, invoice or evidence");
+  }
   await button("builder", revision === 1 ? "Submit report and invoice" : "Submit revised report and invoice");
   const submitted = await state(v => v.submissions[0]?.revision === revision && v.submissions[0]?.state === "submitted", "submitted revision");
   await pageWait("builder", "document.body.innerText.includes('Submitted · awaiting proposal')", "visible submission outcome");
@@ -179,10 +206,11 @@ async function marketJourney(builderRequest: string) {
     deliverable: paid.deliverable, confirmation_source: "SDK market status; provider/chain/market simulated", limitations: ["Directory and worker loop unavailable on pinned simulator", "No hosted or real payment evidence"] };
 }
 
-console.log("Covenant browser walkthrough · SIMULATED accounts, signatures, provider and settlement");
+console.log("Paperwork browser walkthrough · SIMULATED accounts, signatures, provider and settlement");
 console.log(`Artifacts: ${dir}`);
 try {
   await open("agency", `${base}/#/new`);
+  check(await evaluate<boolean>("agency", "document.title==='Paperwork'&&document.querySelector('h1')?.textContent==='New job'&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Jobs')"), "Expected Paperwork branding and job navigation");
   await pageWait("agency", "!!document.querySelector('button[aria-label=\"Remove d3\"]')", "offer form");
   await click("agency", 'button[aria-label="Remove d3"]');
   await click("agency", 'button[aria-label="Remove d2"]');
@@ -203,7 +231,6 @@ try {
   await state(v => !!v.signatures.contractor, "builder acceptance");
   step("Agency and builder sign the same immutable terms through separate browser sessions");
 
-  await command("agency", "reload");
   for (let i = 0; i < 30 && (await view()).stage !== "active"; i++) {
     await actionOrDone("agency", "^(Continue|Sign \\(|Confirm \\(demo\\)|Fund \\$)", async () => (await view()).stage === "active", "builder setup action");
   }
@@ -213,8 +240,8 @@ try {
   step("Builder submits report, invoice and evidence; no payout is yet requested");
   check((await view()).payouts.length === 0, "Submission must not create a payout");
 
-  await command("agency", "reload");
   await button("agency", "Propose compensation");
+  step("Agency discovers the builder submission and can propose compensation without a page reload");
   const held = await state(v => v.payouts[0]?.state === "held", "held proposal");
   check(held.paid_usd === "0", "Held proposal is unpaid");
   await pageWait("agency", "document.body.innerText.includes('Held for your approval')", "visible held proposal");
@@ -224,7 +251,6 @@ try {
   await fill("agency", "Changes needed", "Attach a CSV sample and acceptance test output before payout.");
   await button("agency", "Request changes");
   await state(v => v.submissions[0]?.state === "changes_pending", "cancellation pending");
-  await command("builder", "reload");
   await pageWait("builder", "document.body.innerText.includes('Wait for cancellation')", "builder waits for cancellation");
   await capture("builder", "02-changes-pending");
   await button("agency", "Reject held payout for revision");
@@ -233,7 +259,6 @@ try {
 
   revised = await submitRevision(2);
   check(revised.terms_hash === offered.hash && revised.invoice.id !== first.invoice.id, "Revision must retain terms and a distinct invoice identity");
-  await command("agency", "reload");
   await button("agency", "Propose compensation");
   await state(v => v.submissions[0]?.payout_request_ids.some(id => v.payouts.some(p => p.request_id === id && p.state === "held")) ?? false, "revised held proposal");
   } else step("Pinned SDK simulator rework is separately blocked by missing non-execution proof; original submission proceeds to explicit review");
@@ -248,7 +273,6 @@ try {
   const paid = await state(v => v.submissions[0]?.state === "settled", "confirmed settlement");
   await pageWait("agency", "document.body.innerText.includes('Confirmed settlement')", "agency settlement evidence");
   await capture("agency", "04-agency-settled-desktop");
-  await command("builder", "reload");
   await pageWait("builder", "document.body.innerText.includes('Confirmed settlement')", "builder settlement evidence");
   await capture("builder", "05-builder-settled-desktop");
   for (const actor of ["agency", "builder"] as const) {

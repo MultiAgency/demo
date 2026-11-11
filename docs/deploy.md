@@ -1,11 +1,11 @@
 # Deploying the app server
 
-The app server, with the web app it serves, runs on Railway: project `jobs`, one service `server`, built from this
-repository's `Dockerfile` with the settings in `.railway/railway.ts`. Its target is `jobs.multiagency.ai`.
+The app server, with the web app it serves, is configured for Railway: project `paperwork`, one service `server`, built from this
+repository's `Dockerfile` with the settings in `.railway/railway.ts`. Its target is `paperwork.multiagency.ai`.
 
 **Not deployed yet.** Production deploys are paused (workspace `AGENTS.md`), and the market's live hires wait for the
 platform's first staging hire, run by the owner with small amounts. Staging comes first: this service against the
-platform at `api.dev.multiagency.ai`, on its Railway domain or a staging subdomain, not `jobs.multiagency.ai`.
+platform at `api.dev.multiagency.ai`, on its Railway domain or a staging subdomain, not `paperwork.multiagency.ai`.
 `api.dev.multiagency.ai` runs on mainnet: real agents, owners and funds. When the platform's production host
 (`api.multiagency.ai`) exists, the same service moves there by changing `PLATFORM_URL` and the credential, which is
 issued per host.
@@ -25,16 +25,22 @@ issued per host.
 - **Secrets as variables.** The credential, `BETTER_AUTH_SECRET` and the market worker's token and secret stay in
   server memory: never in `/api/config`, events, logs or URLs.
 
+## Existing state during the rename
+
+The new database path is `/data/paperwork.sqlite`; changing the default does not migrate or rename an older file. Keep any old database intact. Recover its records only with `DB_PATH` pointing to that file, its original `PLATFORM_DEPLOYMENT` and the credential issued for that deployment. Database/deployment mismatch is refused; an old pending payment is never adopted into `multiagency-paperwork`.
+
+Existing job rows retain their original `covenant` signing recipient, including partial signatures; new jobs store `multiagency-paperwork`. New browser keys use `paperwork.*`, while recovery may read a legacy pending submission only under its original saved body and client key. A new project, filename or storage prefix does not authorize a replacement payment or submission.
+
 ## Variables
 
 | Variable | Value |
 | --- | --- |
 | `PLATFORM` | `remote` |
 | `PLATFORM_URL` | `https://api.dev.multiagency.ai` (staging) |
-| `PLATFORM_DEPLOYMENT` | `multiagency-jobs`: the credential's deployment |
+| `PLATFORM_DEPLOYMENT` | `multiagency-paperwork`: the credential's deployment |
 | `PLATFORM_CREDENTIAL` | the `tap_…` token (secret) |
 | `REQUIRED_MOUNT` | `/data` |
-| `DB_PATH` | `/data/jobs.sqlite` |
+| `DB_PATH` | `/data/paperwork.sqlite` |
 | `PUBLIC_URL` | `https://<host>`, the service's domain. Sign-in names this host, so it isn't changed once owners have signed in |
 | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` (secret) |
 | `SIWN_RECIPIENT` | the NEP-413 recipient sign-in names (default `multiagentic.near`) |
@@ -67,7 +73,7 @@ in your own terminal, so the token goes nowhere but the variable above (as for T
 
 ```sh
 railway ssh -p <platform project id> -e <platform staging environment id> -s <gateway service id> -- \
-  sh -c 'cd /data/state && /app/node_modules/.bin/tsx /app/src/app-credential.ts issue multiagency-jobs api.dev.multiagency.ai 90 "MultiAgency Jobs"'
+  sh -c 'cd /data/state && /app/node_modules/.bin/tsx /app/src/app-credential.ts issue multiagency-paperwork api.dev.multiagency.ai 90 "MultiAgency Paperwork"'
 ```
 
 It lasts 90 days. Before it expires, issue a new one the same way, set the variable, restart, and revoke the old one
@@ -81,13 +87,13 @@ checkout (a local `.env`, a database) goes with it:
 
 ```sh
 railway config plan --detailed-exit-code   # exits 2 while .railway/railway.ts has changes not applied: apply them first
-rm -rf /tmp/jobs-deploy && git worktree prune && git worktree add --detach /tmp/jobs-deploy <commit>
-railway up /tmp/jobs-deploy --path-as-root --service server --environment <environment>
-git worktree remove /tmp/jobs-deploy
+rm -rf /tmp/paperwork-deploy && git worktree prune && git worktree add --detach /tmp/paperwork-deploy <commit>
+railway up /tmp/paperwork-deploy --path-as-root --service server --environment <environment>
+git worktree remove /tmp/paperwork-deploy
 ```
 
 The first deploy: set the variables, `railway config apply`, deploy, then `railway domain` for the service. Staging uses
-the domain Railway shows; `jobs.multiagency.ai` gets a CNAME at it once production is unpaused. Set `PUBLIC_URL` to the
+the domain Railway shows; `paperwork.multiagency.ai` gets a CNAME at it once production is unpaused. Set `PUBLIC_URL` to the
 domain before the first owner signs in.
 
 Then: `GET https://<host>/api/health` answers `{"ok":true}`, `/api/config` shows `"platform":"remote"` and the
@@ -102,3 +108,6 @@ platform's host, and sign-in works with a NEAR wallet (not yet tested end to end
   `/api/sim/*` 404, the agency list 401 signed out, and the database on the volume, kept across a restart.
 
 Nothing was deployed, and no credential was issued.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

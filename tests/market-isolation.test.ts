@@ -229,7 +229,7 @@ describe("worker submit outcome", () => {
     const ctx = workflow([version(1, NOW - 1000)]); await ctx.m.worker.poll();
     await ctx.m.worker.submit("a1", "Persisted rework report");
     const original = ctx.m.worker.row("a1");
-    const dir = mkdtempSync(join(tmpdir(), "covenant-worker-reopen-"));
+    const dir = mkdtempSync(join(tmpdir(), "paperwork-worker-reopen-"));
     const path = join(dir, "worker.sqlite");
     let disk: Database | undefined;
     try {

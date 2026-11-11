@@ -66,7 +66,7 @@ export function PayoutsTab({ c, config, act }: { c: ContractView; config: AppCon
         </div>
       ) : null}
       {list.length === 0 ? (
-        <Empty icon="bot" title="No payouts yet" sub="When a merged PR completes part of the scope, Covenant requests that part and the platform holds it for your approval." />
+        <Empty icon="bot" title="No payouts yet" sub="When a merged PR completes part of the scope, Paperwork requests that part and the platform holds it for your approval." />
       ) : (
         <ul className="payouts">
           {list.map((p) => (
@@ -182,18 +182,18 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
     case "processing":
       return note("info", "clock", "Approved. Settling on NEAR.", <span>Public withdrawal to {p.recipient}; it may arrive less a route fee.</span>);
     case "waiting":
-      return note("info", "clock", "The platform asked Covenant to wait.", <span>Covenant asks again with the same request id{p.code ? ` (${p.code})` : ""}.</span>);
+      return note("info", "clock", "The platform asked Paperwork to wait.", <span>Paperwork asks again with the same request id{p.code ? ` (${p.code})` : ""}.</span>);
     case "unknown":
-      return note("warning", "alert", "No answer from the platform yet.", <span>Covenant reads the payout's status before asking again, and never under a new id, so it can't pay twice.</span>);
+      return note("warning", "alert", "No answer from the platform yet.", <span>Paperwork reads the payout's status before asking again, and never under a new id, so it can't pay twice.</span>);
     case "blocked":
       if (p.code === "request_conflict")
         return note(
           "danger",
           "alert",
           "The platform already recorded this request id with other terms. It stays counted and is never re-sent.",
-          <span>{p.platform_record ? `The platform's record under this id reads: ${p.platform_record}.` : "Covenant is reading what the platform's record became."}</span>,
+          <span>{p.platform_record ? `The platform's record under this id reads: ${p.platform_record}.` : "Paperwork is reading what the platform's record became."}</span>,
         );
-      return note("danger", "ban", "Blocked before anything was sent.", clause ?? <span>Code {p.code ?? "unknown"}. Covenant re-asks the same request id once it's fixed.</span>);
+      return note("danger", "ban", "Blocked before anything was sent.", clause ?? <span>Code {p.code ?? "unknown"}. Paperwork re-asks the same request id once it's fixed.</span>);
     case "refused":
       return note("danger", "shieldCheck", "Refused by the platform. Nothing was sent.", clause ?? <span>{NO_CLAUSE}</span>);
     case "dropped":
@@ -228,7 +228,7 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
       );
     case "disputed":
       return note("warning", "alert", "Review closed as disputed; payment evidence is still being checked.",
-        <span>The amount remains committed and is not counted as paid. Covenant follows the original payment identity and authorizes no replacement.</span>,
+        <span>The amount remains committed and is not counted as paid. Paperwork follows the original payment identity and authorizes no replacement.</span>,
         p.never_executed ? <>
           <Button size="sm" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "reowe" }))}>Reopen after proven non-execution</Button>
           <Button size="sm" variant="ghost" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "rejected" }))}>Close after proven rejection</Button>

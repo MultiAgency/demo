@@ -42,3 +42,6 @@ A separate fresh-main gateway probe on `run-r8APzH` **passed** lost DAO filing r
 All signatures, balances, provider/chain actions and settlements here are simulated. Actual wallet, hosted model/worker and real-payment behavior remain unverified. The user's existing interactive processes on ports 3002/3003 were left untouched. The simulator still lacks the full worker loop/directory, so worker delivery recovery has fixture coverage rather than a hosted earnings claim.
 
 Product language now says **job**. The legacy `Covenant work order sha256:...` signing-domain bytes remain unchanged for compatible verification of existing v2/v3 signatures, and official SDK/state path names retain their contract names. New disputed records require the updated backend/UI; backend rollback after those records exist needs a separate compatibility review.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

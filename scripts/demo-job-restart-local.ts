@@ -12,7 +12,7 @@ const preflight = process.argv.includes("--preflight");
 const bootstrapOnly = process.argv.includes("--bootstrap-only");
 const fullCheck = process.argv.includes("--full-check");
 const full = fullCheck || process.argv.includes("--full");
-const artifactDir = mkdtempSync(join(tmpdir(), full ? "covenant-full-launch-" : "covenant-restart-launch-"));
+const artifactDir = mkdtempSync(join(tmpdir(), full ? "paperwork-full-launch-" : "paperwork-restart-launch-"));
 const jobArtifacts = join(artifactDir, "jobs");
 mkdirSync(jobArtifacts);
 const suppliedStack = process.env.PLATFORM_STACK_DIR;
@@ -202,7 +202,7 @@ async function preparePlatform() {
   return { destination, node };
 }
 
-log(`Covenant ${full ? "combined app" : "local restart"} launcher · simulated provider, chain, signatures and funds only`);
+log(`Paperwork ${full ? "combined app" : "local restart"} launcher · simulated provider, chain, signatures and funds only`);
 log(`Artifacts: ${artifactDir}`);
 try {
   let stackDir: string;
@@ -217,7 +217,7 @@ try {
       process.exitCode = 0;
       stackDir = "";
     } else {
-      stackProcess = own([platform.node, "test/e2e/run.mjs", "--prebuilt-web", "--stack", "--app", "covenant", "--no-browser", "--owner", "acme.demo", "--payee", "maria.demo", "--builder", "attacker.demo", ...(full ? ["--market"] : [])], "platform-stack", platform.destination, systemEnvironment(platform.node));
+      stackProcess = own([platform.node, "test/e2e/run.mjs", "--prebuilt-web", "--stack", "--app", "multiagency-paperwork", "--no-browser", "--owner", "acme.demo", "--payee", "maria.demo", "--builder", "attacker.demo", ...(full ? ["--market"] : [])], "platform-stack", platform.destination, systemEnvironment(platform.node));
       let ready = "";
       for (const until = Date.now() + 45_000; Date.now() < until; await pause()) {
         const match = /Isolated stack ready: ([^\r\n]+state\.json)/.exec(stackProcess.output);
@@ -232,10 +232,10 @@ try {
   }
   if (!preflight && !bootstrapOnly) {
     record.app_runner_sha256 = sha(readFileSync(appRunner));
-    const job = own([process.execPath, appRunner], full ? "combined-app" : "restart-job", root, { ...systemEnvironment(), PLATFORM_STACK_DIR: stackDir, JOB_RESTART_ARTIFACTS: jobArtifacts,
-      ...(full && { COVENANT_DEMO_ARTIFACTS: jobArtifacts, FULL_DEMO_PORT: process.env.FULL_DEMO_PORT ?? "3002" }),
-      ...(fullCheck && { DEMO_BROWSER_FULL: "1" }),
-      ...(!full && process.env.JOB_RESTART_DROP_WITHDRAW === "1" && { JOB_RESTART_DROP_WITHDRAW: "1" }),
+    const job = own([process.execPath, appRunner], full ? "combined-app" : "restart-job", root, { ...systemEnvironment(), PLATFORM_STACK_DIR: stackDir, PAPERWORK_RESTART_ARTIFACTS: jobArtifacts,
+      ...(full && { PAPERWORK_DEMO_ARTIFACTS: jobArtifacts, PAPERWORK_DEMO_PORT: process.env.PAPERWORK_DEMO_PORT ?? "3002" }),
+      ...(fullCheck && { PAPERWORK_BROWSER_FULL: "1" }),
+      ...(!full && process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1" && { PAPERWORK_RESTART_DROP_WITHDRAW: "1" }),
     });
     const exit = full && !fullCheck ? await job.child.exited : await waitExit(job, fullCheck ? 360_000 : 180_000);
     check(exit !== null, "Restart proof exceeded its bounded window. Its database and IDs remain in the artifact directory; no replacement job will be created.");

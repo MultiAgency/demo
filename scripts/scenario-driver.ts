@@ -3,7 +3,7 @@ import type { DemoControls, OwnerSigner } from "../src/server/platform/port";
 
 export interface ScenarioDriver {
   name: "fake" | "stack";
-  base: string; // Covenant API base, e.g. http://localhost:8781/api
+  base: string; // Paperwork API base, e.g. http://localhost:8781/api
   signer(account: string): OwnerSigner; // terms + platform NEP-413
   controls: DemoControls;
   termsWindow: { start: string; end: string };

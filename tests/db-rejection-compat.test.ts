@@ -21,7 +21,7 @@ const tables = ["contracts", "judgments", "job_submissions", "job_invoices", "pa
 /** Disposable ledger fixture only: no runtime, provider, key or payment operation is created. */
 function fixture(state: "rejected" | "unknown" | "processing" | "paid" | "failed" = "rejected", proof = 0, legacy = false,
   options: { resolution?: "reowe" | "rejected" | "arrived"; v2?: boolean; txHash?: string; refundTxHash?: string } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "covenant-rejection-compat-"));
+  const dir = mkdtempSync(join(tmpdir(), "paperwork-rejection-compat-"));
   directories.push(dir);
   const path = join(dir, "fixture.sqlite");
   const db = openDb(path);

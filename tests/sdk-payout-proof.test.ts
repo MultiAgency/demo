@@ -3,7 +3,7 @@ import { SdkPlatform } from "../src/server/platform/client";
 
 const credential = "tap_fixture_not_a_live_credential";
 
-/** Exercise the installed SDK's RPC/output parsing as well as Covenant's adapter; no network is used. */
+/** Exercise the installed SDK's RPC/output parsing as well as Paperwork's adapter; no network is used. */
 function platform(answer: Record<string, unknown>) {
   const paths: string[] = [];
   const send = (async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -24,7 +24,7 @@ function world(autoSettle: "manual" | "after-read" = "manual") {
   const chain = new SimChain();
   const signer = KeySigner.random();
   chain.trustKey(signer.publicKey);
-  const fake = new FakePlatform({ deployment: "covenant", now: () => new Date(now), chain, autoSettle });
+  const fake = new FakePlatform({ deployment: "multiagency-paperwork", now: () => new Date(now), chain, autoSettle });
   const signed = async (message: string, by = signer) => {
     const n = nonce();
     return { message, nonce: n, ...(await by.sign413({ message, recipient: fake.host, nonce: n })) };
@@ -79,7 +79,7 @@ async function heldVote(w: World, agent: AgentHandle, correlationId: string, ver
 
 describe("FakePlatform: the whole money path (same scenario as demo:stack)", () => {
   test("platformScenario passes on makePlatform({mode:'fake'})", async () => {
-    const kit = makePlatform({ mode: "fake", deployment: "covenant", now: () => new Date() });
+    const kit = makePlatform({ mode: "fake", deployment: "multiagency-paperwork", now: () => new Date() });
     const lines: string[] = [];
     const end = new Date(Date.now() + 21 * DAY).toISOString();
     const r = await platformScenario({
@@ -395,7 +395,7 @@ describe("SdkPlatform mapping (stub fetch)", () => {
 
   test("requestPayout sends a withdrawal to chain near with no memo; the credential is only in the header", async () => {
     const { send, seen } = stub(() => ({ status: 200, json: { json: { requestId: "r1", state: "held", status: "PENDING_APPROVAL", correlationId: "c1", code: null } } }));
-    const p = new SdkPlatform({ url: "https://platform.example", credential: CREDENTIAL, deployment: "covenant", fetch: send });
+    const p = new SdkPlatform({ url: "https://platform.example", credential: CREDENTIAL, deployment: "multiagency-paperwork", fetch: send });
     const r = await p.agent("o", "a").requestPayout({ requestId: "r1", recipient: PAYEE, amount: "5", expectedPolicy: { revision: 2, digest: `sha256:${"0".repeat(64)}` } });
     expect(r).toEqual({ ok: true, value: { requestId: "r1", state: "held", status: "PENDING_APPROVAL", correlationId: "c1", code: null, failureCode: null, neverExecuted: false } });
     const sent = seen[0]!;
@@ -408,9 +408,9 @@ describe("SdkPlatform mapping (stub fetch)", () => {
   });
 
   test("consents: epoch ms → ISO; failures map to the port kinds", async () => {
-    const consent = { id: "c", deployment: "covenant", host: "platform.example", organization: "o", owner: OWNER, agent: "a", agentId: "x", scopes: ["payout"], expiresAt: T0, createdAt: T0, publicKey: "ed25519:k", revoked: false, revokedAt: null };
+    const consent = { id: "c", deployment: "multiagency-paperwork", host: "platform.example", organization: "o", owner: OWNER, agent: "a", agentId: "x", scopes: ["payout"], expiresAt: T0, createdAt: T0, publicKey: "ed25519:k", revoked: false, revokedAt: null };
     const { send } = stub((path) => (path === "/apps/v1/consents" ? { status: 200, json: { consents: [consent] } } : { status: 403, json: { error: "no", code: "no_consent" } }));
-    const p = new SdkPlatform({ url: "https://platform.example", credential: CREDENTIAL, deployment: "covenant", fetch: send });
+    const p = new SdkPlatform({ url: "https://platform.example", credential: CREDENTIAL, deployment: "multiagency-paperwork", fetch: send });
     expect(must(await p.listConsents("o"))).toEqual([{ id: "c", agentId: "x", scopes: ["payout"], expiresAt: new Date(T0).toISOString(), publicKey: "ed25519:k", revoked: false }]);
     expect(p.host).toBe("platform.example");
     expect(toFail({ ok: false, kind: "forbidden", code: "scope" })).toEqual({ ok: false, kind: "forbidden", code: "scope" });
@@ -423,7 +423,7 @@ describe("SdkPlatform mapping (stub fetch)", () => {
 
   test("grant_issue goes out with the configured label (the stack accepts only `invoices`)", async () => {
     const { send, seen } = stub(() => ({ status: 500, json: {} }));
-    const p = new SdkPlatform({ url: "https://platform.example", credential: CREDENTIAL, deployment: "covenant", fetch: send, grantLabel: "invoices" });
+    const p = new SdkPlatform({ url: "https://platform.example", credential: CREDENTIAL, deployment: "multiagency-paperwork", fetch: send, grantLabel: "invoices" });
     await p.agent("o", "a").ownerPrepare({ type: "grant_issue", label: "payout" });
     const body = seen[0]!.body.json ?? seen[0]!.body;
     expect(body.action).toEqual({ type: "grant_issue", label: "invoices" });

@@ -19,14 +19,14 @@ export async function startServer(rt: Runtime, port: number, hostname?: string) 
 /** Timers: follow live payouts every STATUS_POLL_MS; optionally check for new merges every AGENT_POLL_MS. */
 export function startTimers(rt: Runtime): () => void {
   const timers: ReturnType<typeof setInterval>[] = [];
-  timers.push(setInterval(() => void rt.covenant.followUpAll(), rt.config.statusPollMs));
+  timers.push(setInterval(() => void rt.engine.followUpAll(), rt.config.statusPollMs));
   if (rt.market) timers.push(setInterval(() => void rt.market!.tick(), rt.config.statusPollMs));
   if (rt.config.pollMs > 0) {
     timers.push(
       setInterval(async () => {
-        for (const id of rt.covenant.activeContractIds()) {
+        for (const id of rt.engine.activeContractIds()) {
           try {
-            await rt.covenant.run(id);
+            await rt.engine.run(id);
           } catch (err) {
             // A 409 is an expected state (frozen, ended, nothing to do); only log real failures.
             if (err instanceof UserError && err.status === 409) continue;
@@ -49,7 +49,7 @@ if (import.meta.main) {
       : config.stackDir
         ? `LOCAL PLATFORM STACK at ${rt.kit.platform.host}`
         : `MultiAgency platform at ${rt.kit.platform.host}`;
-  console.log(`\nCovenant · ${banner}\n→ ${server.url}\n`);
+  console.log(`\nMultiAgency Paperwork · ${banner}\n→ ${server.url}\n`);
   startTimers(rt);
   if (config.pollMs > 0) console.log(`Merge watcher on: every ${Math.round(config.pollMs / 1000)}s`);
 }

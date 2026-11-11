@@ -19,7 +19,7 @@ export interface DaoVoteView {
   hash: string;
   description: string;
   voting_until: string;
-  /** A hire's approval: until when it may be paid, as the platform answered (it may be shorter than Covenant asked). */
+  /** A hire's approval: until when it may be paid, as the platform answered (it may be shorter than Paperwork asked). */
   valid_until: string | null;
   /** The platform's page showing the exact text the DAO signs and its hash, recomputed. */
   check_url: string;

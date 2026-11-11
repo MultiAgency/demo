@@ -115,14 +115,14 @@ export interface Transition {
   failureCode?: string | null;
   /** When the same id may be asked again (waiting/blocked). */
   retryAfterMs?: number;
-  /** Covenant bug or operator problem: log loudly, never retry automatically. */
+  /** Paperwork bug or operator problem: log loudly, never retry automatically. */
   alert?: string;
   /** `not_found`: the platform never recorded this id, so re-ask the same id. */
   reask?: boolean;
 }
 
 export const DEFAULT_RETRY_MS = 60_000;
-/** A blocked attempt the platform never recorded: Covenant's preflight or a refusal before recording. */
+/** A blocked attempt the platform never recorded: Paperwork's preflight or a refusal before recording. */
 export const neverRecorded = (a: Pick<AttemptLike, "state" | "code">) => a.state === "blocked" && a.code !== "request_conflict";
 /** Recorded refusals that get one automatic attempt+1 after re-reading the overview. */
 export const AUTO_RETRY_CODES = new Set(["reviewed_policy_changed", "policy_not_in_force"]);
@@ -132,7 +132,7 @@ export function fromFail(f: Fail, blockedRetryMs = DEFAULT_RETRY_MS): Transition
   switch (f.kind) {
     case "refused":
       if (f.code === "request_conflict")
-        return { state: "blocked", code: f.code, failKind: "blocked", alert: "request_conflict: the same requestId was sent with different terms. This is a Covenant bug; nothing is retried." };
+        return { state: "blocked", code: f.code, failKind: "blocked", alert: "request_conflict: the same requestId was sent with different terms. This is a Paperwork bug; nothing is retried." };
       return { state: "blocked", code: f.code, failKind: "blocked", retryAfterMs: blockedRetryMs };
     case "unresolved":
     case "busy":
@@ -142,7 +142,7 @@ export function fromFail(f: Fail, blockedRetryMs = DEFAULT_RETRY_MS): Transition
     case "forbidden":
       return { state: "blocked", code: f.code ?? "forbidden", failKind: "forbidden", retryAfterMs: blockedRetryMs };
     case "session":
-      return { state: "blocked", code: "credential", failKind: "session", alert: "The platform rejected Covenant's app credential (401). An operator must fix PLATFORM_CREDENTIAL.", retryAfterMs: blockedRetryMs };
+      return { state: "blocked", code: "credential", failKind: "session", alert: "The platform rejected Paperwork's app credential (401). An operator must fix PLATFORM_CREDENTIAL.", retryAfterMs: blockedRetryMs };
     case "unavailable":
     case "unknown":
     case "provider":

@@ -1,5 +1,5 @@
-// Who may act for an agency in Covenant. A wallet owner: that account. A DAO: its members, by the DAO's own roles read
-// from chain (the platform admits Covenant, not the member). Reading needs any member; filing a vote needs one whose
+// Who may act for an agency in Paperwork. A wallet owner: that account. A DAO: its members, by the DAO's own roles read
+// from chain (the platform admits Paperwork, not the member). Reading needs any member; filing a vote needs one whose
 // role may add proposals. Presenting a control never authorizes: the platform and the DAO's vote still decide.
 import { accessOf, type DaoPolicy } from "@multiagency/sdk";
 import { UserError } from "../engine";
@@ -18,7 +18,7 @@ export function rpcDaoPolicy(rpcUrl: string, send: typeof fetch = fetch): DaoPol
       const res = await send(rpcUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: "covenant-dao", method: "query", params: { finality: "final", request_type: "call_function", account_id: dao, method_name: "get_policy", args_base64: "" } }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: "paperwork-dao", method: "query", params: { finality: "final", request_type: "call_function", account_id: dao, method_name: "get_policy", args_base64: "" } }),
         signal: AbortSignal.timeout(10_000),
       });
       const body = (await res.json()) as { result?: { result?: number[] } };

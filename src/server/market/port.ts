@@ -1,4 +1,4 @@
-// The platform calls Covenant's market module makes (docs/market.md): an Organization's market agent, set up and owned
+// The platform calls Paperwork's market module makes (docs/market.md): an Organization's market agent, set up and owned
 // by a wallet or a DAO, quoting and hiring listed agents on the NEAR AI Agent Market. Implemented over
 // `@multiagency/sdk` (sdk.ts) only: there is no stand-in, so the market runs against the platform or its local stack.
 import type { Fail, Res, Signed413 } from "../platform/port";
@@ -70,7 +70,7 @@ export interface OwnerPrepared {
   correlationId: string;
   expiresAt: string;
   summary: string;
-  /** Wallet owner: the NEP-413 intent the wallet signs in Covenant. */
+  /** Wallet owner: the NEP-413 intent the wallet signs in Paperwork. */
   intent?: { standard: "nep413"; payload: { message: string; recipient: string; nonce: string } };
   /** Wallet owner, NEP-366 actions: the platform's confirm page. */
   confirm?: { url: string; expiresAt: string };

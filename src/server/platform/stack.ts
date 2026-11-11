@@ -6,7 +6,7 @@ import { stackSigner } from "./signer";
 import type { DemoControls } from "./port";
 
 /**
- * The MultiAgency platform's isolated local stack (`pnpm test:e2e:stack --app covenant ...` in the platform checkout).
+ * The MultiAgency platform's isolated local stack (`pnpm test:e2e:stack --app multiagency-paperwork ...` in the platform checkout).
  * Its `state.json` names the dashboard host, the app credential file, the stack's own TLS certificate and its simulated
  * chain. Its controls are files in a directory, never HTTP routes. Dev only: config refuses a stack dir in production.
  */
@@ -79,7 +79,7 @@ export class StackControls implements DemoControls, MarketControls {
   /** Writes `<name>.json` and waits for the stack to answer in `<name>.result.json`. */
   async command(command: string, args: Record<string, unknown>, timeoutMs = 20_000): Promise<unknown> {
     const { controls } = readState(this.dir);
-    const name = `covenant-${process.pid}-${Date.now()}-${++this.seq}`;
+    const name = `paperwork-${process.pid}-${Date.now()}-${++this.seq}`;
     const file = join(controls.directory, `${name}.json`);
     writeFileSync(`${file}.tmp`, JSON.stringify({ command, ...args }));
     renameSync(`${file}.tmp`, file);

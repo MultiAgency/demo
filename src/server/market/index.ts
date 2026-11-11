@@ -22,7 +22,7 @@ export interface MarketDeps {
   now: () => Date;
 }
 
-/** Covenant on the agent market: agencies that hire listed agents (client) and work the market's jobs (worker). */
+/** Paperwork on the agent market: agencies that hire listed agents (client) and work the market's jobs (worker). */
 export class Market {
   readonly agencies: Agencies;
   readonly hires: Hires;

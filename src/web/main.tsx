@@ -68,7 +68,7 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
             <span className="brand-mark">
               <Icon name="check" size={14} strokeWidth={2.6} />
             </span>
-            Covenant
+            Paperwork
           </span>
           <div className="row gap">
             {config?.platform === "fake" ? <span className="env-chip">Platform stand-in</span> : config?.stack ? <span className="env-chip">Local stack</span> : null}
@@ -86,11 +86,11 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
           <span className="brand-mark">
             <Icon name="check" size={14} strokeWidth={2.6} />
           </span>
-          Covenant
+          Paperwork
         </a>
         <nav className="nav">
-          <NavItem href="#/" icon="grid" label="Contracts" active={path === "/" || (!!m && !standalone)} />
-          <NavItem href="#/new" icon="plus" label="New contract" active={path === "/new"} />
+          <NavItem href="#/" icon="grid" label="Jobs" active={path === "/" || (!!m && !standalone)} />
+          <NavItem href="#/new" icon="plus" label="New job" active={path === "/new"} />
           {config?.market.enabled ? <NavItem href="#/market" icon="bot" label="Agent market" active={path.startsWith("/market")} /> : null}
           <NavItem href="#/guide" icon="book" label="How it works" active={path === "/guide"} />
         </nav>

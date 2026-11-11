@@ -1,4 +1,4 @@
-// The interface between Covenant and the MultiAgency platform: the SDK client (client.ts) and the stand-in (fake.ts).
+// The interface between Paperwork and the MultiAgency platform: the SDK client (client.ts) and the stand-in (fake.ts).
 import { USDC_NEAR } from "../../shared/terms";
 import type { MarketControls, MarketPlatform } from "../market/port";
 export const USDC = USDC_NEAR;
