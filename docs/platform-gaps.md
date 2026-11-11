@@ -105,19 +105,19 @@ answers with an owner-archived hosting release (`release`). Covenant doesn't cal
 
 Met while building Covenant's market hires (`src/server/market/`) against the local stack
 (`pnpm test:e2e:stack --app covenant --market`, with `--dao-treasury` for a DAO owner; Node 24.22.2, run 2026-11-11).
-**Status (2026-11-11):** M1, M2, M4 and M5 are fixed on platform `main` (`cf59c43`; MultiAgency/platform#72 and
-MultiAgency/platform#76), to be released in 0.5.7. `bun run demo:market` against a stack from that `main` passes with
-Covenant on SDK 0.5.6: the coded `agent_not_found` refusal, and a DAO agency's whole path by vote (setup, creation, consent,
+**Status (2026-11-11):** M1, M2, M4 and M5 are fixed in platform 0.5.7 (MultiAgency/platform#72 and
+MultiAgency/platform#76), released 2026-11-11; Covenant pins SDK 0.5.7. `bun run demo:market` against a stack from
+platform `main` `764197a` (0.5.7) passes with Covenant on SDK 0.5.7: the coded `agent_not_found` refusal, and a DAO agency's whole path by vote (setup, creation, consent,
 grant, a job paid after the vote, freeze, unfreeze), also with `--on-chain-policy-edits`. M3 stays open, and its check
 still marks it as a gap.
 
 | # | Gap | Platform's answer (2026-11-11) | Issue |
 |---|---|---|---|
-| M1 | `market/quote` for an unlisted handle answers `unavailable`, which means "send again" | Fixed on `main` (0.5.7): `agent_not_found`, `agent_not_hireable`, `quote_refused` | [MultiAgency/platform#66](https://github.com/MultiAgency/platform/issues/66) |
-| M2 | A DAO's `read` + `market` consent can't reach `owner/prepare`, so its market grant can't be issued | Fixed on `main` (0.5.7): grant, revocation, freeze, unfreeze and limited policy edits under `market` | [MultiAgency/platform#67](https://github.com/MultiAgency/platform/issues/67) |
+| M1 | `market/quote` for an unlisted handle answers `unavailable`, which means "send again" | Fixed in 0.5.7: `agent_not_found`, `agent_not_hireable`, `quote_refused` | [MultiAgency/platform#66](https://github.com/MultiAgency/platform/issues/66) |
+| M2 | A DAO's `read` + `market` consent can't reach `owner/prepare`, so its market grant can't be issued | Fixed in 0.5.7: grant, revocation, freeze, unfreeze and limited policy edits under `market` | [MultiAgency/platform#67](https://github.com/MultiAgency/platform/issues/67) |
 | M3 | The stack's simulated market has no directory and no worker side | Send as a failing case (below) | [MultiAgency/platform#68](https://github.com/MultiAgency/platform/issues/68) |
-| M4 | No in-process double for `market/*` | Interim fix on `main` (0.5.7): the double refuses `not_modelled`; no market double yet | [MultiAgency/platform#69](https://github.com/MultiAgency/platform/issues/69) |
-| M5 | Smaller: re-voting a paid hire, a silently shortened `validUntil`, an uncoded refusal | Fixed on `main` (0.5.7): one request per hire id (`request_conflict` for other terms), the cap documented, `owner_action_open` | [MultiAgency/platform#70](https://github.com/MultiAgency/platform/issues/70) |
+| M4 | No in-process double for `market/*` | Interim fix in 0.5.7: the double refuses `not_modelled`; no market double yet | [MultiAgency/platform#69](https://github.com/MultiAgency/platform/issues/69) |
+| M5 | Smaller: re-voting a paid hire, a silently shortened `validUntil`, an uncoded refusal | Fixed in 0.5.7: one request per hire id (`request_conflict` for other terms), the cap documented, `owner_action_open` | [MultiAgency/platform#70](https://github.com/MultiAgency/platform/issues/70) |
 
 ## M1. A quote for an unlisted handle reads as a transient failure
 

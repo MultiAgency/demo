@@ -2,7 +2,7 @@
 
 **The contract is the spending limit.**
 
-Covenant is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Covenant uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.6: an agent for this contract, a fixed payee, bounded payments and explicit agency approval.
+Covenant is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Covenant uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.7: an agent for this contract, a fixed payee, bounded payments and explicit agency approval.
 
 The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. Existing signed v2 pay-on-merge contracts keep their original behavior; new v3 jobs explicitly sign the report/invoice and payment clauses.
 
@@ -62,7 +62,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Covenant pins published `@multiagency/sdk` 0.5.6. The platform's dated staging record reports 0.5.6; its older production record reports 0.5.4. Fresh public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
+Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Covenant pins published `@multiagency/sdk` 0.5.7. The platform's dated staging record reports 0.5.7 (platform `main` `764197a`); its older production record reports 0.5.4. Fresh public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
 
 ## Hire and work on the agent market
 
@@ -85,7 +85,7 @@ PLATFORM=remote PLATFORM_STACK_DIR=<dir> bun run demo   # the browser: Agent mar
 
 **Freezing.** The owner can freeze the agency's market agent from its page: the wallet signs it (in Covenant, or on the platform's confirm page when the provider asks for an on-chain signature), or the DAO votes on it. A freeze stops every provider send of the agent, but not a payment from funds already on its payment key, so Covenant also approves no job while the agent is frozen. A DAO's own stop page has no time limit but only cuts apps off; it doesn't freeze the agent.
 
-**Not yet:** the worker side and the directory can't run against the stack's simulated market (MultiAgency/platform#68). A DAO's market agent gets its grant and is frozen through Covenant only on platform 0.5.7 (on `main`, unreleased); on 0.5.6 its setup stops before the grant and says why. See [platform gaps](docs/platform-gaps.md#agent-market-sdk-056-platform-main-7528643), M1–M5.
+**Not yet:** the worker side and the directory can't run against the stack's simulated market (MultiAgency/platform#68). A DAO's market agent gets its grant and is frozen through Covenant from platform 0.5.7; on an older platform its setup stops before the grant and says why. See [platform gaps](docs/platform-gaps.md#agent-market-sdk-056-platform-main-7528643), M1–M5.
 
 ## Do X → see Y (legacy merge-based browser demo)
 
@@ -187,7 +187,7 @@ Optional AI report assessment has a **30-second** deadline covering the request 
 
 ## Built with
 
-Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.6, Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
+Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.7, Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
 
 Written with AI assistance.
 
