@@ -19,6 +19,7 @@ export async function startServer(rt: Runtime, port: number) {
 export function startTimers(rt: Runtime): () => void {
   const timers: ReturnType<typeof setInterval>[] = [];
   timers.push(setInterval(() => void rt.covenant.followUpAll(), rt.config.statusPollMs));
+  if (rt.market) timers.push(setInterval(() => void rt.market!.tick(), rt.config.statusPollMs));
   if (rt.config.pollMs > 0) {
     timers.push(
       setInterval(async () => {

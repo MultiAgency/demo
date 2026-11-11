@@ -1,5 +1,8 @@
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { MarketControls } from "../market/port";
+import { caFetch } from "./client";
+import { stackSigner } from "./signer";
 import type { DemoControls } from "./port";
 
 /**
@@ -19,6 +22,10 @@ export interface StackInfo {
   builder: string | null;
   controlsDir: string;
   stateFile: string;
+  /** With `--market`: the simulated agent market's URL. */
+  marketUrl: string | null;
+  /** With `--dao-treasury`: the simulated DAO that owns agents. */
+  dao: string | null;
 }
 
 interface StackState {
@@ -29,6 +36,8 @@ interface StackState {
   chain: { rpc: string };
   app: { deployment: string; base: string; credentialFile: string } | null;
   controls: { directory: string };
+  market: { url: string; agents: string[] } | null;
+  dao: { account: string } | null;
   transfers: { agent: string; correlation: string; approval: string; status: string; recipient: string; amount: string }[];
 }
 
@@ -51,6 +60,8 @@ export function readStack(dir: string): StackInfo {
     builder: s.builder ?? null,
     controlsDir: s.controls.directory,
     stateFile,
+    marketUrl: s.market?.url ?? null,
+    dao: s.dao?.account ?? null,
   };
 }
 
@@ -61,7 +72,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Lost replies, outages and failures after approval are injected on the fake only (the stack can't drop a withdrawal's
  * reply).
  */
-export class StackControls implements DemoControls {
+export class StackControls implements DemoControls, MarketControls {
   private seq = 0;
   constructor(private readonly dir: string) {}
 
@@ -88,6 +99,39 @@ export class StackControls implements DemoControls {
   }
   async settle(correlationId: string): Promise<void> {
     await this.command("settle", { correlation: correlationId });
+  }
+  /**
+   * Completes a platform confirm link as the owner's wallet would on the page (the platform's own `confirmStep`,
+   * test/e2e/app-steps.mjs): the owner signs the page's opening text (NEP-413, the fixture key), the page answers the
+   * NEP-366 intent, and the `signOwnerDelegate` control signs its delegate action.
+   */
+  async completeConfirm(url: string): Promise<void> {
+    const { caPem } = readStack(this.dir);
+    const send = caFetch(caPem);
+    const api = url.replace("/confirm/", "/confirm/v1/");
+    const read = async (res: Response, step: string) => {
+      if (!res.ok) throw new Error(`The confirm page answered ${res.status} to ${step}: ${await res.text()}`);
+      return res.json() as Promise<any>;
+    };
+    const view = await read(await send(api), "reading the link");
+    if (view.state !== "open") throw new Error(`The confirm link is ${view.state}, not open`);
+    const opening = await stackSigner().sign413(view.opening);
+    const { intent } = await read(await send(`${api}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signature: opening.signature }) }), "opening it");
+    if (intent?.standard !== "nep366") throw new Error("The confirm page answered no NEP-366 intent");
+    const delegated = (await this.command("signOwnerDelegate", intent.payload)) as { signedDelegate: string };
+    await read(await send(api, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signedData: { ...intent, signed_delegate: delegated.signedDelegate } }) }), "submitting the signature");
+  }
+  /** The owner's one-time USDC registration of a market agent's payment key (`--market`). */
+  async marketRegister(account: string): Promise<void> {
+    await this.command("marketRegister", { account });
+  }
+  /** The market's chain moves on, so an unused hire payment expires (`--market`; default 1300 blocks). */
+  async marketAdvance(blocks?: number): Promise<void> {
+    await this.command("marketAdvance", blocks === undefined ? {} : { blocks });
+  }
+  /** The simulated DAO passes the proposal that signs `hash` (`--dao-treasury`). */
+  async daoVote(hash: string): Promise<void> {
+    await this.command("daoVote", { hash });
   }
   /** Every transfer and withdrawal the simulated provider accepted, as `state.json` lists them (refreshed every 250 ms). */
   async transfers(): Promise<{ recipient: string; amount: string; status: string }[]> {

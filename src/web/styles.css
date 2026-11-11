@@ -132,6 +132,7 @@ pre,
   min-width: 0;
 }
 input,
+select,
 textarea {
   width: 100%;
   font: inherit;
@@ -2529,4 +2530,43 @@ textarea:focus {
   font-size: 12px;
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+/* Agent market */
+.hire {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.hire:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.list-pick {
+  text-align: left;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.list-pick:hover {
+  border-color: var(--accent);
+}
+/* Text from other parties (briefs, deliverables): shown verbatim, wrapped, never interpreted. */
+.data-text {
+  margin: 0;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 13px/1.5 var(--mono);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }

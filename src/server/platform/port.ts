@@ -1,5 +1,6 @@
 // The interface between Covenant and the MultiAgency platform: the SDK client (client.ts) and the stand-in (fake.ts).
 import { USDC_NEAR } from "../../shared/terms";
+import type { MarketControls, MarketPlatform } from "../market/port";
 export const USDC = USDC_NEAR;
 export type Fail =
   | { ok: false; kind: "session" } // credential bad (401)
@@ -172,6 +173,8 @@ export interface PlatformConfig {
   caPem?: string;
   rpcUrl?: string;
   stackDir?: string;
+  /** The agent market's HTTP API (remote without a stack). Default https://market.near.ai. */
+  marketUrl?: string;
   now: () => Date;
 }
 export interface PlatformKit {
@@ -179,6 +182,18 @@ export interface PlatformKit {
   chain: ChainReader;
   controls: DemoControls | null;
   devSigner: OwnerSigner | null;
+  /** The agent market (src/server/market): remote only, since there is no stand-in for it. */
+  market?: {
+    platform: MarketPlatform;
+    controls: MarketControls | null;
+    /** The market's HTTP API: market.near.ai, or the local stack's simulated market. */
+    url: string;
+    /** NEAR RPC for DAO roles. */
+    rpcUrl: string;
+    /** The local stack's wallet owner and DAO (`--dao-treasury`), for the demo's agency form. */
+    owner: string | null;
+    dao: string | null;
+  } | null;
 }
 // src/server/platform/index.ts: export function makePlatform(cfg: PlatformConfig): PlatformKit
 // src/server/platform/stack.ts:  export function readStack(dir: string): { url: string; credential: string; caPem: string; rpcUrl: string; owner: string; payees: string[] }

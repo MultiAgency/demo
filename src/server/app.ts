@@ -9,6 +9,10 @@ import { openDb } from "./db";
 import { Covenant, type Role, type Scenario, SCENARIOS, toUserError, UserError } from "./engine";
 import { type EvidenceSource, FakeEvidence, GitHubEvidence } from "./evidence/github";
 import { NearAiJudge, RulesJudge } from "./judge";
+import { Market } from "./market/index";
+import { MarketApi } from "./market/api";
+import { rpcDaoPolicy } from "./market/members";
+import { marketRoutes } from "./market/routes";
 import { makePlatform } from "./platform/index";
 import type { PlatformKit } from "./platform/port";
 
@@ -40,6 +44,8 @@ export interface Runtime {
   clock: Clock;
   config: Config;
   evidence: EvidenceSource;
+  /** The agent market, when the platform offers it (remote, or a stack started with `--market`). */
+  market: Market | null;
 }
 
 export interface RuntimeOptions {
@@ -64,6 +70,7 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
       caPem: config.caPem ?? undefined,
       rpcUrl: config.rpcUrl ?? undefined,
       stackDir: config.stackDir ?? undefined,
+      marketUrl: config.market.url ?? undefined,
       now: clock.now,
     });
   const auth = await createAuth({
@@ -85,7 +92,19 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
     attacker: opts.attacker ?? DEMO_ACCOUNTS.attacker,
     log: opts.log,
   });
-  const rt = { covenant, auth, kit, clock, config, evidence };
+  const market = kit.market
+    ? new Market({
+        db,
+        market: kit.market.platform,
+        controls: kit.market.controls,
+        chain: kit.chain,
+        api: new MarketApi(kit.market.url, config.market.worker?.token ?? null),
+        worker: config.market.worker,
+        daoPolicy: rpcDaoPolicy(kit.market.rpcUrl),
+        now: clock.now,
+      })
+    : null;
+  const rt = { covenant, auth, kit, clock, config, evidence, market };
   return { ...rt, app: buildApp(rt) };
 }
 
@@ -99,7 +118,7 @@ const walletSig = z
   });
 
 export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session: SessionInfo | null } }> {
-  const { covenant, auth, kit, clock, config, evidence } = rt;
+  const { covenant, auth, kit, clock, config, evidence, market } = rt;
   const app = new Hono<{ Variables: { session: SessionInfo | null } }>().basePath("/api");
 
   app.onError((err, c) => {
@@ -107,6 +126,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     return c.json({ error: e.message }, e.status as 400);
   });
 
+  // Railway's health check. The server answers only once its configuration was checked at startup (loadConfig).
+  app.get("/health", (c) => c.json({ ok: true }));
   app.on(["GET", "POST"], "/auth/*", (c) => auth.handler(c.req.raw));
   app.use("*", async (c, next) => {
     c.set("session", c.req.path.startsWith("/api/auth/") ? null : await sessionFrom(auth, c.req.raw.headers));
@@ -130,6 +151,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
       now: clock.now().toISOString(),
       judge: { kind: config.judge.kind, model: config.judge.kind === "near-ai" ? config.judge.model : null },
       auth: { required: config.auth.required, recipient: config.auth.recipient, network: "mainnet" },
+      market: { enabled: !!market, worker: !!market?.worker.configured, owner: kit.market?.owner ?? null, dao: kit.market?.dao ?? null },
     };
     return c.json(view);
   });
@@ -242,6 +264,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     if (!SCENARIOS.includes(scenario)) throw new UserError("Unknown scenario", 404);
     return c.json(await covenant.attack(id, scenario));
   });
+
+  if (market) marketRoutes(app, market, { authRequired: config.auth.required, controls: kit.controls });
 
   // ---------- demo controls (platform stand-in; local stack when PLATFORM_STACK_DIR)
   const controls = kit.controls;

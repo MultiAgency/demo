@@ -8,6 +8,7 @@ import { ContractPage } from "./pages/Contract";
 import { ContractorSign } from "./pages/ContractorSign";
 import { GuidePage } from "./pages/Guide";
 import { Home } from "./pages/Home";
+import { AgencyPage, MarketHome } from "./pages/Market";
 import { NewContract } from "./pages/NewContract";
 import { VerifyPage } from "./pages/Verify";
 import { SessionProvider } from "./session";
@@ -44,6 +45,7 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
   const { path, query } = useHashRoute();
 
   const m = path.match(/^\/c\/([\w-]+)(\/(sign|verify))?$/);
+  const agency = path.match(/^\/market\/([\w-]+)$/);
   // Contractor-facing pages stand alone, without the company's app chrome.
   const standalone = !!m && (m[3] === "sign" || m[3] === "verify");
 
@@ -51,6 +53,8 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
   if (!config) page = error ? <div className="page"><p>Can't reach the server: {error}</p></div> : <PageLoading />;
   else if (path === "/new") page = <NewContract config={config} />;
   else if (path === "/guide") page = <GuidePage />;
+  else if (path === "/market") page = <MarketHome config={config} />;
+  else if (agency) page = <AgencyPage key={agency[1]} id={agency[1]!} config={config} />;
   else if (m && m[3] === "sign") page = <ContractorSign id={m[1]!} token={query.get("t")} config={config} />;
   else if (m && m[3] === "verify") page = <VerifyPage id={m[1]!} />;
   else if (m) page = <ContractPage key={m[1]} id={m[1]!} config={config} />;
@@ -87,6 +91,7 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
         <nav className="nav">
           <NavItem href="#/" icon="grid" label="Contracts" active={path === "/" || (!!m && !standalone)} />
           <NavItem href="#/new" icon="plus" label="New contract" active={path === "/new"} />
+          {config?.market.enabled ? <NavItem href="#/market" icon="bot" label="Agent market" active={path.startsWith("/market")} /> : null}
           <NavItem href="#/guide" icon="book" label="How it works" active={path === "/guide"} />
         </nav>
         <div className="sidebar-foot">

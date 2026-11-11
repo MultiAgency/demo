@@ -1,3 +1,4 @@
+import { SdkMarket } from "../market/sdk";
 import { RpcChain, SimChain } from "./chain";
 import { SdkPlatform, caFetch } from "./client";
 import { FakePlatform } from "./fake";
@@ -6,6 +7,7 @@ import { KeySigner, stackSigner } from "./signer";
 import { StackControls, readStack } from "./stack";
 
 const MAINNET_RPC = "https://rpc.mainnet.fastnear.com";
+const MARKET_URL = "https://market.near.ai";
 
 /**
  * The platform Covenant talks to.
@@ -27,11 +29,19 @@ export function makePlatform(cfg: PlatformConfig): PlatformKit {
     const stack = readStack(cfg.stackDir);
     if (cfg.deployment !== stack.deployment)
       throw new Error(`The platform stack serves app deployment "${stack.deployment}", but Covenant is configured as "${cfg.deployment}"`);
-    const platform = new SdkPlatform({ url: stack.url, credential: stack.credential, deployment: stack.deployment, fetch: caFetch(stack.caPem), grantLabel: "invoices" });
-    return { platform, chain: new RpcChain(stack.rpcUrl), controls: new StackControls(cfg.stackDir), devSigner: stackSigner() };
+    const send = caFetch(stack.caPem);
+    const platform = new SdkPlatform({ url: stack.url, credential: stack.credential, deployment: stack.deployment, fetch: send, grantLabel: "invoices" });
+    const controls = new StackControls(cfg.stackDir);
+    // Without `--market` the stack sets up no market agents and serves no market: Covenant shows no market then.
+    const market = stack.marketUrl
+      ? { platform: new SdkMarket({ url: stack.url, credential: stack.credential, deployment: stack.deployment, fetch: send }), controls, url: stack.marketUrl, rpcUrl: stack.rpcUrl, owner: stack.owner, dao: stack.dao }
+      : null;
+    return { platform, chain: new RpcChain(stack.rpcUrl), controls, devSigner: stackSigner(), market };
   }
   if (!cfg.url || !cfg.credential) throw new Error("PLATFORM=remote needs the platform URL and the app's service credential");
   const send = cfg.caPem ? caFetch(cfg.caPem) : undefined;
   const platform = new SdkPlatform({ url: cfg.url, credential: cfg.credential, deployment: cfg.deployment, ...(send && { fetch: send }) });
-  return { platform, chain: new RpcChain(cfg.rpcUrl ?? MAINNET_RPC), controls: null, devSigner: null };
+  const rpcUrl = cfg.rpcUrl ?? MAINNET_RPC;
+  const market = { platform: new SdkMarket({ url: cfg.url, credential: cfg.credential, deployment: cfg.deployment, ...(send && { fetch: send }) }), controls: null, url: cfg.marketUrl ?? MARKET_URL, rpcUrl, owner: null, dao: null };
+  return { platform, chain: new RpcChain(rpcUrl), controls: null, devSigner: null, market };
 }

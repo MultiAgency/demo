@@ -51,6 +51,29 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42); production runs 0.5.4 until 0.5.5 is deployed. Covenant pins `@multiagency/sdk` 0.5.6; the local stack above runs a platform that already has 0.5.5. The owner's freeze link (the platform's wallet stop page) and recovering a lost setup reply through `reservations` also need 0.5.5; on 0.5.4 a lost setup reply shows the setup error as before.
 
+## Hire and work on the agent market
+
+Agencies take both sides of the [NEAR AI Agent Market](https://market.near.ai): they hire listed agents, and their own listed agent takes jobs. Each agency has one market agent on the platform (area `market`), owned by a wallet or a Sputnik DAO. Market hires run only against the platform or its local stack: there is no stand-in for them.
+
+```bash
+# in the platform checkout (Node 24)
+pnpm test:e2e:stack --app covenant --market --no-browser                  # a wallet agency
+pnpm test:e2e:stack --app covenant --market --dao-treasury --no-browser   # and a DAO agency
+# then in this repo
+PLATFORM_STACK_DIR=<dir> bun run demo:market     # headless: Covenant's own API end to end
+PLATFORM=remote PLATFORM_STACK_DIR=<dir> bun run demo   # the browser: Agent market
+```
+
+**Hiring (client side).** Pick a listed agent (the market's public directory, or a handle), write the brief, and ask for a quote: the platform answers the hire terms (agent, amount, the market's published payee, the brief's sha256, the window). Each job gets its id when it is quoted, saved before anything is asked. A wallet owner approves by hiring; a DAO approves by its vote on the exact terms, filed by the platform, and the platform pays only after the vote passes, after a fresh quote that must match. Each job is then followed with `market/status`: `paid`, `not_charged`, `refused` (nothing sent), or `unknown`, which waits, and is never retried under a new id. The deliverable is shown beside the terms it was paid under. An x402 job is accepted the moment the agent delivers, with no rework and no dispute, so the approval before paying is the only gate.
+
+**Working (worker side).** Configure one agency's listed agent with `MARKET_AGENT_TOKEN` (its `aat_` token), `MARKET_WEBHOOK_SECRET` and `MARKET_WORKER_AGENCY`. Covenant verifies each `hire.*` webhook (`sha256=` HMAC of `<timestamp>.<raw body>`, within 300 s), drops repeated deliveries, and polls the agent's assignments as well, since a webhook can be lost or arrive out of order. A person at the agency writes each deliverable; Covenant never hands a buyer's brief to a model or acts on what it says. Earnings stay in the market account until its owner withdraws them: Covenant shows the market agent's deposit address, whether it is registered on USDC, and the registration transaction, since the market refuses to withdraw to an unregistered account. Each accepted job records the deposit address shown at the time.
+
+**DAO agencies:** creating the market agent and issuing its grant are the provider's owner intents, which expire in minutes (about 10 for creation, 5 for the grant; MultiAgency/platform#20, a provider limit). A DAO completes them only if its vote passes that fast; Covenant shows the deadline and prepares the step again after a missed one. Each job's own vote has days.
+
+**Freezing.** The owner can freeze the agency's market agent from its page: the wallet signs it (in Covenant, or on the platform's confirm page when the provider asks for an on-chain signature), or the DAO votes on it. A freeze stops every provider send of the agent, but not a payment from funds already on its payment key, so Covenant also approves no job while the agent is frozen. A DAO's own stop page has no time limit but only cuts apps off; it doesn't freeze the agent.
+
+**Not yet:** the worker side and the directory can't run against the stack's simulated market, and a DAO's market agent stops before its grant and can't be frozen through Covenant yet. See [platform gaps](docs/platform-gaps.md#agent-market-sdk-056-platform-main-7528643), M1–M5.
+
 ## Do X → see Y (browser demo)
 
 | Do | See |
@@ -134,15 +157,16 @@ Covenant uses the same sign-in as everything.dev apps: [Better-Auth](https://bet
 ```
 src/shared/          terms + canonical hash, money (BigInt), clause mapping, API view types
 src/server/platform/ the platform port, SDK client, FakePlatform stand-in, stack reader, chain reader
+src/server/market/   agent market: agencies (wallet or DAO), hires, worker (webhooks, jobs, earnings), market API
 src/server/          engine, payout state machine, onboarding, judge (rules, NEAR AI Cloud), auth, HTTP API (Hono), SQLite
-src/web/             React app: scope editor, setup checklist, dashboard, approval card, contractor signing, Verify
-scripts/             demo-e2e.ts (stand-in), demo-stack.ts (local stack), shared scenario
+src/web/             React app: scope editor, setup checklist, dashboard, approval card, contractor signing, Verify, agent market
+scripts/             demo-e2e.ts (stand-in), demo-stack.ts (local stack), demo-market.ts (market, local stack), shared scenario
 docs/                how-it-works, evidence, platform-gaps
 ```
 
 ## Configuration
 
-See [.env.example](.env.example). The defaults run the stand-in with no keys. `PLATFORM=remote` needs `PLATFORM_URL` and the app credential (`PLATFORM_CREDENTIAL_FILE`). The credential stays in server memory: never in `/api/config`, events, logs or URLs.
+See [.env.example](.env.example), and [docs/deploy.md](docs/deploy.md) for Railway (not deployed yet). The defaults run the stand-in with no keys. `PLATFORM=remote` needs `PLATFORM_URL` and the app credential (`PLATFORM_CREDENTIAL_FILE`). The credential stays in server memory: never in `/api/config`, events, logs or URLs.
 
 ## Built with
 

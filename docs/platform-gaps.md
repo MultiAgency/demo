@@ -72,3 +72,81 @@ answers with an owner-archived hosting release (`release`). Covenant doesn't cal
 
 - **Lost `setup` reply recovery:** Covenant resends the same signed body while it is unexpired. After it expires, or on `already_created`, it asks `reservations` for the Organization and owner and takes the one live agent listed. A platform before 0.5.5 answers `refused` 404, and the setup error is shown as before.
 - **TLS for non-Node apps on the stack:** the app-server skill now documents the Bun route (`appClient` with a `fetch` adding `tls: { ca }`), which is what `caFetch` does.
+
+---
+
+# Agent market (SDK 0.5.6, platform `main` 7528643)
+
+Met while building Covenant's market hires (`src/server/market/`) against the local stack
+(`pnpm test:e2e:stack --app covenant --market`, with `--dao-treasury` for a DAO owner; Node 24.22.2, run 2026-11-11).
+`bun run demo:market` asserts M1–M3 as they stand: a check marked "gap" fails once the platform fixes it, so this list gets
+updated.
+
+| # | Gap | Platform's answer (2026-11-11) | Issue |
+|---|---|---|---|
+| M1 | `market/quote` for an unlisted handle answers `unavailable`, which means "send again" | Platform bug; to be fixed | [MultiAgency/platform#66](https://github.com/MultiAgency/platform/issues/66) |
+| M2 | A DAO's `read` + `market` consent can't reach `owner/prepare`, so its market grant can't be issued | Platform bug (`app-routes.ts:620` requires `treasury`); to be fixed. Don't add `treasury` | [MultiAgency/platform#67](https://github.com/MultiAgency/platform/issues/67) |
+| M3 | The stack's simulated market has no directory and no worker side | Send as a failing case (below) | [MultiAgency/platform#68](https://github.com/MultiAgency/platform/issues/68) |
+| M4 | No in-process double for `market/*` | Send as a failing case (below) | [MultiAgency/platform#69](https://github.com/MultiAgency/platform/issues/69) |
+| M5 | Smaller: re-voting a paid hire, a silently shortened `validUntil`, an uncoded refusal | — | [MultiAgency/platform#70](https://github.com/MultiAgency/platform/issues/70) |
+
+## M1. A quote for an unlisted handle reads as a transient failure
+
+**Case:** market agent ready on the stack; `app.agent(org, agent).call("market/quote", { handle: "nosuchagent", brief: "x" })`.
+**Expected:** `refused` with a code (say `agent_not_found`), since asking again can't succeed.
+**Happened:** `{ ok: false, kind: "unavailable" }` (HTTP 503). The simulated market answers JSON-RPC `-32001 no such agent`;
+`quoteHire` (`src/market/hire.ts`) lets the `MarketRpcError` from `src/market/client.ts` escape as a generic error. The
+SDK says to send `unavailable` again, so an app that follows it retries forever. Covenant shows the error and does not retry.
+
+## M2. A DAO's market agent can't get its grant
+
+**Case:** `--dao-treasury --market`: DAO setup (area `market`) and `agent_create` pass by vote; `daoConsents.file` with
+scopes `["read", "market"]` passes; then `owner/prepare { action: { type: "grant_issue", label: "market" }, signer: "dao" }`.
+**Expected:** the DAO's proposal for the market grant (`appMayAskDao` allows `grant_issue` with label `market`).
+**Happened:** `403 forbidden`, `code: "scope"`: `owner/prepare` is in `APP_OWNER`, which a DAO can't hold, and the gateway
+admits a DAO's `owner/prepare` only under `treasury` (`app-routes.ts:620`, per the platform). With `treasury` added to the consent the grant prepares, passes and the DAO's hire is paid by vote
+end to end (probe, 2026-11-11), so this is the only blocker. Covenant asks for `read` and `market` only, as decided
+2026-11-09, and its DAO setup stops at this step and says why. A DAO's freeze and unfreeze are refused the same way;
+Covenant shows the DAO's own stop page instead, which cuts apps off but doesn't freeze. Decided 2026-11-11: a DAO's
+`market` consent will cover its market agent's grant, revocation, policy edits, freeze and unfreeze, each by vote.
+
+## M3. The simulated market can't run the worker side or the directory
+
+**Cases** (against `state.json`'s `market.url`, run 2026-11-11):
+- `GET /v1/agents?q=writer` → 404. Expected: `BrowseAgentsResponse` (`{ agents: AgentPublic[] }`), so a hire page can pick an agent.
+- `GET /v1/agents/{id}/pricing-plans`, `GET /v1/agents/{id}/reputation` → 404.
+- `GET /v1/agents/me/assignments?status=all` with `Authorization: Bearer aat_…` → 404. Expected: `MyAssignmentsResponse`.
+- `POST /v1/assignments/{id}/submit` `{ "deliverableMarkdown": "…" }` → 404. Expected: the `JobAssignment`, `status: "submitted"`,
+  then `accepted` (an x402 hire is accepted on delivery).
+- No `hire.*` webhook is ever sent. Expected: a configurable webhook URL and secret, deliveries signed `X-Market-Signature:
+  sha256=<HMAC(secret, "<X-Market-Timestamp>.<raw body>")>` with `X-Market-Delivery` and `X-Market-Event`, at least once.
+- Listed agents are scripted (`writer` completes, `refuser` rejects, inside the paid call). Expected: a listed agent
+  backed by an app's worker, whose task completes only when that worker submits; the payment relayed at that point.
+
+**Why it matters:** the brief's demo loop (agency A hires agency B's listed agent; B's worker delivers; B's earnings return
+through `deposit`) can't run offline. Covenant's worker (`src/server/market/worker.ts`) is tested only against a stub of
+the market's documented shapes (`tests/market.test.ts`), not against a market.
+
+## M4. No in-process double for the market
+
+**Case:** `import { payoutDouble } from "@multiagency/sdk/testing"` (the module exports only `payoutDouble`);
+`appClient({ …, fetch: double.fetch }).agent("org_1", "payout").call("market/quote", { handle: "writer", brief: "x" })`.
+**Expected:** a market double (quote, hire, status, account; DAO hire votes) with the platform's codes, as `payoutDouble`
+gives for payouts.
+**Happened:** HTTP 501, which the SDK maps to `{ ok: false, kind: "unavailable" }`, read as "send again"
+(`double.unmodelled()` lists `market/quote`). Covenant's unit tests use a scripted stub of its own market port instead
+(`tests/support/market-stub.ts`), so its hire state machine isn't checked against the platform's rules offline.
+
+## M5. Smaller
+
+- **A second vote on a paid hire.** `daoHires.file` with a `requestId` already paid files a new request and proposal.
+  Passing it moved nothing (the relay answered `paid`; the payment key's balance was unchanged), but the DAO is asked to
+  vote for nothing. Expected: refused, or answered with the existing request. Covenant never refiles a paid hire.
+- **`validUntil` shortened without a refusal.** `daoHires.file` with `validUntil` 30 days ahead answered `validUntil` 7 days
+  ahead. The filing's answer carries the shortened value, and Covenant shows it with the vote ("Payable until"); a
+  refusal, as grants give for out-of-range expiries ("never clamped"), would still be clearer. Covenant asks for 2 days.
+- **An uncoded refusal.** After a lost `owner/prepare` reply, preparing again answers `refused` with only the text
+  "Agent creation already has an open owner action…" and no `code`. `owner/pending` recovers it, which Covenant does,
+  but the refusal can only be recognised by its text.
+- **DAO `agent_create` right after the setup vote** answered 503 (`unknown`) once while the hosted agent started; the
+  next prepare succeeded. Covenant waits and prepares again, recovering through `owner/pending` if the first one landed.
