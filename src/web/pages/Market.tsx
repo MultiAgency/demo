@@ -94,7 +94,7 @@ export function MarketHome({ config }: { config: AppConfig }) {
               <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder={signer === "dao" ? "council.sputnik-dao.near" : "acme.near"} />
             </div>
             <span className="field-hint">
-              {signer === "dao" ? "A DAO's consent carries read and market: Covenant quotes and files each job for the DAO's vote, and the platform pays only after it passes." : "The wallet's consent carries read, owner and market: Covenant quotes, and pays a job when the owner approves its terms."}
+              {signer === "dao" ? "A DAO's consent carries read and market: Covenant quotes and files each job for the DAO's vote, and the platform pays only after it passes. Creating the market agent and issuing its grant are the provider's owner intents, which expire in minutes (about 10 for creation, 5 for the grant): the DAO's vote on each must pass that fast, or it signs nothing and is filed again. A job's vote has days." : "The wallet's consent carries read, owner and market: Covenant quotes, and pays a job when the owner approves its terms."}
             </span>
           </label>
           {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -142,7 +142,12 @@ export function AgencyPage({ id, config }: { id: string; config: AppConfig }) {
         <Badge tone={STAGE[view.stage]?.tone ?? "neutral"}>{STAGE[view.stage]?.label ?? view.stage}</Badge>
       </header>
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      {view.stage !== "ready" ? <Setup id={id} config={config} onDone={load} /> : null}
+      {view.stage !== "ready" ? (
+        <Card>
+          <OwnerFlow id={id} config={config} path="next" title="Set up the agency's market agent" sub="Setup, creation, consent, the market grant, then the payment key's registration." onDone={load} />
+        </Card>
+      ) : null}
+      {view.frozen === true ? <Alert tone="warning">The market agent is frozen: no job is approved or funded until it's unfrozen.</Alert> : null}
       {view.stage === "ready" ? (
         <>
           <AccountCard view={view} config={config} onChange={load} />
@@ -163,19 +168,23 @@ export function AgencyPage({ id, config }: { id: string; config: AppConfig }) {
   );
 }
 
-function Setup({ id, config, onDone }: { id: string; config: AppConfig; onDone: () => unknown }) {
+/**
+ * One owner flow, step by step: setup, or a freeze or unfreeze. `path` answers the next step (`AgencyNext`); each step
+ * is signed in the wallet, completed on the platform's confirm page, or voted by the DAO, until it answers `done`.
+ */
+function OwnerFlow({ id, config, path, title, sub, onDone }: { id: string; config: AppConfig; path: string; title: string; sub: string; onDone: () => unknown }) {
   const [next, setNext] = useState<AgencyNext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const advance = useCallback(async (p?: Promise<AgencyNext>) => {
     setError(null);
     try {
-      const n = await (p ?? api<AgencyNext>("POST", `/market/agencies/${id}/next`));
+      const n = await (p ?? api<AgencyNext>("POST", `/market/agencies/${id}/${path}`));
       setNext(n);
       if (n.kind === "done") onDone();
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [id, onDone]);
+  }, [id, path, onDone]);
   useEffect(() => {
     void advance();
   }, [advance]);
@@ -196,10 +205,14 @@ function Setup({ id, config, onDone }: { id: string; config: AppConfig; onDone: 
     body = next.sign ? (
       <SignBox config={config} req={next.sign} label="Sign" onSign={async () => {
         const s = await signMessage(config, next.sign!);
-        await advance(api("POST", `/market/steps/${next.correlation_id}/submit`, { publicKey: s.public_key, signature: s.signature }));
+        await api("POST", `/market/steps/${next.correlation_id}/submit`, { publicKey: s.public_key, signature: s.signature });
+        await advance();
       }} />
     ) : next.confirm ? (
-      <ConfirmLink config={config} url={next.confirm.url} expiresAt={next.confirm.expires_at} onDemoComplete={async () => { await api("POST", "/sim/confirm", { url: next.confirm!.url }); await advance(); }} />
+      <div className="stack">
+        <ConfirmLink config={config} url={next.confirm.url} expiresAt={next.confirm.expires_at} onDemoComplete={async () => { await api("POST", "/sim/confirm", { url: next.confirm!.url }); await advance(); }} />
+        <Button variant="secondary" size="sm" onClick={() => advance()}>I've confirmed it: check again</Button>
+      </div>
     ) : null;
   else if (next?.kind === "dao_vote") body = <Vote vote={next.vote} config={config} onVoted={() => advance()} />;
   else if (next?.kind === "register")
@@ -217,12 +230,14 @@ function Setup({ id, config, onDone }: { id: string; config: AppConfig; onDone: 
     );
   else if (next?.kind === "wait") body = <p className="muted">{next.label}…</p>;
   else if (next?.kind === "blocked") body = <Alert tone="warning">{next.detail}</Alert>;
+  else if (next?.kind === "done") body = null;
   return (
-    <Card>
-      <CardHeader title={next && next.kind !== "done" && next.kind !== "wait" ? next.label : "Set up the agency's market agent"} sub="Setup, creation, consent, the market grant, then the payment key's registration." icon="key" />
+    <div className="stack">
+      <strong>{next && next.kind !== "done" && next.kind !== "wait" ? next.label : title}</strong>
+      <span className="muted small">{sub}</span>
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {body}
-    </Card>
+    </div>
   );
 }
 
@@ -248,6 +263,11 @@ function Vote({ vote, config, onVoted }: { vote: DaoVoteView; config: AppConfig;
         <span className="muted small">Vote before {dateText(vote.voting_until, true)}</span>
       </div>
       {vote.valid_until ? <div className="kv-line"><span>Payable until (as the platform filed it)</span><span>{dateText(vote.valid_until, true)}</span></div> : null}
+      {vote.state === "pending" && (vote.kind === "agent_create" || vote.kind === "grant_issue") ? (
+        <Alert tone="warning">
+          The DAO's vote must pass by {dateText(vote.voting_until, true)}: this is the provider's owner intent, and nothing lengthens it (MultiAgency/platform#20). The provider's documentation gives {vote.kind === "agent_create" ? "creation about 10 minutes" : "a grant about 5 minutes"}. A vote that passes later signs nothing, and Covenant prepares the step again for a new vote.
+        </Alert>
+      ) : null}
       <pre className="data-text">{vote.description.replaceAll("<br>", "\n")}</pre>
       <div className="kv-line"><span>Hash the DAO signs</span><Mono>{vote.hash}</Mono></div>
       <a className="small" href={vote.check_url} target="_blank" rel="noreferrer">Check the exact text and its hash on the platform</a>
@@ -280,7 +300,47 @@ function AccountCard({ view, config, onChange }: { view: AgencyView; config: App
           {config.demo_controls ? <Button size="sm" variant="secondary" onClick={async () => { await api("POST", "/market/sim/fund", { agency_id: view.id, usd: "10" }); await onChange(); }}>Fund $10 (demo)</Button> : null}
         </Deposit>
       </div>
+      <FreezeControl view={view} config={config} onChange={onChange} />
     </Card>
+  );
+}
+
+/** The provider-enforced stop: a freeze, signed by the owner's wallet or passed by the DAO's vote. */
+function FreezeControl({ view, config, onChange }: { view: AgencyView; config: AppConfig; onChange: () => unknown }) {
+  const [flow, setFlow] = useState<"freeze" | "unfreeze" | null>(null);
+  return (
+    <div className="stack hire">
+      <div className="row gap">
+        <span className="field-label">Freeze</span>
+        {view.frozen === true ? <Badge tone="danger" dot>Frozen</Badge> : view.frozen === false ? <Badge tone="success" dot>Not frozen</Badge> : <Badge tone="neutral">unread</Badge>}
+      </div>
+      <p className="small muted">
+        A freeze stops the agent at the provider: no send goes out, even if the platform errs or a grant token leaks. It
+        doesn't reach what's "On the key" above, so Covenant also approves no job while the agent is frozen. Unfreezing
+        restores the policy already in force.
+      </p>
+      {view.signer === "dao" ? (
+        <p className="small muted">
+          For a DAO, each is a vote that must pass within the provider's window of 600 seconds. A DAO whose vote takes
+          longer, as most do on mainnet, will see it lapse (MultiAgency/platform#20).
+          {view.dao_stop_url ? (
+            <>
+              {" "}The fallback is the DAO's own <a href={view.dao_stop_url} target="_blank" rel="noreferrer">stop page</a>, which has no time limit: it
+              cuts off Covenant and every other app, but it doesn't stop the agent at the provider.
+            </>
+          ) : null}
+        </p>
+      ) : (
+        <p className="small muted">Your wallet signs each: here, or on the platform's confirm page when the provider asks for an on-chain signature.</p>
+      )}
+      {flow ? (
+        <OwnerFlow id={view.id} config={config} path={flow} title={flow === "freeze" ? "Freeze the market agent" : "Unfreeze the market agent"} sub="" onDone={() => { setFlow(null); void onChange(); }} />
+      ) : view.frozen === true ? (
+        <div><Button variant="secondary" icon="play" onClick={() => setFlow("unfreeze")}>Unfreeze the market agent</Button></div>
+      ) : (
+        <div><Button variant="danger" icon="snowflake" onClick={() => setFlow("freeze")}>Freeze the market agent</Button></div>
+      )}
+    </div>
   );
 }
 

@@ -74,6 +74,13 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
     return c.json(await m.agencies.deposit(a.id));
   });
 
+  for (const [path, kind] of [["freeze", "agent_freeze"], ["unfreeze", "agent_unfreeze"]] as const)
+    app.post(`/market/agencies/:id/${path}`, async (c) => {
+      const a = m.agencies.row(c.req.param("id"));
+      await member(a, account(c), "propose");
+      return c.json(await m.agencies.stop(a.id, kind));
+    });
+
   // ---------- client: the directory, quotes and hires
   app.get("/market/directory", async (c) => c.json(await directory(() => m.d.api.browse(c.req.query("q") ?? ""))));
   app.get("/market/directory/:agentId", async (c) => c.json(await directory(() => m.d.api.detail(c.req.param("agentId")))));

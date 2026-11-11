@@ -36,6 +36,12 @@ interface PendingSign {
 }
 
 const wait = (label: string): AgencyNext => ({ kind: "wait", label, retry_ms: WAIT_MS });
+const STEP_SUMMARY: Record<MarketStepRow["kind"], string> = {
+  agent_create: "Create the agency's market agent",
+  grant_issue: "Issue the market agent's grant",
+  agent_freeze: "Freeze the market agent",
+  agent_unfreeze: "Unfreeze the market agent",
+};
 
 export class Agencies {
   constructor(private d: AgenciesDeps) {}
@@ -265,9 +271,14 @@ export class Agencies {
     return this.d.db.query("SELECT * FROM market_steps WHERE agency_id = ? AND kind = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(agencyId, kind) as MarketStepRow | null;
   }
 
-  private async ownerStep(a: AgencyRow, action: MarketOwnerAction, label: string): Promise<AgencyNext> {
+  /**
+   * One owner action, prepared once and followed to its end. `repeatable` actions (freeze, unfreeze) may run again
+   * later, so an earlier success is history, not this request's answer.
+   */
+  private async ownerStep(a: AgencyRow, action: MarketOwnerAction, label: string, repeatable = false): Promise<AgencyNext> {
     const kind = action.type;
     let s = this.latestStep(a.id, kind);
+    if (repeatable && s?.state === "success") s = null;
     if (s && s.state === "prepared" && Date.parse(s.expires_at) <= this.d.now().getTime()) {
       this.setStep(s.correlation_id, { state: "expired" });
       s = this.step(s.correlation_id);
@@ -283,12 +294,14 @@ export class Agencies {
       // until it ends: `owner/pending` is the way back to it.
       const open = await this.recoverOpen(a, kind);
       if (open) return this.stepView(a, open, label);
-      if (prepared.kind === "forbidden" && prepared.code === "scope" && a.signer === "dao" && kind === "grant_issue")
+      if (prepared.kind === "forbidden" && prepared.code === "scope" && a.signer === "dao")
         return {
           kind: "blocked",
           label,
           detail:
-            "The platform reaches a DAO's owner actions only under a `treasury` consent, and the DAO's consent here carries `read` and `market` (decided 2026-11-09). So the DAO can't issue its market agent's grant through Covenant, and the agent can't hire. Reported to the platform (docs/platform-gaps.md, M2).",
+            kind === "grant_issue"
+              ? "The platform reaches a DAO's owner actions only under a `treasury` consent, and the DAO's consent here carries `read` and `market` (decided 2026-11-09). So the DAO can't issue its market agent's grant through Covenant, and the agent can't hire. Reported to the platform (docs/platform-gaps.md, M2; MultiAgency/platform#67)."
+              : `The platform doesn't yet let a DAO's \`market\` consent ask for a ${kind === "agent_freeze" ? "freeze" : "unfreeze"} (MultiAgency/platform#67). Until it does, the DAO's own stop page cuts Covenant off without a time limit: ${this.daoStopUrl(a)}. It doesn't stop the agent at the provider.`,
         };
       if (prepared.kind === "unknown" || prepared.kind === "unavailable") return wait("The platform did not answer; preparing the step again shortly");
       throw failError(prepared, kind);
@@ -321,7 +334,7 @@ export class Agencies {
     return this.storeStep(a, kind, {
       correlationId: open.correlationId,
       expiresAt: open.expiresAt,
-      summary: kind === "agent_create" ? "Create the agency's market agent" : "Issue the market agent's grant",
+      summary: STEP_SUMMARY[kind],
       ...(open.intent && a.signer === "wallet" ? { intent: open.intent } : {}),
       ...(a.signer === "dao" ? { dao: { hash: open.hash ?? "", proposal: null, proposalAndVote: null } } : {}),
     });
@@ -386,6 +399,27 @@ export class Agencies {
       const who = await this.d.market.identity(a.agent!);
       if (who.ok && who.value.agentId) this.set(a.id, { agent_id: who.value.agentId, stage: "needs_consent" });
     } else if (kind === "grant_issue" && a.stage === "needs_grant") this.set(a.id, { stage: "needs_registration" as AgencyStage });
+  }
+
+  // ---------------------------------------------------------------- freeze
+
+  /**
+   * Freezes or unfreezes the agency's market agent: the owner's wallet signs it on the platform's confirm page, or the
+   * DAO votes on it. A freeze stops every provider send of the agent; it doesn't reach funds already on the payment key,
+   * so Covenant also approves no hire while the agent is frozen (Hires.approve).
+   */
+  async stop(id: string, kind: "agent_freeze" | "agent_unfreeze"): Promise<AgencyNext> {
+    // Only the created agent is needed, not a finished setup: an owner may stop an agent whose grant never came.
+    const a = this.row(id);
+    if (!a.agent_id) throw new UserError("The agency's market agent isn't created yet: there is nothing to freeze.", 409);
+    const frozen = await this.agent(a).frozen();
+    if (frozen.ok && frozen.value === (kind === "agent_freeze")) return { kind: "done" };
+    return this.ownerStep(a, { type: kind }, kind === "agent_freeze" ? "Freeze the market agent" : "Unfreeze the market agent", true);
+  }
+
+  /** The DAO's own stop page: ends every app's consent for the agent, with no time limit. It doesn't freeze the agent. */
+  daoStopUrl(a: AgencyRow): string {
+    return `https://${this.d.market.host}/confirm/dao/stop/${encodeURIComponent(a.owner)}/${encodeURIComponent(a.agent ?? "")}`;
   }
 
   // ---------------------------------------------------------------- funding and earnings

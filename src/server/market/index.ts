@@ -38,7 +38,10 @@ export class Market {
     await this.hires.followAll(id);
     const a = this.agencies.row(id);
     let account: AgencyView["account"] = null;
+    let frozen: boolean | null = null;
     if (a.stage === "ready" || a.stage === "needs_registration") {
+      const f = await this.agencies.agent(a).frozen();
+      if (f.ok) frozen = f.value;
       const r = await this.agencies.agent(a).account();
       if (r.ok) account = { account: r.value.account, registered: r.value.registered, opened: r.value.opened, usdc_usd: fromAtomic(BigInt(r.value.usdc), USDC_DECIMALS) };
     }
@@ -51,6 +54,8 @@ export class Market {
       agent: a.agent,
       agent_id: a.agent_id,
       stage: a.stage,
+      frozen,
+      dao_stop_url: a.signer === "dao" && a.agent ? this.agencies.daoStopUrl(a) : null,
       consent_expires_at: a.consent_expires_at,
       account,
       deposit: await this.agencies.depositView(a),

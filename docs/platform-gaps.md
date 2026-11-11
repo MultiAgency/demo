@@ -106,7 +106,9 @@ scopes `["read", "market"]` passes; then `owner/prepare { action: { type: "grant
 **Happened:** `403 forbidden`, `code: "scope"`: `owner/prepare` is in `APP_OWNER`, which a DAO can't hold, and the gateway
 admits a DAO's `owner/prepare` only under `treasury` (`app-routes.ts:620`, per the platform). With `treasury` added to the consent the grant prepares, passes and the DAO's hire is paid by vote
 end to end (probe, 2026-11-11), so this is the only blocker. Covenant asks for `read` and `market` only, as decided
-2026-11-09, and its DAO setup stops at this step and says why.
+2026-11-09, and its DAO setup stops at this step and says why. A DAO's freeze and unfreeze are refused the same way;
+Covenant shows the DAO's own stop page instead, which cuts apps off but doesn't freeze. Decided 2026-11-11: a DAO's
+`market` consent will cover its market agent's grant, revocation, policy edits, freeze and unfreeze, each by vote.
 
 ## M3. The simulated market can't run the worker side or the directory
 

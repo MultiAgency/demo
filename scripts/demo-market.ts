@@ -125,15 +125,45 @@ console.log("5. The public directory");
 const listing = await call("GET", "/market/directory?q=writer");
 check(listing.status === 502, `gap M3: the stack's market serves no directory (${listing.status}); the page takes a handle instead`);
 
+console.log("6. The owner freezes the market agent; nothing is approved until it's unfrozen");
+/** Plays a freeze or unfreeze as the owner's wallet: a text signed here, or the platform's confirm page. */
+async function stopAs(path: "freeze" | "unfreeze"): Promise<{ how: string; done: boolean }> {
+  let next = await ok<AgencyNext>("POST", `/market/agencies/${wallet}/${path}`);
+  let how = "nothing to do";
+  for (let i = 0; i < 20 && next.kind !== "done"; i++) {
+    if (next.kind === "owner_step" && next.sign) {
+      how = "signed in the wallet (NEP-413)";
+      const s = await sign(next.sign);
+      await ok("POST", `/market/steps/${next.correlation_id}/submit`, { publicKey: s.public_key, signature: s.signature });
+    } else if (next.kind === "owner_step" && next.confirm) {
+      how = "signed on the platform's confirm page (NEP-366)";
+      await ok("POST", "/sim/confirm", { url: next.confirm.url });
+    } else await sleep(250);
+    next = await ok<AgencyNext>("POST", `/market/agencies/${wallet}/${path}`);
+  }
+  return { how, done: next.kind === "done" };
+}
+const froze = await stopAs("freeze");
+check(froze.done && (await ok<AgencyView>("GET", `/market/agencies/${wallet}`)).frozen === true, `frozen, ${froze.how}: the platform reads the agent's policy frozen`);
+const whileFrozen = await ok<HireView>("POST", `/market/agencies/${wallet}/quote`, { handle: "writer", brief });
+check((await call("POST", `/market/hires/${whileFrozen.request_id}/approve`)).status === 409, "approving a job while frozen is refused, with nothing sent");
+const thawed = await stopAs("unfreeze");
+check(thawed.done && (await ok<AgencyView>("GET", `/market/agencies/${wallet}`)).frozen === false, `unfrozen, ${thawed.how}: the policy is back in force`);
+const afterThaw = await followUntil((await ok<HireView>("POST", `/market/hires/${whileFrozen.request_id}/approve`)).request_id, (h) => h.state === "paid");
+check(afterThaw.state === "paid", "the job held back while frozen is approved and paid after the unfreeze");
+
 // ---------------------------------------------------------------- a DAO-owned agency
 if (cfg.market.dao) {
-  console.log(`6. A DAO-owned agency (${cfg.market.dao}): every step is the DAO's vote`);
+  console.log(`7. A DAO-owned agency (${cfg.market.dao}): every step is the DAO's vote`);
   const dao = (await ok<{ id: string }>("POST", "/market/agencies", { name: "Council Agency", owner: cfg.market.dao, signer: "dao" })).id;
   const stopped = await setUp(dao);
   const view = await ok<AgencyView>("GET", `/market/agencies/${dao}`);
   check(view.stage === "needs_grant" && view.agent_id !== null, "setup, creation and the consent (read, market) pass by the DAO's votes");
   check(stopped.kind === "blocked", "gap M2: the DAO can't issue its market agent's grant under its read+market consent, so it can't hire");
-} else console.log("6. (no DAO on this stack: start it with --dao-treasury for the DAO agency)");
+  // Freezing only needs the created agent and the DAO's consent, not the grant: the same scope rule refuses it today.
+  const daoFreeze = await call<AgencyNext>("POST", `/market/agencies/${dao}/freeze`);
+  check(daoFreeze.status === 200 && daoFreeze.json.kind === "blocked", `gap M2: the DAO can't freeze its market agent under read+market either (${daoFreeze.status} ${daoFreeze.json.kind})`);
+} else console.log("7. (no DAO on this stack: start it with --dao-treasury for the DAO agency)");
 
 console.log(failures.length ? `\n✗ ${failures.length} check(s) failed:\n  - ${failures.join("\n  - ")}` : "\n✓ every check passed");
 process.exit(failures.length ? 1 : 0);

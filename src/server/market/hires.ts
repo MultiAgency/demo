@@ -73,6 +73,9 @@ export class Hires {
   async approve(requestId: string, actor: string | null): Promise<HireRow> {
     const r = this.row(requestId);
     const a = this.d.agencies.ready(r.agency_id);
+    // A freeze stops the agent's provider sends, not a payment from funds already on its payment key: hire nothing.
+    const frozen = await this.d.agencies.agent(a).frozen();
+    if (frozen.ok && frozen.value) throw new UserError("The agency's market agent is frozen. Unfreeze it before approving a job.", 409);
     const terms = JSON.parse(r.terms) as HireTerms;
     if (a.signer === "dao") {
       if (r.state !== "quoted" && r.state !== "vote_expired") throw new UserError(`This hire is ${r.state}.`, 409);

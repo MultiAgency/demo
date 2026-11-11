@@ -179,3 +179,37 @@ describe("worker: polling, submission and earnings", () => {
     expect(await m.worker.submit("a1", "# Result")).toMatchObject({ submit_state: "none", submit_error: expect.stringContaining("409") });
   });
 });
+
+describe("freeze", () => {
+  const confirm = (id: string) => ({ ok: true as const, value: { correlationId: id, expiresAt: "2026-11-11T13:00:00.000Z", summary: "Freeze", confirm: { url: `https://platform.test/confirm/${id}`, expiresAt: "2026-11-11T13:00:00.000Z" } } });
+
+  test("a wallet's freeze is completed on the platform's confirm page, and a later freeze is prepared anew", async () => {
+    const { m, stub, agency } = marketWith();
+    stub.prepareAnswers.push(confirm("f-1"));
+    expect(await m.agencies.stop(agency.id, "agent_freeze")).toMatchObject({ kind: "owner_step", correlation_id: "f-1", confirm: { url: "https://platform.test/confirm/f-1" } });
+    // The owner confirmed on the platform's page: the status reads SUCCESS, and the agent reads frozen.
+    expect(await m.agencies.stop(agency.id, "agent_freeze")).toEqual({ kind: "done" });
+    stub.isFrozen = true;
+    expect(await m.agencies.stop(agency.id, "agent_freeze")).toEqual({ kind: "done" });
+    stub.isFrozen = false; // unfrozen meanwhile
+    stub.prepareAnswers.push(confirm("f-2"));
+    expect(await m.agencies.stop(agency.id, "agent_freeze")).toMatchObject({ kind: "owner_step", correlation_id: "f-2" });
+    expect(stub.calls.filter((c) => c[0] === "ownerPrepare")).toEqual([["ownerPrepare", "agent_freeze", "wallet"], ["ownerPrepare", "agent_freeze", "wallet"]]);
+  });
+
+  test("a DAO's freeze refused for scope shows as blocked, with the DAO's own stop page", async () => {
+    const { m, stub, agency } = marketWith({ signer: "dao" });
+    stub.prepareAnswers.push({ ok: false, kind: "forbidden", code: "scope" });
+    const next = await m.agencies.stop(agency.id, "agent_freeze");
+    expect(next).toMatchObject({ kind: "blocked", detail: expect.stringContaining("https://platform.test/confirm/dao/stop/council.sputnik-dao.near/own-1") });
+  });
+
+  test("no job is approved while the agent is frozen: a freeze doesn't reach the payment key", async () => {
+    const { m, stub, agency } = marketWith();
+    const q = await m.hires.quote(agency.id, "writer", "Brief");
+    stub.isFrozen = true;
+    await expect(m.hires.approve(q.request_id, null)).rejects.toThrow(/frozen/);
+    expect(m.hires.row(q.request_id).state).toBe("quoted");
+    expect(stub.calls.filter((c) => c[0] === "hire")).toHaveLength(0);
+  });
+});

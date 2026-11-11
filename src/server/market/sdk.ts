@@ -129,6 +129,9 @@ class SdkMarketAgent implements MarketAgent {
   async account(): Promise<Res<MarketAccount>> {
     return map(await this.call("market/account"), (v) => ({ account: v.account, registered: v.registered, opened: v.opened, usdc: String(v.usdc), registration: tx(v.registration) }));
   }
+  async frozen(): Promise<Res<boolean>> {
+    return map(await this.call("overview"), (v) => v.policy?.policy?.frozen === true);
+  }
   async quote(handle: string, brief: string): Promise<Res<HireTerms>> {
     return map(await this.call("market/quote", { handle, brief }), (v) => ({ ...v }) as HireTerms);
   }

@@ -33,6 +33,7 @@ export class StubMarket implements MarketPlatform {
   pending: { correlationId: string; type: string; hash: string | null; expiresAt: string; intent: OwnerPrepared["intent"] | null }[] = [];
   daoHireStates: Res<DaoState<{ hireState: string }>>[] = [];
   account: MarketAccount = { account: "f".repeat(64), registered: true, opened: false, usdc: "0", registration: null };
+  isFrozen = false;
 
   setupMessage(i: { organization: string; owner: string; expiresAt: string }) {
     return `setup ${i.organization} ${i.owner}`;
@@ -84,6 +85,9 @@ export class StubMarket implements MarketPlatform {
       },
       async account() {
         return ok(s.account);
+      },
+      async frozen() {
+        return ok(s.isFrozen);
       },
       async quote(handle: string) {
         s.calls.push(["quote", handle]);

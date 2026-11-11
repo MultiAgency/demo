@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { MarketControls } from "../market/port";
+import { caFetch } from "./client";
+import { stackSigner } from "./signer";
 import type { DemoControls } from "./port";
 
 /**
@@ -97,6 +99,27 @@ export class StackControls implements DemoControls, MarketControls {
   }
   async settle(correlationId: string): Promise<void> {
     await this.command("settle", { correlation: correlationId });
+  }
+  /**
+   * Completes a platform confirm link as the owner's wallet would on the page (the platform's own `confirmStep`,
+   * test/e2e/app-steps.mjs): the owner signs the page's opening text (NEP-413, the fixture key), the page answers the
+   * NEP-366 intent, and the `signOwnerDelegate` control signs its delegate action.
+   */
+  async completeConfirm(url: string): Promise<void> {
+    const { caPem } = readStack(this.dir);
+    const send = caFetch(caPem);
+    const api = url.replace("/confirm/", "/confirm/v1/");
+    const read = async (res: Response, step: string) => {
+      if (!res.ok) throw new Error(`The confirm page answered ${res.status} to ${step}: ${await res.text()}`);
+      return res.json() as Promise<any>;
+    };
+    const view = await read(await send(api), "reading the link");
+    if (view.state !== "open") throw new Error(`The confirm link is ${view.state}, not open`);
+    const opening = await stackSigner().sign413(view.opening);
+    const { intent } = await read(await send(`${api}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signature: opening.signature }) }), "opening it");
+    if (intent?.standard !== "nep366") throw new Error("The confirm page answered no NEP-366 intent");
+    const delegated = (await this.command("signOwnerDelegate", intent.payload)) as { signedDelegate: string };
+    await read(await send(api, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signedData: { ...intent, signed_delegate: delegated.signedDelegate } }) }), "submitting the signature");
   }
   /** The owner's one-time USDC registration of a market agent's payment key (`--market`). */
   async marketRegister(account: string): Promise<void> {

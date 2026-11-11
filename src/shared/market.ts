@@ -15,7 +15,7 @@ export interface MemberTransactionView {
 
 export interface DaoVoteView {
   id: string;
-  kind: "setup" | "consent" | "agent_create" | "grant_issue" | "hire";
+  kind: "setup" | "consent" | "agent_create" | "grant_issue" | "agent_freeze" | "agent_unfreeze" | "hire";
   hash: string;
   description: string;
   voting_until: string;
@@ -73,6 +73,10 @@ export interface AgencyView {
   agent: string | null;
   agent_id: string | null;
   stage: string;
+  /** Whether the agent's policy is frozen (null: unread). */
+  frozen: boolean | null;
+  /** A DAO's own stop page (no time limit; ends every app's consent, doesn't freeze). Null for a wallet. */
+  dao_stop_url: string | null;
   consent_expires_at: string | null;
   account: { account: string; registered: boolean; opened: boolean; usdc_usd: string } | null;
   deposit: DepositView | null;

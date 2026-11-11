@@ -70,7 +70,10 @@ export interface OwnerPrepared {
 
 export type MarketOwnerAction =
   | { type: "agent_create"; role: "market"; owner?: { type: "near"; account_id: string; public_key: string } }
-  | { type: "grant_issue"; label: "market" };
+  | { type: "grant_issue"; label: "market" }
+  /** Stops every provider send of the agent (not funds already on its payment key); unfreeze restores the policy. */
+  | { type: "agent_freeze" }
+  | { type: "agent_unfreeze" };
 
 export interface MarketAgent {
   ownerPrepare(action: MarketOwnerAction, signer: "wallet" | "dao"): Promise<Res<OwnerPrepared>>;
@@ -80,6 +83,8 @@ export interface MarketAgent {
   ownerPending(): Promise<Res<{ correlationId: string; type: string; hash: string | null; expiresAt: string; intent: OwnerPrepared["intent"] | null }[]>>;
   deposit(): Promise<Res<{ address: string; memo: string | null; minAmount: string | null; expiresAt: string | null }>>;
   account(): Promise<Res<MarketAccount>>;
+  /** Whether the agent's policy is frozen, as `overview` reads it. */
+  frozen(): Promise<Res<boolean>>;
   quote(handle: string, brief: string): Promise<Res<HireTerms>>;
   hire(requestId: string, brief: string, approved: HireTerms): Promise<Res<HireAnswer>>;
   status(requestId: string): Promise<Res<HireAnswer>>;

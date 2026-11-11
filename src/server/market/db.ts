@@ -32,7 +32,7 @@ export interface AgencyRow {
 export interface DaoVoteRow {
   id: string;
   agency_id: string;
-  kind: "setup" | "consent" | "agent_create" | "grant_issue" | "hire";
+  kind: "setup" | "consent" | "agent_create" | "grant_issue" | "agent_freeze" | "agent_unfreeze" | "hire";
   /** The owner step's correlation id, or the hire's requestId. */
   ref: string | null;
   hash: string;
@@ -50,7 +50,7 @@ export interface DaoVoteRow {
 export interface MarketStepRow {
   correlation_id: string;
   agency_id: string;
-  kind: "agent_create" | "grant_issue";
+  kind: "agent_create" | "grant_issue" | "agent_freeze" | "agent_unfreeze";
   intent: string | null;
   confirm_url: string | null;
   expires_at: string;
