@@ -1,32 +1,43 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
+import { BuilderJobWorkflow } from "../components/JobWorkflow";
 import { Icon } from "../components/icons";
 import { Alert, Avatar, Button, dateText, Disclosure, Mono, PageLoading, short, timeText, usd } from "../components/ui";
 import type { AppConfig, ContractView, TermsSigningRequest } from "../types";
+import { AccountReadGate, useAccountResource } from "../useAccountResource";
+import { useSession } from "../session";
 
 /** The contractor's page: what they're agreeing to, and one button. */
 export function ContractorSign({ id, token, config }: { id: string; token: string | null; config: AppConfig }) {
-  const [c, setC] = useState<ContractView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
+  const session = useSession();
+  const read = useCallback(() => api<ContractView>("GET", `/contracts/${id}`), [id]);
+  const resource = useAccountResource(`builder:${id}`, read);
+  const c = resource.value;
+  const reload = resource.reload;
+  const [actionError, setActionError] = useState<{ scope: string | null; message: string } | null>(null);
+  const error = resource.error ?? (actionError?.scope === resource.scope ? actionError.message : null);
   useEffect(() => {
-    api<ContractView>("GET", `/contracts/${id}`).then(setC, (e: Error) => setError(e.message));
-  }, [id]);
+    if (!c?.signatures.contractor || c.terms.v !== 3) return;
+    const timer = setInterval(() => void reload(), 5000);
+    return () => clearInterval(timer);
+  }, [c?.signatures.contractor, c?.terms.v, reload]);
 
-  if (!c) return error ? <div className="narrow"><Alert tone="danger">{error}</Alert></div> : <PageLoading />;
+  if (!resource.enabled) return <AccountReadGate className="narrow" />;
+  if (!c) return error ? <div className="narrow stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={reload}>Retry loading job</Button></div> : <PageLoading />;
   const t = c.terms;
   const signed = c.signatures.contractor;
 
   async function sign() {
-    setError(null);
+    setActionError(null);
     try {
       const req = await api<TermsSigningRequest>("GET", `/contracts/${id}/signing-request?role=contractor`);
-      const s = await signMessage(config, req);
-      setC(await api<ContractView>("POST", `/contracts/${id}/signatures`, { role: "contractor", signed: s, contractor_token: token }));
+      const s = await signMessage(config, req, session.signWorkflow);
+      await api<ContractView>("POST", `/contracts/${id}/signatures`, { role: "contractor", signed: s, contractor_token: token });
     } catch (e) {
-      setError((e as Error).message);
+      setActionError({ scope: resource.scope, message: (e as Error).message });
     }
+    await reload();
   }
 
   return (
@@ -35,7 +46,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
         <div className="doc-head">
           <Avatar name={t.company} tone="accent" />
           <div>
-            <div className="doc-kicker">Work order from {t.company}</div>
+            <div className="doc-kicker">Job from {t.company}</div>
             <h1>{signed ? "You signed this contract" : `${t.contractor.name.split(" ")[0]}, review and sign`}</h1>
           </div>
         </div>
@@ -80,8 +91,8 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           <li>
             <Icon name="pr" size={15} />
             <span>For</span>
-            <strong>Merged PRs by @{t.contractor.github}</strong>
-            <em>judged against the scope, in {t.repos.join(", ")}</em>
+            <strong>{t.v === 3 ? "A report, invoice and supporting evidence" : `Merged PRs by @${t.contractor.github}`}</strong>
+            <em>{t.v === 3 ? "assessed against the agreed acceptance criteria" : `judged against the scope, in ${t.repos.join(", ")}`}</em>
           </li>
           <li>
             <Icon name="shieldCheck" size={15} />
@@ -90,6 +101,8 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
             <em>an agent just for this contract; every payout approved by {t.company}</em>
           </li>
         </ul>
+
+        {t.v === 3 ? <p className="small">Payment terms: completed scope value less amounts already committed, capped by your invoice. {t.company} explicitly approves each payout. USDC payment to {t.payee.address} follows approval; confirmation appears below after settlement.</p> : null}
 
         <Disclosure label="Scope and details">
           <div className="kv-line">
@@ -124,12 +137,13 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
         ) : !token ? (
           <Alert tone="warning">This link is missing its signing token. Ask {t.company} for the full link.</Alert>
         ) : (
-          <Button icon="pen" full onClick={sign} disabled={!config.demo_controls}>
+          <Button icon="pen" full onClick={sign} disabled={!config.demo_controls && (session.loading || session.account !== t.contractor.near_account)}>
             {config.demo_controls ? `Sign as ${t.contractor.near_account} (demo wallet)` : "Sign with NEAR wallet"}
           </Button>
         )}
         <p className="doc-foot">Signing is free and off-chain. It doesn't move any money.</p>
       </div>
+      {signed && t.v === 3 ? <BuilderJobWorkflow key={id} c={c} token={token} config={config} reload={reload} /> : null}
     </div>
   );
 }

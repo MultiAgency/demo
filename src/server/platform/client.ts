@@ -189,7 +189,7 @@ class SdkAgent implements AgentHandle {
 
   async ownerStatus(correlationId: string): Promise<Res<OwnerStatus>> {
     const r = await this.call("owner/status", { correlationId });
-    return map(r, (v: { stage: string; status?: string | null; failureCode?: string | null }) => ({ stage: v.stage, status: v.status ?? null, failureCode: v.failureCode ?? null }));
+    return map(r, (v: { stage: string; phase?: OwnerStatus["phase"]; status?: string | null; failureCode?: string | null }) => ({ stage: v.stage, ...(v.phase && { phase: v.phase }), status: v.status ?? null, failureCode: v.failureCode ?? null }));
   }
 
   async overview(): Promise<Res<Overview>> {
@@ -265,6 +265,8 @@ const toAnswer = (v: any): PayoutAnswer => ({
   status: v.status ?? null,
   correlationId: v.correlationId ?? null,
   code: v.code ?? null,
+  failureCode: v.failureCode ?? null,
+  neverExecuted: v.neverExecuted === true,
 });
 
 /** A `fetch` that trusts `caPem` for TLS (Bun's `tls.ca`): the local stack's own self-signed certificate. */

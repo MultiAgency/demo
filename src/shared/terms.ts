@@ -38,9 +38,8 @@ const deliverable = z
   })
   .strict();
 
-export const termsSchema = z
+const termsBase = z
   .object({
-    v: z.literal(2),
     company: z.string().trim().min(1).max(80),
     representative: z.object({ near_account: nearAccount }),
     contractor: z.object({
@@ -55,9 +54,32 @@ export const termsSchema = z
     start: isoDate,
     end: isoDate,
     repos: z.array(repo).min(1).max(10),
-    acceptance: z.literal("merged_to_default_branch_by_other"),
   })
-  .strict()
+  .strict();
+
+/** These clauses are signed, not inferred from whichever UI happens to be deployed. */
+export const JOB_PAYMENT_TERMS = {
+  calculation: "scope_completion_less_committed",
+  invoice: "cap",
+  approval: "explicit_agency",
+  settlement: "platform_usdc_near",
+  due: "after_approval",
+} as const;
+
+export const termsSchema = z.discriminatedUnion("v", [
+  termsBase.extend({ v: z.literal(2), acceptance: z.literal("merged_to_default_branch_by_other") }),
+  termsBase.extend({
+    v: z.literal(3),
+    acceptance: z.literal("report_and_invoice"),
+    payment_terms: z.object({
+      calculation: z.literal(JOB_PAYMENT_TERMS.calculation),
+      invoice: z.literal(JOB_PAYMENT_TERMS.invoice),
+      approval: z.literal(JOB_PAYMENT_TERMS.approval),
+      settlement: z.literal(JOB_PAYMENT_TERMS.settlement),
+      due: z.literal(JOB_PAYMENT_TERMS.due),
+    }).strict(),
+  }),
+])
   .refine((t) => t.start <= t.end, { message: "End date must be on or after the start date", path: ["end"] })
   .refine((t) => daysBetween(t.start, t.end) <= 365, { message: "Contracts can last at most 365 days", path: ["end"] })
   .refine((t) => new Set(t.scope.map((d) => d.id)).size === t.scope.length, { message: "Deliverable ids must be unique", path: ["scope"] });
@@ -85,7 +107,7 @@ export function termsHash(terms: Terms): string {
   return sha256Hex(canonicalJson(terms));
 }
 
-/** The exact text both parties sign with their NEAR wallet (NEP-413 message field). */
+/** Legacy signing domain: retain these exact bytes for already accepted v2/v3 job signatures. */
 export function termsSigningMessage(hash: string): string {
   return `Covenant work order sha256:${hash}`;
 }

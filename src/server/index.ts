@@ -3,9 +3,10 @@ import { loadConfig } from "./config";
 import { createRuntime, type Runtime } from "./app";
 import { UserError } from "./engine";
 
-export async function startServer(rt: Runtime, port: number) {
+export async function startServer(rt: Runtime, port: number, hostname?: string) {
   return Bun.serve({
     port,
+    ...(hostname && { hostname }),
     development: process.env.NODE_ENV !== "production" && !process.env.CI,
     routes: {
       "/": index,
@@ -40,7 +41,7 @@ export function startTimers(rt: Runtime): () => void {
 
 if (import.meta.main) {
   const config = loadConfig();
-  const rt = await createRuntime(config);
+  const rt = await createRuntime(config, { manualFakeSettlement: config.platform === "fake" });
   const server = await startServer(rt, config.port);
   const banner =
     rt.kit.platform.mode === "fake"

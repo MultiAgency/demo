@@ -15,6 +15,8 @@ PLATFORM_STACK_DIR=<dir> bun run demo:stack
 
 ### Transcript
 
+This historical console transcript retains its original wording. The current product calls the signed engagement a job.
+
 ```
 Covenant · MultiAgency local stack (https://127.0.0.1:36133) · SIMULATED provider, chain, signatures and settlement
 

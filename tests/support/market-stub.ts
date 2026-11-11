@@ -3,7 +3,7 @@
 // market or platform: each test sets the answers. The platform behaviour itself is exercised by `demo:market`.
 import { Database } from "bun:sqlite";
 import { Agencies } from "../../src/server/market/agencies";
-import type { DaoRequest, DaoState, HireAnswer, HireTerms, MarketAccount, MarketAgent, MarketOwnerAction, MarketPlatform, OwnerPrepared, Res, Signed413 } from "../../src/server/market/port";
+import type { DaoHireInput, DaoRequest, DaoState, FiledDaoHire, HireAnswer, HireTerms, MarketAccount, MarketAgent, MarketOwnerAction, MarketPlatform, OwnerPrepared, Res, Signed413 } from "../../src/server/market/port";
 import { Market } from "../../src/server/market";
 import { MarketApi } from "../../src/server/market/api";
 import type { WorkerConfig } from "../../src/server/market/worker";
@@ -32,6 +32,7 @@ export class StubMarket implements MarketPlatform {
   prepareAnswers: Res<OwnerPrepared>[] = [];
   pending: { correlationId: string; type: string; hash: string | null; expiresAt: string; intent: OwnerPrepared["intent"] | null }[] = [];
   daoHireStates: Res<DaoState<{ hireState: string }>>[] = [];
+  daoHireRecoveryAnswers: Res<FiledDaoHire>[] = [];
   account: MarketAccount = { account: "f".repeat(64), registered: true, opened: false, usdc: "0", registration: null };
   isFrozen = false;
   /** Overrides: set to script one answer each (tests of Covenant's handling). */
@@ -73,6 +74,10 @@ export class StubMarket implements MarketPlatform {
       this.calls.push(["daoHire.file", i.requestId]);
       // The platform answers the validUntil it filed, which may be shorter than asked: here, always 2026-11-12.
       return ok({ ...request(`hire-vote-${this.calls.length}`), validUntil: "2026-11-12T00:00:00.000Z" });
+    },
+    recover: async (i: DaoHireInput & { owner: string; agentId: string }): Promise<Res<FiledDaoHire>> => {
+      this.calls.push(["daoHire.recover", i.requestId]);
+      return this.daoHireRecoveryAnswers.shift() ?? { ok: false, kind: "refused", code: "dao_filing_recovery_unavailable" };
     },
     state: async () => this.daoHireStates.shift() ?? ok<DaoState<{ hireState: string }>>({ state: "pending" }),
   };

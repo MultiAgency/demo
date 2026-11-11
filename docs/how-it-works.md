@@ -34,6 +34,8 @@ Canonical JSON with sorted keys, lowercase accounts and normalized decimals:
 
 `sha256(canonical terms)` is the contract's identity. Both parties sign `Covenant work order sha256:<hash>` with NEP-413 (recipient `covenant`, 32-byte nonce). See `src/shared/terms.ts` and `src/server/nep413.ts`. Signing the terms makes no platform call.
 
+The product calls this a **job**. The older signing-domain literal above remains byte-for-byte compatible with accepted v2/v3 signatures; changing labels never changes accepted terms or their signature verification.
+
 ## Setting up a contract on the platform
 
 Each contract is its own platform Organization (`organization = contract id`). The representative signs each step; Covenant never signs as the owner.

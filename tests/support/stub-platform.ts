@@ -186,7 +186,7 @@ export class StubPlatform implements Platform {
       if (!x || x.org !== organization) throw new Error(`stub: unknown agent ${agent}`);
       return x;
     };
-    const answer = (p: Payout): PayoutAnswer => ({ requestId: p.requestId, state: p.state, status: p.status, correlationId: p.correlationId, code: p.code });
+    const answer = (p: Payout): PayoutAnswer => ({ requestId: p.requestId, state: p.state, status: p.status, correlationId: p.correlationId, code: p.code, ...(p.state === "failed" && { failureCode: p.failureCode, neverExecuted: p.failureCode === "rejected_by_owner" && !p.txHash }) });
     return {
       ownerPrepare: async (action) => {
         const g = this.gate(organization, "owner");
@@ -300,7 +300,7 @@ export class StubPlatform implements Platform {
         return ok(answer(p));
       },
       payoutStatus: async (rid) => {
-        const g = this.gate(organization, "payout");
+        const g = this.gate(organization, "read");
         if (g) return g;
         const p = this.payouts.get(rid);
         return ok(p ? answer(p) : { requestId: rid, state: "not_found" as const, status: null, correlationId: null, code: null });

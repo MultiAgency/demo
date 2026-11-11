@@ -1,5 +1,31 @@
 # Platform gaps
 
+Current builder-job boundary and dated release observations: [workflow-map.md](workflow-map.md), [market-boundary.md](market-boundary.md). Earlier issue descriptions below retain their original observations; they do not imply that every issue remains open on the latest hosted release.
+
+## Builder-job cases — 2026-11-11
+
+G13 is filed as [MultiAgency/platform#83](https://github.com/MultiAgency/platform/issues/83); G14 as [MultiAgency/platform#81](https://github.com/MultiAgency/platform/issues/81). Both were checked against fresh isolated platform main `cc90604` (0.5.7); this is simulated integration evidence, not hosted behavior. See [the PR #9 review record](pr-9-review.md) for the current app changes and exact run evidence.
+
+**G11: app-server access cannot retain platform-owned job/invoice/submission records.** The owner/payee SDK contracts have workflow operations, but `/apps/v1` deliberately excludes them. On the installed SDK 0.5.6:
+
+```bash
+bun -e 'import { appScopesCover } from "@multiagency/sdk"; for (const path of ["workOrders/create", "invoices", "agreements/offer", "payouts/request", "payouts/status"]) console.log(path, appScopesCover(["read", "owner", "payout"], path));'
+```
+
+Observed: the first three are `false`; the two payout operations are `true`. Expected for a future shared job record: an app-scoped job, accepted terms, report/invoice revision and proposal links under existing party isolation. Current supported answer: Covenant retains those business records locally and uses platform payout identities for money, as agreed in the Covenant brief. Do not tunnel through owner credentials or copy platform executors. This is a reproducible capability mismatch, not a hosted request test or a newly invented endpoint.
+
+**G7(c), corrected after source review:** the frozen snapshot already exposes `dropWithdrawResponse` through `test/e2e/stack-controls.mjs` and its provider. Earlier claims that this control was absent were wrong. The current restart runner reuses it; the actual unresolved result is G14 below. The existing SDK has read-scoped payout status; the older G8 refusal is not a current SDK limitation.
+
+**G12: stack settlement supplies no transaction receipt.** Fresh SDK 0.5.6 run on verified platform snapshot `36a66cb4` / source `f7caad4`: revision 2's payout `c06a2aedc1805867-p2-1`, correlation `efe480fc-299a-49c7-bc02-6f1cdd5ff1ec`, reports `succeeded`, and the provider simulator records `SUCCESS` for `300000000` USDC units to `maria.demo`. Payment evidence contains no transaction hash. The initial recipe's assertion requiring a transaction hash failed after settlement, with no replacement send. The recipe now records `tx_hash: null` explicitly and calls the outcome platform-confirmed **simulated** payment. Expected for chain-receipt testing: the stack supplies a traceable simulated destination transaction and the same contract as the provider; actual chain confirmation remains untested. This is a simulator evidence limitation, not proof of a hosted API defect. Covenant also now retains a destination-only transaction hash when a provider supplies one; a focused regression verifies it.
+
+**G13: pinned provider simulator omits rejection non-execution proof.** SDK 0.5.6 exposes `failureCode` and `neverExecuted`; frozen platform core `src/payout-failure.ts` reads `details.never_executed`. Its `test/e2e/provider.mjs` rejection path instead supplies only the approval ID and a `rejected_by_owner` code. A code, attempted reject, absent transaction or `FAILED` state alone cannot prove nothing moved. The corrected app keeps that amount committed and blocks a revision. This is a frozen-source and adapter/engine-test finding; no new full gateway-rework run is claimed after the correction. Reproduction case: on an isolated copy of snapshot `36a66cb4`, run `DEMO_JOB_CHANGES=1` with the SDK job recipe; expected outcome is unresolved cancellation instead of a revision. The earlier successful gateway-rework transcript predates this app correction. Expected: the provider simulator supplies supported positive proof for an actually unexecuted rejected withdrawal, propagated by the gateway/SDK. Do not patch the frozen snapshot or whitelist its failure code in Covenant. The in-process browser/stand-in models that proof and passes rework. Local SDK-adapter tests also check true, false, absent and malformed proof. Provider source SHA-256: `6846a5469fab7cb499e40928572296d81fc8a1f05aaca6999e797f382753fa71`.
+
+**G14: dropped provider withdrawal response leaves the app request unbound during recovery.** Run `JOB_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart`. On the frozen snapshot, the existing control drops the response after recording one held withdrawal. After the app crash/restart, original request `6724a37d57e67ab8-p1-1` remains `unknown`, with null correlation, throughout the bounded 25-second observation. Independent simulator state has exactly one `PENDING_APPROVAL` for `300000000` USDC units to `maria.demo`, correlation `9eb334ca-be31-4502-b55c-0885d0cdbb19`, zero errors, no approval and no successful settlement. The test exits 1, preserves all IDs/database and sends no replacement. Expected: a supported SDK/platform lookup binds the original durable request to its held correlation, or provides an explicit operator reconciliation route. Recipient/amount matching is insufficient. This is a concrete bounded local failure, not a claim of permanent failure or a hosted defect. Full receipts and reproduction are in [job-restart.md](job-restart.md). The default app-HTTP response-loss/restart mode passes separately.
+
+**Market lifecycle mismatch:** `market/hire` authorizes x402 delivery settlement, so “submit a deliverable, then wait indefinitely for explicit agency review before paying” is a concrete unsupported outcome on that route. Standard Market jobs offer rework but retain timeout acceptance and fixed awarded compensation. No workaround is implemented; [the boundary report](market-boundary.md) identifies the product decisions required to switch.
+
+---
+
 Issues filed on `MultiAgency/platform`, met while moving Covenant onto `@multiagency/sdk` 0.5.4 (platform `96a0bb6`).
 
 Covenant now runs on 0.5.6. Per the platform's review of MultiAgency/demo#6, 0.5.5 carries this feedback except G1, which 0.5.6
@@ -58,7 +84,7 @@ answers with an owner-archived hosting release (`release`). Covenant doesn't cal
 
 - (a) The SDK has no in-process stand-in for `authorize` and requestId semantics. Covenant's `FakePlatform` (`src/server/platform/fake.ts`) is offered as a starting point.
 - (b) Stack controls can sign only as the owner; `--payee` accounts can't sign the app's own NEP-413.
-- (c) The stack sim doesn't model approval expiry, FAILED/REFUNDED or budgets, and `dropTransferResponse` covers `/transfer` but not `/withdraw`, so lost withdrawal replies can't be tested against the real gateway. Covenant tests them on the stand-in only.
+- (c) Historical report: the stack sim did not model approval expiry, FAILED/REFUNDED or budgets, and only `dropTransferResponse` was identified. The claim that withdrawal response loss was unsupported is superseded by the source review and concrete G14 run above; other simulator capabilities require their own current verification.
 
 ## G8. `payouts/status` is not reachable under `read`
 

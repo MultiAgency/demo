@@ -5,6 +5,7 @@ import type { AppConfig, AttemptState, ContractView, PayoutView, VoteAnswer } fr
 import { Icon, type IconName } from "./icons";
 import { SignBox } from "./SignBox";
 import { Alert, Badge, Button, Card, CardHeader, Empty, Mono, short, timeText, type Tone, usd } from "./ui";
+import { useSession } from "../session";
 
 export const NO_CLAUSE = "The policy refused it.";
 
@@ -22,10 +23,11 @@ export const ATTEMPT: Record<AttemptState, { label: string; tone: Tone }> = {
   rejected: { label: "Rejected", tone: "neutral" },
   failed: { label: "Failed", tone: "danger" },
   resolved: { label: "Resolved", tone: "neutral" },
+  disputed: { label: "Disputed · awaiting evidence", tone: "warning" },
   dropped: { label: "Dropped", tone: "neutral" },
 };
 
-const RESOLUTION = { arrived: "Marked as arrived", reowe: "Owed again", rejected: "Counted as rejected" } as const;
+const RESOLUTION = { arrived: "Marked as arrived", reowe: "Owed again", rejected: "Counted as rejected", disputed: "Disputed · awaiting evidence" } as const;
 
 export function PayoutsTab({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
   const list = c.payouts.filter((p) => p.kind === "payout");
@@ -219,8 +221,18 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
           <Button size="sm" variant="ghost" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "rejected" }))}>
             Count as rejected
           </Button>
+          <Button size="sm" variant="secondary" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "disputed" }))}>
+            Close review as disputed
+          </Button>
         </>,
       );
+    case "disputed":
+      return note("warning", "alert", "Review closed as disputed; payment evidence is still being checked.",
+        <span>The amount remains committed and is not counted as paid. Covenant follows the original payment identity and authorizes no replacement.</span>,
+        p.never_executed ? <>
+          <Button size="sm" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "reowe" }))}>Reopen after proven non-execution</Button>
+          <Button size="sm" variant="ghost" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "rejected" }))}>Close after proven rejection</Button>
+        </> : null);
     default:
       return null;
   }
@@ -231,6 +243,7 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
  * platform will release: payee, USDC, amount, a public withdrawal on NEAR.
  */
 export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView; config: AppConfig; act: Act; attack?: boolean }) {
+  const session = useSession();
   const [vote, setVote] = useState<VoteAnswer | null>(null);
   const [verdict, setVerdict] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -252,7 +265,7 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
     }
     setVerdict(v);
     setVote(answer);
-    if (config.demo_controls) await act(() => submitVote(config, answer));
+    if (config.demo_controls) await act(() => submitVote(config, answer, session.signWorkflow));
   };
 
   return (
@@ -322,7 +335,7 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
       {vote && !config.demo_controls ? (
         <div className="approval-foot">
           {vote.sign ? (
-            <SignBox config={config} req={vote.sign} label={verdict === "approve" ? "Sign approval" : "Sign rejection"} onSign={() => act(() => submitVote(config, vote))} />
+            <SignBox config={config} req={vote.sign} label={verdict === "approve" ? "Sign approval" : "Sign rejection"} onSign={() => act(() => submitVote(config, vote, session.signWorkflow))} />
           ) : vote.confirm ? (
             <a className="btn btn-primary btn-sm" href={vote.confirm.url} target="_blank" rel="noreferrer">
               <Icon name="external" /> <span>Open the platform's confirm page</span>

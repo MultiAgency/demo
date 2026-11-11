@@ -13,6 +13,7 @@ export interface PolicyCardProps {
   agentId?: string | null;
   /** On the platform stand-in nothing is enforced by a real platform: say so instead of claiming it. */
   standIn?: boolean;
+  reportWorkflow?: boolean;
 }
 
 /** The contract rendered as the platform policy it becomes. */
@@ -59,7 +60,7 @@ export function PolicyCard(p: PolicyCardProps) {
         </span>
       </div>
       <div className="policy-app">
-        <div className="policy-app-label">Judged by Covenant on every merge</div>
+        <div className="policy-app-label">{p.reportWorkflow ? "Proposed from the builder report and invoice" : "Judged by Covenant on every merge"}</div>
         <div className="policy-app-row">
           <Icon name="pr" size={14} />
           {p.scope.length} deliverable{p.scope.length === 1 ? "" : "s"}

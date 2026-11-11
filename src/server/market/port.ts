@@ -56,6 +56,16 @@ export interface DaoRequest {
 
 export type DaoState<T> = { state: "pending" } | ({ state: "done" } & T) | { state: "expired" };
 
+/** The exact job identity and quoted terms kept before its DAO approval is filed. */
+export interface DaoHireInput {
+  organization: string;
+  agent: string;
+  requestId: string;
+  brief: string;
+  approved: HireTerms;
+}
+export type FiledDaoHire = DaoRequest & { validUntil: string };
+
 export interface OwnerPrepared {
   correlationId: string;
   expiresAt: string;
@@ -102,7 +112,9 @@ export interface MarketPlatform {
   daoSetup: { file(message: string): Promise<Res<DaoRequest>>; state(id: string): Promise<Res<DaoState<{ agent: string }>>> };
   daoConsent: { file(message: string): Promise<Res<DaoRequest>>; state(id: string): Promise<Res<DaoState<{ consentId: string; expiresAt: string }>>> };
   daoHire: {
-    file(i: { organization: string; agent: string; requestId: string; brief: string; approved: HireTerms; validUntil: string }): Promise<Res<DaoRequest & { validUntil: string }>>;
+    file(i: DaoHireInput & { validUntil: string }): Promise<Res<FiledDaoHire>>;
+    /** Read an existing matching approval without permitting a new filing, including on older gateways. */
+    recover(i: DaoHireInput & { owner: string; agentId: string }): Promise<Res<FiledDaoHire>>;
     state(id: string): Promise<Res<DaoState<{ hireState: string }>>>;
   };
   agent(organization: string, agent: string): MarketAgent;

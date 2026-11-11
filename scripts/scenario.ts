@@ -8,6 +8,7 @@ import type { ScenarioDriver } from "./scenario-driver";
 export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string) => void } = {}): Promise<string[]> {
   const out = opts.log ?? ((l: string) => console.log(l));
   const failures: string[] = [];
+  let disputed = false;
   let step = 0;
   const log = (title: string, detail = "") => {
     step += 1;
@@ -73,7 +74,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
     };
     const created = await api("POST", "/contracts", terms);
     const id: string = created.id;
-    log("Draft the work order: a signed scope of deliverables", terms.scope.map((x) => `${x.id}  $${x.value_usd.padStart(4)}  ${x.title}`).join("\n"));
+    log("Draft the job: a signed scope of deliverables", terms.scope.map((x) => `${x.id}  $${x.value_usd.padStart(4)}  ${x.title}`).join("\n"));
     let c = await contract(id);
     check(c.stage === "needs_signatures" && c.total_usd === "1000", `scope total $${c.total_usd}, organization ${c.organization}`);
     for (const role of ["representative", "contractor"] as const) {
@@ -153,10 +154,19 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
     if (p1) {
       const r = await vote(id, p1.request_id, "reject");
       c = r.c;
-      check(payout(c, p1.request_id)?.state === "rejected" && (c.judgment as any)?.outcome === "rejected", "rejected with the owner's signature: nothing sent, judgment rejected");
+      const rejected = payout(c, p1.request_id);
+      if (rejected?.state === "failed" && rejected.vote === "reject" && rejected.failure_code === "rejected_by_owner" && !rejected.never_executed) {
+        log("The platform has not proven non-execution (G13): close review as disputed, retain the money hold");
+        c = await api("POST", `/payouts/${p1.request_id}/resolve`, { outcome: "disputed" });
+        disputed = true;
+        check(payout(c, p1.request_id)?.state === "disputed" && (c.judgment as any)?.outcome === "disputed", "review is explicitly disputed, not a confirmed rejection or payment");
+        check(c.paid_usd === "750" && c.committed_usd === "1000", "$750 confirmed paid; the unproven $250 remains committed under its original request");
+      } else {
+        check(rejected?.state === "rejected" && (c.judgment as any)?.outcome === "rejected", "rejection has positive non-execution proof; judgment rejected");
+      }
     }
     run = await api("POST", `/contracts/${id}/run`);
-    check(run.outcome === "nothing", "the injected PR is excluded; the next run requests nothing");
+    check(run.outcome === (disputed ? "deferred" : "nothing"), disputed ? "the disputed money outcome blocks another request; no replacement payment" : "the injected PR is excluded; the next run requests nothing");
 
     // 8. Compromised server: requests go straight to the platform
     log("Compromised server: Covenant's own checks off, requests go straight to the platform");
@@ -168,17 +178,24 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
     check(injected.outcome === "held", `injected in-cap: ${injected.story} → ${injected.note ?? injected.outcome}`);
     if (injected.outcome === "held") {
       const r = await vote(id, injected.payout.request_id, "reject");
-      check(payout(r.c, injected.payout.request_id)?.state === "rejected", "the representative rejects it: nothing sent");
+      const rejected = payout(r.c, injected.payout.request_id);
+      check(rejected?.state === "rejected" || (rejected?.state === "failed" && rejected.vote === "reject" && rejected.failure_code === "rejected_by_owner" && !rejected.never_executed), "the representative attempted rejection; only explicit proof can label it unexecuted");
     }
 
     // 9. The real completion of d3
     merged = (await api("POST", "/sim/merge", { contract_id: id })).merged;
     run = await api("POST", `/contracts/${id}/run`);
     log("The PR that actually finishes rate limiting is merged", `${merged.title} (#${merged.number})`);
-    p1 = run.payouts[0];
-    check(p1?.amount_usd === "250", `requests ${lines(p1)}`);
-    if (p1) c = await approveAndSettle(id, p1.request_id);
-    check(c.paid_usd === "1000", `scope fully paid: $${c.paid_usd} of $${c.total_usd}`);
+    if (disputed) {
+      c = await contract(id);
+      check(run.outcome === "deferred" && run.payouts.length === 0, "new work cannot bypass the disputed original payment identity");
+      check(c.paid_usd === "750" && c.committed_usd === "1000", "job review is closed as disputed: $750 paid, $250 held pending evidence; scope is not claimed fully paid");
+    } else {
+      p1 = run.payouts[0];
+      check(p1?.amount_usd === "250", `requests ${lines(p1)}`);
+      if (p1) c = await approveAndSettle(id, p1.request_id);
+      check(c.paid_usd === "1000", `scope fully paid: $${c.paid_usd} of $${c.total_usd}`);
+    }
 
     // 10. Verify and the platform's own record of transfers
     v = await api("GET", `/contracts/${id}/verify`);
@@ -203,6 +220,6 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
     failures.push(String(err));
     out(`\n✗ ${err instanceof Error ? (err.stack ?? err.message) : err}`);
   }
-  out(failures.length ? `\n✗ ${failures.length} step(s) failed:\n  - ${failures.join("\n  - ")}` : "\n✓ All steps passed. Paid for the scope, never more, and only with the representative's approval.");
+  out(failures.length ? `\n✗ ${failures.length} step(s) failed:\n  - ${failures.join("\n  - ")}` : disputed ? "\n✓ All supported steps passed. Review is closed as disputed; unproven money stays committed and is not counted as paid." : "\n✓ All steps passed. Paid for the scope, never more, and only with the representative's approval.");
   return failures;
 }

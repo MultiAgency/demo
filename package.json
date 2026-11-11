@@ -11,6 +11,11 @@
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
     "demo": "bun src/server/index.ts",
+    "demo:job": "bun scripts/demo-job.ts",
+    "demo:browser": "bun scripts/demo-browser.ts",
+    "demo:job:restart": "bun scripts/demo-job-restart-local.ts",
+    "demo:full": "bun scripts/demo-job-restart-local.ts --full",
+    "demo:full:check": "bun scripts/demo-job-restart-local.ts --full-check",
     "demo:e2e": "bun scripts/demo-e2e.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit && tsc -p .railway",

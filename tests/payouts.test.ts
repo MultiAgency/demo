@@ -129,13 +129,17 @@ describe("platform answer → attempt state (one per answer)", () => {
     expect(fromAnswer(ans("processing")).state).toBe("processing");
     expect(fromAnswer(ans("succeeded")).state).toBe("paid");
   });
-  test("failed + our reject vote + no tx → rejected (freed)", () => {
-    expect(classifyFailed("reject", null)).toBe("rejected");
+  test("failed + our reject vote + explicit non-execution proof + no tx → rejected (freed)", () => {
+    expect(classifyFailed("reject", null, true)).toBe("rejected");
   });
   test("any other failed → failed, committed until the representative resolves it", () => {
     expect(classifyFailed("approve", null)).toBe("failed");
     expect(classifyFailed(null, null)).toBe("failed");
     expect(classifyFailed("reject", "tx123")).toBe("failed");
+    expect(classifyFailed("reject", null)).toBe("failed");
+    expect(classifyFailed("reject", null, false)).toBe("failed");
+    expect(classifyFailed("reject", "tx123", true)).toBe("failed");
+    expect(classifyFailed("approve", null, true)).toBe("failed");
     expect(isCommitted(att({ state: "failed" }))).toBe(true);
   });
 });

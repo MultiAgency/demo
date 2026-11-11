@@ -153,6 +153,8 @@ describe("worker: polling, submission and earnings", () => {
       if (path.endsWith("/submit")) {
         throw new TypeError("network down");
       }
+      if (path.endsWith("/deliverable/versions")) return Response.json({ versions: status === "in_progress" ? [] : [{ version: 1, files: [], submittedAt: new Date(NOW + 1000).toISOString() }] });
+      if (path.endsWith("/deliverable/versions/1/raw")) return new Response("# Result");
       return new Response(JSON.stringify({ assignments: [item(status)] }));
     }) as unknown as typeof fetch;
     const { m, agency } = marketWith({ fetch: fake, now: () => new Date(NOW), worker: { token: "aat_test", secret: SECRET, agencyId: "" } });
@@ -171,8 +173,12 @@ describe("worker: polling, submission and earnings", () => {
   });
 
   test("a submit the market refuses (4xx) can be written again", async () => {
-    const fake = (async (url: string | URL) =>
-      new URL(String(url)).pathname.endsWith("/submit") ? new Response("{}", { status: 409 }) : new Response(JSON.stringify({ assignments: [item("in_progress")] }))) as unknown as typeof fetch;
+    const fake = (async (url: string | URL) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/submit")) return new Response("{}", { status: 409 });
+      if (path.endsWith("/deliverable/versions")) return Response.json({ versions: [] });
+      return Response.json({ assignments: [item("in_progress")] });
+    }) as typeof fetch;
     const { m, agency } = marketWith({ fetch: fake, now: () => new Date(NOW), worker: { token: "aat_test", secret: SECRET, agencyId: "" } });
     (m.d.worker as { agencyId: string }).agencyId = agency.id;
     await m.worker.poll();
@@ -245,18 +251,22 @@ describe("review findings", () => {
     const { m, db, stub, agency } = marketWith({ signer: "dao" });
     db.query("UPDATE market_agencies SET stage = 'needs_consent' WHERE id = ?").run(agency.id);
     expect(await m.agencies.next(agency.id)).toMatchObject({ kind: "dao_vote" }); // filed; nothing read yet
-    stub.daoConsentStates.push({ ok: false, kind: "refused", code: "http_409" });
+    // `dao_stopped` explicitly ends this consent. A generic 409 or loss of access does not prove that.
+    stub.daoConsentStates.push({ ok: false, kind: "refused", code: "dao_stopped" });
     stub.daoConsentStates.push({ ok: true, value: { state: "pending" } });
     expect(await m.agencies.next(agency.id)).toMatchObject({ kind: "dao_vote" });
     expect(stub.calls.filter((c) => c[0] === "daoConsent.file")).toHaveLength(2);
   });
 
-  test("5. a DAO hire whose vote request the platform ended reads vote_expired, and can be filed again", async () => {
+  test("5. a DAO hire whose vote explicitly lapsed reads vote_expired, and can be filed again under the original id", async () => {
     const { m, stub, agency } = marketWith({ signer: "dao" });
     const q = await m.hires.quote(agency.id, "writer", "Brief");
     await m.hires.approve(q.request_id, null);
-    stub.daoHireStates.push({ ok: false, kind: "refused", code: "http_409" });
+    // The relay can answer 409 agent_refused after an attempted payment; only explicit expiry ends this vote.
+    stub.daoHireStates.push({ ok: false, kind: "refused", code: "vote_lapsed" });
     expect((await m.hires.follow(q.request_id)).state).toBe("vote_expired");
+    expect((await m.hires.approve(q.request_id, null)).state).toBe("voting");
+    expect(stub.calls.filter((c) => c[0] === "daoHire.file")).toEqual([["daoHire.file", q.request_id], ["daoHire.file", q.request_id]]);
   });
 
   test("6. a DAO step whose answer names no hash leaves nothing behind: the next call prepares again", async () => {
@@ -300,9 +310,15 @@ describe("review findings", () => {
 
 describe("review findings: worker and config", () => {
   const item = (status: string) => ({ assignment: { assignmentId: "a1", jobId: "j1", status, escrowAmount: "500000", escrowToken: "X402", slaDeadlineAt: null }, job: { title: "T", description: "B" } });
-  test("2. a submit that never reached the market can be sent again once a poll shows the job still in progress", async () => {
+  test("2. empty deliverable versions resolve an unanswered submission and allow an explicit resend", async () => {
+    let submissions = 0;
     const fake = (async (url: string | URL) => {
-      if (new URL(String(url)).pathname.endsWith("/submit")) throw new TypeError("network down");
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/submit")) {
+        if (++submissions === 1) throw new TypeError("network down");
+        return Response.json({ assignmentId: "a1", status: "submitted" });
+      }
+      if (path.endsWith("/deliverable/versions")) return Response.json({ versions: [] });
       return new Response(JSON.stringify({ assignments: [item("in_progress")] }));
     }) as unknown as typeof fetch;
     const { m, agency } = marketWith({ fetch: fake, now: () => new Date(NOW), worker: { token: "aat_test", secret: SECRET, agencyId: "" } });
@@ -310,7 +326,10 @@ describe("review findings: worker and config", () => {
     await m.worker.poll();
     expect((await m.worker.submit("a1", "# Result")).submit_state).toBe("unknown");
     await m.worker.poll();
-    expect(m.worker.row("a1")).toMatchObject({ submit_state: "none", submit_error: expect.stringContaining("still shows") });
+    expect(m.worker.row("a1")).toMatchObject({ submit_state: "none", status: "in_progress", deliverable: "# Result", submit_error: null });
+    expect(submissions).toBe(1);
+    expect(await m.worker.submit("a1", "# Result")).toMatchObject({ submit_state: "submitted", status: "submitted" });
+    expect(submissions).toBe(2);
   });
 
   test("3. a required volume without DB_PATH refuses to start (the default path is off the volume)", async () => {

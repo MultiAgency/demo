@@ -2,36 +2,32 @@ import { useCallback, useEffect, useState } from "react";
 import { fromAtomic } from "../../shared/money";
 import { api, completeStep, links, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
+import { AgencyJobWorkflow } from "../components/JobWorkflow";
 import { Icon, type IconName } from "../components/icons";
 import { type Act, ApprovalCard, ATTEMPT, NO_CLAUSE, PayoutsTab, StateNote } from "../components/Payouts";
 import { PolicyCard } from "../components/PolicyCard";
 import { ConfirmLink, SignBox } from "../components/SignBox";
 import { Alert, Avatar, Badge, Button, Card, CardHeader, dateText, Mono, PageLoading, Progress, short, Spinner, Stat, Tabs, timeText, type Tone, usd } from "../components/ui";
 import { PHASES, SETUP, STAGE_ORDER, type StepId } from "../guide";
+import { AccountReadGate, useAccountResource } from "../useAccountResource";
 import type { AppConfig, ContractView, Deposit, Judgment, NextStep, TermsSigningRequest, VerifyView } from "../types";
 import { STAGES } from "./Home";
+import { useSession } from "../session";
 
 const LIVE_STATES = new Set(["pending", "waiting", "unknown", "processing"]);
 
 export function ContractPage({ id, config }: { id: string; config: AppConfig }) {
-  const [c, setC] = useState<ContractView | null>(null);
-  const [verify, setVerify] = useState<VerifyView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const next = await api<ContractView>("GET", `/contracts/${id}`);
-      setC(next);
-      setVerify(next.platform.agent_id ? await api<VerifyView>("GET", `/contracts/${id}/verify`) : null);
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+  const read = useCallback(async () => {
+    const contract = await api<ContractView>("GET", `/contracts/${id}`);
+    const verify = contract.platform.agent_id ? await api<VerifyView>("GET", `/contracts/${id}/verify`) : null;
+    return { contract, verify };
   }, [id]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const resource = useAccountResource(`contract:${id}`, read);
+  const c = resource.value?.contract ?? null;
+  const verify = resource.value?.verify ?? null;
+  const load = resource.reload;
+  const [actionError, setActionError] = useState<{ scope: string | null; message: string } | null>(null);
+  const error = resource.error ?? (actionError?.scope === resource.scope ? actionError.message : null);
 
   // Follow attempts the platform hasn't finished with, and onboarding waits.
   useEffect(() => {
@@ -43,16 +39,17 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
   }, [c, load]);
 
   const act: Act = async (fn) => {
-    setError(null);
+    setActionError(null);
     try {
       await fn();
     } catch (e) {
-      setError((e as Error).message);
+      setActionError({ scope: resource.scope, message: (e as Error).message });
     }
     await load();
   };
 
-  if (!c) return error ? <div className="page"><Alert tone="danger">{error}</Alert></div> : <PageLoading />;
+  if (!resource.enabled) return <AccountReadGate />;
+  if (!c) return error ? <div className="page stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={load}>Retry loading job</Button></div> : <PageLoading />;
 
   const setup = c.stage.startsWith("needs_") || c.stage === "policy_pending";
   const stage = STAGES[c.stage] ?? { label: c.stage, tone: "neutral" as Tone };
@@ -79,6 +76,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
           </div>
         </div>
         <div className="header-actions">
+          {c.terms.v === 3 && links.get(c.id) ? <a className="btn btn-secondary btn-sm" href={`#/c/${c.id}/sign?t=${links.get(c.id)}`} target="_blank" rel="noreferrer"><Icon name="external" /> <span>Builder submission</span></a> : null}
           <Mono copy={c.hash}>{`terms ${short(c.hash, 6, 4)}`}</Mono>
           {c.platform.agent_id ? <Mono copy={verifyLink}>Copy verify link</Mono> : null}
           {c.platform.agent && c.stage !== "frozen" && c.stage !== "ended" ? (
@@ -169,6 +167,7 @@ function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Ac
             status={c.platform.policy?.applied ? "live" : "draft"}
             agentId={c.platform.agent_id}
             standIn={c.platform.mode === "fake"}
+            reportWorkflow={c.terms.v === 3}
           />
           <p className="side-note">
             <Icon name="info" size={14} /> Organization <code>{c.organization}</code> on {c.platform.host}
@@ -236,12 +235,13 @@ function SetupRow({ step, c, config, act, state }: { step: (typeof SETUP)[number
 }
 
 function StepAction({ step, c, config, act }: { step: StepId; c: ContractView; config: AppConfig; act: Act }) {
+  const session = useSession();
   const token = links.get(c.id);
 
   const signTerms = (role: "representative" | "contractor") =>
     act(async () => {
       const req = await api<TermsSigningRequest>("GET", `/contracts/${c.id}/signing-request?role=${role}`);
-      const s = await signMessage(config, req);
+      const s = await signMessage(config, req, session.signWorkflow);
       await api("POST", `/contracts/${c.id}/signatures`, { role, signed: s, contractor_token: token });
     });
 
@@ -249,8 +249,8 @@ function StepAction({ step, c, config, act }: { step: StepId; c: ContractView; c
     case "rep-sign":
       return (
         <div className="check-action">
-          <code className="mono message">Covenant work order sha256:{short(c.hash, 10, 6)}</code>
-          <Button icon="pen" onClick={() => signTerms("representative")} disabled={!config.demo_controls}>
+          <code className="mono message">Job terms sha256:{short(c.hash, 10, 6)}</code>
+          <Button icon="pen" onClick={() => signTerms("representative")} disabled={!config.demo_controls && (session.loading || session.account !== c.terms.representative.near_account)}>
             {config.demo_controls ? `Sign as ${c.terms.representative.near_account}` : "Sign with wallet"}
           </Button>
         </div>
@@ -288,11 +288,12 @@ function StepAction({ step, c, config, act }: { step: StepId; c: ContractView; c
 
 /** The platform onboarding steps, driven by the server's NextStep. */
 function NextStepAction({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
+  const session = useSession();
   const [step, setStep] = useState<NextStep | null>(c.next_step);
   useEffect(() => setStep(c.next_step), [c.next_step]);
 
   const fetchNext = () => act(async () => setStep(await api<NextStep>("POST", `/contracts/${c.id}/onboarding/next`)));
-  const run = (s: NextStep) => act(async () => setStep(await completeStep(config, c.id, s)));
+  const run = (s: NextStep) => act(async () => setStep(await completeStep(config, c.id, s, session.signWorkflow)));
 
   if (!step)
     return (
@@ -397,10 +398,10 @@ function DepositCard({ c, config, act }: { c: ContractView; config: AppConfig; a
 
 /* -------------------------------------------------------------- dashboard */
 
-type TabId = "scope" | "payouts" | "security" | "policy" | "activity";
+type TabId = "job" | "scope" | "payouts" | "security" | "policy" | "activity";
 
 function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppConfig; verify: VerifyView | null; act: Act }) {
-  const [tab, setTab] = useState<TabId>("scope");
+  const [tab, setTab] = useState<TabId>(c.terms.v === 3 ? "job" : "scope");
   const total = Number(c.total_usd);
   const paid = Number(c.paid_usd);
   const daysLeft = Math.ceil((Date.parse(`${c.terms.end}T23:59:59Z`) - Date.parse(c.now)) / 86_400_000);
@@ -418,12 +419,12 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
       {c.stage === "ended" ? <Alert tone="info" icon="calendar">This contract ended on {dateText(c.terms.end)}. Covenant can't request payouts any more; you can still approve or reject held ones.</Alert> : null}
       {held.length ? (
         <Alert tone="warning" icon="alert">
-          {held.length} payout{held.length === 1 ? "" : "s"} wait{held.length === 1 ? "s" : ""} for your approval. See Payouts.
+          {held.length} payout{held.length === 1 ? "" : "s"} wait{held.length === 1 ? "s" : ""} for your approval. See {c.terms.v === 3 ? "Submission & review" : "Payouts"}.
         </Alert>
       ) : null}
       {attention ? (
         <Alert tone="danger" icon="alert">
-          {attention} payout{attention === 1 ? " needs" : "s need"} attention. See Payouts.
+          {attention} payout{attention === 1 ? " needs" : "s need"} attention. See {c.terms.v === 3 ? "Submission & review" : "Payouts"}.
         </Alert>
       ) : null}
 
@@ -440,15 +441,17 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
         value={tab}
         onChange={setTab}
         items={[
+          ...(c.terms.v === 3 ? [{ id: "job" as const, label: "Submission & review", icon: "file" as const, count: c.submissions.length }] : []),
           { id: "scope", label: "Scope", icon: "file" },
-          { id: "payouts", label: "Payouts", icon: "coins", count: payouts.length },
+          ...(c.terms.v === 2 ? [{ id: "payouts" as const, label: "Payouts", icon: "coins" as const, count: payouts.length }] : []),
           { id: "security", label: "Security test", icon: "shield" },
           { id: "policy", label: "Policy & verify", icon: "shieldCheck" },
           { id: "activity", label: "Activity", icon: "activity" },
         ]}
       />
 
-      {tab === "scope" ? <ScopeTab c={c} config={config} act={act} onPayouts={() => setTab("payouts")} /> : null}
+      {tab === "job" ? <AgencyJobWorkflow c={c} config={config} act={act} /> : null}
+      {tab === "scope" ? <ScopeTab c={c} config={config} act={act} onPayouts={() => setTab(c.terms.v === 3 ? "job" : "payouts")} /> : null}
       {tab === "payouts" ? <PayoutsTab c={c} config={config} act={act} /> : null}
       {tab === "security" ? <SecurityTab c={c} config={config} act={act} /> : null}
       {tab === "policy" ? <PolicyTab c={c} verify={verify} /> : null}
@@ -466,11 +469,13 @@ function ScopeTab({ c, config, act, onPayouts }: { c: ContractView; config: AppC
       <div className="card-pad-x">
         <CardHeader
           title="Scope"
-          sub={j ? `Last judged ${timeText(j.at)} by ${j.judge === "near-ai" ? `NEAR AI (${j.model ?? "model"})` : "the rule-based judge"}` : "Not judged yet. Check merges to start."}
+          sub={j ? `Last judged ${timeText(j.at)} by ${j.judge === "near-ai" ? `NEAR AI (${j.model ?? "model"})` : "the rule-based judge"}` : c.terms.v === 3 ? "Agreed acceptance criteria and maximum values. Review the builder's submission to propose compensation." : "Not judged yet. Check merges to start."}
           actions={
+            c.terms.v === 2 ?
             <Button icon="play" disabled={c.stage !== "active"} onClick={() => act(() => api("POST", `/contracts/${c.id}/run`))}>
               Check merges
             </Button>
+            : null
           }
         />
       </div>
@@ -529,7 +534,7 @@ function ScopeTab({ c, config, act, onPayouts }: { c: ContractView; config: AppC
           </ul>
         </div>
       ) : null}
-      {config.demo_controls ? <p className="card-pad-x fineprint pad-b">Demo PRs link to a deliverable with a "Scope: d2" line. Use “Simulate a merge” above to land the next one.</p> : <div className="pad-b" />}
+      {config.demo_controls && c.terms.v === 2 ? <p className="card-pad-x fineprint pad-b">Demo PRs link to a deliverable with a "Scope: d2" line. Use “Simulate a merge” above to land the next one.</p> : <div className="pad-b" />}
     </Card>
   );
 }
@@ -645,6 +650,7 @@ function PolicyTab({ c, verify }: { c: ContractView; verify: VerifyView | null }
           status={c.stage === "frozen" ? "frozen" : c.stage === "ended" ? "ended" : "live"}
           agentId={c.platform.agent_id}
           standIn={c.platform.mode === "fake"}
+          reportWorkflow={c.terms.v === 3}
         />
       </div>
       <Card>
@@ -734,7 +740,7 @@ function SimBar({ c, reload }: { c: ContractView; reload: () => Promise<void> })
       <span className="simbar-label">
         <Icon name="clock" size={14} /> Demo time <strong>{timeText(c.now)}</strong>
       </span>
-      <button
+      {c.terms.v === 2 ? <button
         className="simbar-btn"
         onClick={async () => {
           await api("POST", "/sim/merge", { contract_id: c.id });
@@ -743,7 +749,7 @@ function SimBar({ c, reload }: { c: ContractView; reload: () => Promise<void> })
         }}
       >
         <Icon name="pr" size={13} /> Simulate a merge
-      </button>
+      </button> : null}
       <button className="simbar-btn" disabled={!settling} onClick={() => post("/sim/settle", { contract_id: c.id })}>
         <Icon name="send" size={13} /> Settle approved payouts
       </button>

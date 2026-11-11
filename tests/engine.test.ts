@@ -500,7 +500,7 @@ describe("secrets and storage", () => {
     const old = new Database(path);
     old.exec("CREATE TABLE contracts (id TEXT PRIMARY KEY, credential_enc TEXT)");
     old.close();
-    expect(() => openDb(path)).toThrow("Delete data/covenant.sqlite");
+    expect(() => openDb(path)).toThrow("Preserve it");
   });
 
   test("one open payout per contract is enforced by the database", async () => {

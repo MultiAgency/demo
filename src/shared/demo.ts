@@ -1,6 +1,6 @@
-import { type TermsInput, USDC_NEAR } from "./terms";
+import { JOB_PAYMENT_TERMS, type TermsInput, USDC_NEAR } from "./terms";
 
-/** The demo work order. Fake account names so nobody mistakes them for real accounts. */
+/** The demo job. Fake account names so nobody mistakes them for real accounts. */
 export const DEMO_TERMS: TermsInput = {
   v: 2,
   company: "Acme Labs",
@@ -17,4 +17,13 @@ export const DEMO_TERMS: TermsInput = {
   end: "2026-11-30",
   repos: ["acme/app"],
   acceptance: "merged_to_default_branch_by_other",
+};
+
+/** One agency, one builder, one report/invoice job. All identities are fixtures. */
+export const JOB_DEMO_TERMS: TermsInput = {
+  ...DEMO_TERMS,
+  v: 3,
+  acceptance: "report_and_invoice",
+  payment_terms: JOB_PAYMENT_TERMS,
+  scope: [DEMO_TERMS.scope[0]!],
 };

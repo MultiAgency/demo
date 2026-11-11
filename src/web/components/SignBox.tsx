@@ -1,13 +1,15 @@
 import { canDemoSign } from "../api";
 import type { AppConfig, SignRequest } from "../types";
+import { useSession } from "../session";
 import { Icon } from "./icons";
 import { Button, Disclosure, Mono } from "./ui";
 
 /**
  * One NEP-413 signature the representative has to give. With demo controls the demo wallet signs on click;
- * otherwise the message is shown to sign in the account's own wallet.
+ * otherwise the existing signed-in wallet signs the exact request on an explicit click.
  */
 export function SignBox({ config, req, label, onSign }: { config: AppConfig; req: SignRequest; label: string; onSign: () => Promise<unknown> }) {
+  const session = useSession();
   if (canDemoSign(config))
     return (
       <div className="check-action col">
@@ -29,6 +31,10 @@ export function SignBox({ config, req, label, onSign }: { config: AppConfig; req
         Sign this message as <strong>{req.account_id}</strong> with your NEAR wallet (NEP-413, recipient <code>{req.recipient}</code>).
       </span>
       <code className="mono sign-msg">{req.message}</code>
+      <Button icon="pen" onClick={onSign} disabled={session.loading || session.account !== req.account_id}>
+        {label} with NEAR wallet
+      </Button>
+      {!session.loading && session.account !== req.account_id ? <span className="small muted">Sign in as {req.account_id} to continue.</span> : null}
     </div>
   );
 }

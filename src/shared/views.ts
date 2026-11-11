@@ -2,10 +2,12 @@
 import type { Consent, Deposit, OwnerAction, Overview } from "../server/platform/port";
 import type { Clause } from "./clauses";
 import type { Deliverable, Terms } from "./terms";
+import type { JobSubmissionView } from "./jobs";
 
 
-export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved" | "dropped";
-export type JudgmentOutcome = "pending" | "approved" | "rejected" | "dropped" | "nothing";
+export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved" | "disputed" | "dropped";
+export type JudgmentOutcome = "pending" | "approved" | "rejected" | "dropped" | "nothing" | "disputed";
+export type PayoutResolution = "arrived" | "reowe" | "rejected" | "disputed";
 export type SetupStage =
   | "needs_signatures"
   | "needs_setup"
@@ -34,6 +36,8 @@ export type NextStep =
 
 export interface PayoutView {
   request_id: string;
+  payment_correlation_id: string | null;
+  approval_vote_id: string | null;
   kind: "payout" | "attack";
   seq: number;
   attempt: number;
@@ -45,12 +49,13 @@ export interface PayoutView {
   clause: Clause | null;
   approval: { approval_id: string; expires_at: string | null } | null;
   vote: "approve" | "reject" | null;
-  resolution: "arrived" | "reowe" | "rejected" | null;
+  resolution: PayoutResolution | null;
   judge: { kind: string; model: string | null; decision: string; summary: string } | null;
   prs: { key: string; title: string; url: string; flags: string[] }[];
   tx_hash: string | null;
   refund_tx_hash: string | null;
   failure_code: string | null;
+  never_executed?: boolean;
   /** request_conflict only: what the platform's record under this request id became (information only). */
   platform_record: string | null;
   created_at: string;
@@ -105,6 +110,7 @@ export interface ContractView {
   judgment: unknown;
   open_judgment: { id: string; outcome: JudgmentOutcome; owed_usd: string; paid_usd: string } | null;
   payouts: PayoutView[];
+  submissions: JobSubmissionView[];
   events: EventView[];
 }
 

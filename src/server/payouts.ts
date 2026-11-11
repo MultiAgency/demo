@@ -1,12 +1,12 @@
 // The payout attempt state machine and payout planning. Pure: no database, no platform calls.
 //
 // Rules this file encodes:
-// - Only a proven "nothing sent" frees money: a recorded refusal, a vote-proven reject, or a failed payout the
-//   representative resolved as `reowe`/`rejected`. Everything else stays committed.
+// - A recorded refusal or rejection with explicit non-execution proof frees money. Legacy v2 manual resolutions
+//   can also free money; the v3 engine requires non-execution proof for those resolutions. Everything else stays committed.
 // - Only a recorded refusal or a resolved failure allows a new requestId. Every other case re-asks the same id.
 // - The judgment is the open unit: every seq of one run belongs to it, and it closes once.
 import type { Fail, PayoutAnswer } from "./platform/port";
-import type { AttemptState } from "../shared/views";
+import type { AttemptState, PayoutResolution } from "../shared/views";
 import { minBig, toAtomic } from "../shared/money";
 import { type Terms, USDC_DECIMALS } from "../shared/terms";
 
@@ -16,7 +16,7 @@ export interface AttemptLike {
   seq: number;
   attempt: number;
   state: AttemptState;
-  resolution: "arrived" | "reowe" | "rejected" | null;
+  resolution: PayoutResolution | null;
   amount_atomic: string;
   code: string | null;
   auto_retry: number;
@@ -42,7 +42,7 @@ export const OPEN_STATES: readonly AttemptState[] = ["pending", "blocked", "wait
 /** States that hold the contract's one open payout slot (mirrors the `one_open_payout` index). */
 export function isOpen(a: Pick<AttemptLike, "kind" | "state" | "resolution">): boolean {
   if (a.kind !== "payout") return false;
-  if (a.state === "failed") return a.resolution === null;
+  if (a.state === "failed") return a.resolution === null || a.resolution === "disputed";
   return OPEN_STATES.includes(a.state);
 }
 
@@ -54,7 +54,7 @@ export function isCommitted(a: Pick<AttemptLike, "kind" | "state" | "resolution"
   return true;
 }
 
-/** Money proven to have arrived: settled, or a failed payout the representative marked `arrived`. */
+/** Counted as paid: platform settlement or the separately labelled representative's `arrived` resolution. */
 export function isPaid(a: Pick<AttemptLike, "kind" | "state" | "resolution">): boolean {
   return a.kind === "payout" && (a.state === "paid" || (a.state === "failed" && a.resolution === "arrived"));
 }
@@ -86,10 +86,11 @@ export function owedFor(terms: Pick<Terms, "scope">, completion: Record<string, 
  * The next payout for a judgment: amount = min(total owed, largest deliverable), lines filled in scope order
  * (the last one may be partial). Null when nothing is owed.
  */
-export function planPayout(terms: Pick<Terms, "scope">, completion: Record<string, number>, committed: Map<string, bigint>): { amount: bigint; lines: Line[] } | null {
+export function planPayout(terms: Pick<Terms, "scope">, completion: Record<string, number>, committed: Map<string, bigint>, invoiceRemaining?: bigint): { amount: bigint; lines: Line[] } | null {
   const owed = owedFor(terms, completion, committed);
-  const total = owed.reduce((n, l) => n + l.amount, 0n);
-  if (total === 0n) return null;
+  const owedTotal = owed.reduce((n, l) => n + l.amount, 0n);
+  const total = invoiceRemaining === undefined ? owedTotal : minBig(owedTotal, invoiceRemaining);
+  if (total <= 0n) return null;
   const largest = terms.scope.reduce((m, d) => (toAtomic(d.value_usd, USDC_DECIMALS) > m ? toAtomic(d.value_usd, USDC_DECIMALS) : m), 0n);
   const amount = minBig(total, largest);
   const lines: Line[] = [];
@@ -110,6 +111,8 @@ export interface Transition {
   code: string | null;
   failKind: "refused" | "forbidden" | "session" | "blocked" | null;
   correlationId?: string | null;
+  neverExecuted?: boolean;
+  failureCode?: string | null;
   /** When the same id may be asked again (waiting/blocked). */
   retryAfterMs?: number;
   /** Covenant bug or operator problem: log loudly, never retry automatically. */
@@ -154,7 +157,7 @@ export function fromAnswer(a: PayoutAnswer): Transition {
     case "succeeded":
       return { state: "paid", code: null, failKind: null, correlationId };
     case "failed":
-      return { state: "failed", code: a.code, failKind: null, correlationId };
+      return { state: "failed", code: a.code, failKind: null, correlationId, neverExecuted: a.neverExecuted === true, failureCode: a.failureCode ?? null };
     case "held":
       return { state: "held", code: null, failKind: null, correlationId };
     case "processing":
@@ -168,9 +171,9 @@ export function fromAnswer(a: PayoutAnswer): Transition {
   }
 }
 
-/** A failed payout is `rejected` (freed) only when Covenant submitted a reject vote for it and no tx exists. */
-export function classifyFailed(vote: "approve" | "reject" | null, txHash: string | null): "rejected" | "failed" {
-  return vote === "reject" && !txHash ? "rejected" : "failed";
+/** A reject attempt is not its outcome. Only the platform's explicit non-execution proof frees the amount. */
+export function classifyFailed(vote: "approve" | "reject" | null, txHash: string | null, neverExecuted = false): "rejected" | "failed" {
+  return vote === "reject" && neverExecuted && !txHash ? "rejected" : "failed";
 }
 
 // ------------------------------------------------------------------ judgment lifecycle

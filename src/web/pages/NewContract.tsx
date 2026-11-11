@@ -9,6 +9,7 @@ import { useSession } from "../session";
 import type { AppConfig, Deliverable } from "../types";
 
 interface Form {
+  workflow: "report_and_invoice" | "merged_to_default_branch_by_other";
   company: string;
   rep: string;
   contractorName: string;
@@ -32,6 +33,7 @@ function demoDates(now = new Date()) {
 }
 
 const initial: Form = {
+  workflow: "report_and_invoice",
   company: DEMO_TERMS.company,
   rep: DEMO_TERMS.representative.near_account,
   contractorName: DEMO_TERMS.contractor.name,
@@ -78,7 +80,7 @@ export function NewContract({ config }: { config: AppConfig }) {
     setError(null);
     try {
       const res = await api<{ id: string; contractor_token: string }>("POST", "/contracts", {
-        v: 2,
+        v: f.workflow === "report_and_invoice" ? 3 : 2,
         company: f.company,
         representative: { near_account: f.rep },
         contractor: { name: f.contractorName, github: f.github, near_account: f.contractorAccount },
@@ -88,7 +90,8 @@ export function NewContract({ config }: { config: AppConfig }) {
         start: f.start,
         end: f.end,
         repos,
-        acceptance: "merged_to_default_branch_by_other",
+        acceptance: f.workflow,
+        ...(f.workflow === "report_and_invoice" ? { payment_terms: { calculation: "scope_completion_less_committed", invoice: "cap", approval: "explicit_agency", settlement: "platform_usdc_near", due: "after_approval" } } : {}),
       });
       links.save(res.id, res.contractor_token);
       window.location.hash = `/c/${res.id}`;
@@ -105,7 +108,7 @@ export function NewContract({ config }: { config: AppConfig }) {
             <Icon name="chevronLeft" size={14} /> Contracts
           </a>
           <h1>New contract</h1>
-          <p className="page-sub">Define the scope. Every merged PR is judged against it, and the agent never pays more than it's worth.</p>
+          <p className="page-sub">Agree the scope, budget and deadline. The agency approves every payout.</p>
         </div>
       </header>
 
@@ -117,6 +120,20 @@ export function NewContract({ config }: { config: AppConfig }) {
             void submit();
           }}
         >
+          <section className="form-section">
+            <h2><Icon name="file" /> Work and payment terms</h2>
+            <div className="stack">
+              <label className="row gap">
+                <input className="job-radio" type="radio" name="workflow" checked={f.workflow === "report_and_invoice"} onChange={() => setF({ ...f, workflow: "report_and_invoice" })} />
+                <span><strong>Report and invoice</strong><br /><span className="field-hint">Builder submits evidence. An agent proposes compensation; the agency approves or requests changes.</span></span>
+              </label>
+              <label className="row gap">
+                <input className="job-radio" type="radio" name="workflow" checked={f.workflow === "merged_to_default_branch_by_other"} onChange={() => setF({ ...f, workflow: "merged_to_default_branch_by_other" })} />
+                <span><strong>Pay on merge</strong><br /><span className="field-hint">Existing workflow: independently merged PRs are judged against the signed scope.</span></span>
+              </label>
+              {f.workflow === "report_and_invoice" ? <p className="small">Compensation is the agreed value of completed scope, less amounts already committed, capped by the invoice. Payment follows explicit agency approval, in USDC to the agreed NEAR payee.</p> : null}
+            </div>
+          </section>
           <section className="form-section">
             <h2>
               <Icon name="building" /> Parties
@@ -134,7 +151,7 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Field label="Contractor's NEAR account">
                 <input value={f.contractorAccount} onChange={set("contractorAccount")} required />
               </Field>
-              <Field label="GitHub username" hint="Whose merged PRs count">
+              <Field label="GitHub username" hint={f.workflow === "report_and_invoice" ? "Builder identity for supporting code evidence" : "Whose merged PRs count"}>
                 <div className="input-affix prefix">
                   <span>@</span>
                   <input value={f.github} onChange={set("github")} required />
@@ -178,7 +195,7 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Button variant="ghost" size="sm" icon="plus" onClick={addItem} disabled={f.scope.length >= 10}>
                 Add deliverable
               </Button>
-              <span className="field-hint">PRs link to a deliverable with a "Scope: d2" line. The agent judges how complete each one is.</span>
+              <span className="field-hint">{f.workflow === "report_and_invoice" ? "Each deliverable has acceptance criteria and an agreed maximum value." : 'PRs link to a deliverable with a "Scope: d2" line. The agent judges how complete each one is.'}</span>
             </div>
           </section>
 
@@ -197,7 +214,7 @@ export function NewContract({ config }: { config: AppConfig }) {
                 <input value={f.repos} onChange={set("repos")} required />
               </Field>
             </div>
-            <p className="field-hint">A PR counts when someone other than its author merges it.</p>
+            <p className="field-hint">{f.workflow === "report_and_invoice" ? "The builder submits a report, invoice and evidence against this scope before review." : "A PR counts when someone other than its author merges it."}</p>
           </section>
 
           <SignInGate account={f.rep} role="representative" />
@@ -215,7 +232,7 @@ export function NewContract({ config }: { config: AppConfig }) {
         <aside className="split-side">
           <div className="sticky">
             <div className="side-label">Live preview</div>
-            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.rep} standIn={config.platform === "fake"} />
+            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.rep} standIn={config.platform === "fake"} reportWorkflow={f.workflow === "report_and_invoice"} />
             <p className="side-note">
               <Icon name="info" size={14} /> {config.platform === "fake" ? "On the platform stand-in the locked rows are simulated." : "Locked rows become the MultiAgency platform's policy."} Nothing is created until both parties sign.
             </p>

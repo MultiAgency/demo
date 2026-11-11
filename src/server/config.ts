@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 
 export interface Config {
   platform: "fake" | "remote";
@@ -18,7 +19,7 @@ export interface Config {
   evidence: "fake" | "github";
   githubToken: string | null;
   /** The agent's judge. NEAR AI Cloud when NEARAI_API_KEY is set, otherwise rule-based. */
-  judge: { kind: "rules" | "near-ai"; apiKey: string | null; model: string; baseUrl: string };
+  judge: { kind: "rules" | "near-ai"; apiKey: string | null; model: string; baseUrl: string; assessmentTimeoutMs: number };
   /** Check for new merges on a timer (ms). 0 = only when "Run agent" is pressed. */
   pollMs: number;
   /** Sign in with NEAR (Better-Auth + better-near-auth). */
@@ -63,6 +64,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       apiKey: env.NEARAI_API_KEY || null,
       model: env.NEARAI_MODEL || "z-ai/glm-5.3-flash",
       baseUrl: env.NEARAI_BASE_URL || "https://cloud-api.near.ai/v1",
+      assessmentTimeoutMs: Number(env.JOB_ASSESSMENT_TIMEOUT_MS ?? 30_000),
     },
     pollMs: env.AGENT_POLL_MS ? Number(env.AGENT_POLL_MS) : 0,
     auth: {
@@ -81,7 +83,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     cfg.market.worker = { token: env.MARKET_AGENT_TOKEN!, secret: env.MARKET_WEBHOOK_SECRET!, agencyId: env.MARKET_WORKER_AGENCY! };
   }
 
-  const mount = volumeProblem(env);
+  const mount = volumeProblem(env, cfg.dbPath);
   if (mount) throw new Error(mount);
   if (production) {
     if (!/^https:\/\//.test(cfg.auth.publicUrl)) throw new Error("PLATFORM=remote needs PUBLIC_URL, the app's https origin: sign-in and its cookies name it.");
@@ -91,6 +93,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     if (!cfg.auth.secret) throw new Error("PLATFORM=remote needs BETTER_AUTH_SECRET (openssl rand -base64 32).");
   }
   if (cfg.evidence !== "fake" && cfg.evidence !== "github") throw new Error("GITHUB must be fake or github");
+  if (!Number.isSafeInteger(cfg.judge.assessmentTimeoutMs) || cfg.judge.assessmentTimeoutMs <= 0 || cfg.judge.assessmentTimeoutMs > 2_147_483_647)
+    throw new Error("JOB_ASSESSMENT_TIMEOUT_MS must be a positive integer no greater than 2147483647.");
   if (!Number.isFinite(cfg.consentGraceDays) || cfg.consentGraceDays < 0) throw new Error("CONSENT_GRACE_DAYS must be a number of days");
   if (!Number.isFinite(cfg.statusPollMs) || cfg.statusPollMs <= 0) throw new Error("STATUS_POLL_MS must be a positive number of ms");
   return cfg;
@@ -103,12 +107,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
  * the next deploy, with every saved requestId and vote with it. Railway's `requiredMountPath` can't be set from
  * `.railway/railway.ts` (as for Treasury's service), so the server checks.
  */
-export function volumeProblem(env: Record<string, string | undefined>): string | null {
+export function volumeProblem(env: Record<string, string | undefined>, dbPath = env.DB_PATH || "data/covenant.sqlite"): string | null {
   const required = env.REQUIRED_MOUNT;
   if (!required) return null;
-  if (!required.startsWith("/")) return `REQUIRED_MOUNT must be an absolute path, not ${required}`;
+  if (!isAbsolute(required)) return `REQUIRED_MOUNT must be an absolute path, not ${required}`;
   const mounted = env.RAILWAY_VOLUME_MOUNT_PATH;
-  if (mounted !== required) return `No volume is mounted at ${required}${mounted ? ` (Railway mounted one at ${mounted})` : ""}: attach the service's volume there before it starts.`;
-  if (!env.DB_PATH || !env.DB_PATH.startsWith(`${required.replace(/\/+$/, "")}/`)) return `DB_PATH must be on the volume at ${required}, not ${env.DB_PATH ?? "the default (data/covenant.sqlite, on the container's disk)"}.`;
+  const root = resolve(required);
+  if (!mounted || !isAbsolute(mounted) || resolve(mounted) !== root) return `No volume is mounted at ${required}${mounted ? ` (Railway mounted one at ${mounted})` : ""}: attach the service's volume there before it starts.`;
+  if (dbPath === ":memory:" || !resolve(dbPath).startsWith(`${root === "/" ? "" : root}/`)) return `DB_PATH must be on the volume at ${required}, not ${dbPath}.`;
   return null;
 }

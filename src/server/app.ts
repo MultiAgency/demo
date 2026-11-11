@@ -49,6 +49,8 @@ export interface Runtime {
 }
 
 export interface RuntimeOptions {
+  /** The browser demo uses its explicit settlement control; automated stand-ins keep their existing default. */
+  manualFakeSettlement?: boolean;
   /** Inject a platform (tests, demo scripts). Otherwise makePlatform(config). */
   kit?: PlatformKit;
   /** Start the clock here (fake platform only; makes it movable through /api/sim/advance). */
@@ -72,6 +74,7 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
       stackDir: config.stackDir ?? undefined,
       marketUrl: config.market.url ?? undefined,
       now: clock.now,
+      ...(opts.manualFakeSettlement && { autoSettle: "manual" as const }),
     });
   const auth = await createAuth({
     db,
@@ -140,6 +143,12 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     if (session.accountId !== account) throw new UserError(`You're signed in as ${session.accountId}. Only ${account} can act as the ${role}.`, 403);
   };
   const asRepresentative = (session: SessionInfo | null, contractId: string) => requireAccount(session, covenant.parties(contractId).representative, "representative");
+  const asParty = (session: SessionInfo | null, id: string) => {
+    if (!config.auth.required) return;
+    const parties = covenant.parties(id);
+    if (!session) throw new UserError("Sign in as a party to this job.", 401);
+    if (session.accountId !== parties.representative && session.accountId !== parties.contractor) throw new UserError("Only the agency or builder can read the submission.", 403);
+  };
 
   app.get("/config", (c) => {
     const view: ConfigView = {
@@ -172,6 +181,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
 
   app.get("/contracts/:id", async (c) => {
     const id = c.req.param("id");
+    // Authorize private records before any platform read or reconciliation work.
+    if (covenant.contractRequiresParty(id)) asParty(c.get("session"), id);
     // Only the representative's reads move payouts along; anyone else gets the view (the status timer still follows up).
     let representative = true;
     try {
@@ -179,7 +190,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     } catch {
       representative = false;
     }
-    return c.json(representative ? await covenant.getContract(id) : await covenant.viewContract(id));
+    const view = representative ? await covenant.getContract(id) : await covenant.viewContract(id);
+    return c.json(view);
   });
 
   app.get("/contracts/:id/signing-request", (c) => {
@@ -217,12 +229,47 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     else if (config.auth.required) throw new UserError("This owner step belongs to no contract.", 403);
     return c.json(await covenant.submitOwnerStep(cid, walletSig.parse(await c.req.json())));
   });
-  app.get("/owner-steps/:cid", async (c) => c.json(await covenant.getOwnerStep(c.req.param("cid"))));
+  app.get("/owner-steps/:cid", async (c) => {
+    const cid = c.req.param("cid");
+    const contractId = covenant.ownerStepContract(cid);
+    if (contractId) asRepresentative(c.get("session"), contractId);
+    else if (config.auth.required) throw new UserError("This owner step belongs to no contract.", 403);
+    return c.json(await covenant.getOwnerStep(cid));
+  });
 
   app.post("/contracts/:id/deposit", async (c) => {
     const id = c.req.param("id");
     asRepresentative(c.get("session"), id);
     return c.json(await covenant.deposit(id));
+  });
+
+  // ---------- immutable reports and invoices; only v3 signed terms opt into this workflow
+  app.get("/contracts/:id/submissions", (c) => {
+    const id = c.req.param("id");
+    asParty(c.get("session"), id);
+    return c.json(covenant.jobSubmissions(id));
+  });
+  app.post("/contracts/:id/submissions", async (c) => {
+    const id = c.req.param("id");
+    const builder = covenant.parties(id).contractor;
+    requireAccount(c.get("session"), builder, "builder");
+    const { contractor_token, ...body } = await c.req.json();
+    // The keyless demo has no sessions; use the existing private builder link as its filing capability.
+    if (!config.auth.required) {
+      covenant.requireContractorToken(id, contractor_token);
+    }
+    return c.json(await covenant.submitJob(id, body, builder), 201);
+  });
+  app.post("/submissions/:sid/propose", async (c) => {
+    const sid = c.req.param("sid");
+    asRepresentative(c.get("session"), covenant.jobContract(sid));
+    return c.json(await covenant.proposeJob(sid));
+  });
+  app.post("/submissions/:sid/changes", async (c) => {
+    const sid = c.req.param("sid");
+    asRepresentative(c.get("session"), covenant.jobContract(sid));
+    const body = z.object({ reason: z.string().trim().min(3).max(4000) }).strict().parse(await c.req.json());
+    return c.json(await covenant.requestJobChanges(sid, body.reason));
   });
 
   // ---------- payouts
@@ -250,8 +297,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   app.post("/payouts/:rid/resolve", async (c) => {
     const rid = c.req.param("rid");
     asRepresentative(c.get("session"), covenant.payoutContract(rid));
-    const body = z.object({ outcome: z.enum(["arrived", "reowe", "rejected"]) }).parse(await c.req.json());
-    return c.json(await covenant.resolve(rid, body.outcome));
+    const body = z.object({ outcome: z.enum(["arrived", "reowe", "rejected", "disputed"]), reason: z.string().trim().min(3).max(4000).optional() }).parse(await c.req.json());
+    return c.json(await covenant.resolve(rid, body.outcome, body.reason));
   });
 
   // Public: anyone with the link can verify a contract.

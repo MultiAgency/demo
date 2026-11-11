@@ -9,11 +9,38 @@ import { MarketHttpError } from "./api";
 import type { AgencyRow } from "./db";
 import type { Market } from "./index";
 import { requireMember } from "./members";
+import { MAX_WEBHOOK_BODY } from "./worker";
 
 type App = Hono<{ Variables: { session: SessionInfo | null } }>;
 
 const signedStep = z.object({ step: z.enum(["setup", "consent"]), nonce: z.string(), publicKey: z.string(), signature: z.string() });
 const walletSig = z.object({ publicKey: z.string(), signature: z.string() });
+
+/** Read the public webhook as a bounded byte stream; parsing/re-encoding before HMAC verification changes its bytes. */
+async function webhookBody(request: Request): Promise<Uint8Array> {
+  const declared = request.headers.get("content-length");
+  if (declared && /^\d+$/.test(declared) && Number(declared) > MAX_WEBHOOK_BODY) throw new UserError("A market webhook is at most 1 MiB.", 413);
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_WEBHOOK_BODY) {
+        void reader.cancel().catch(() => {});
+        throw new UserError("A market webhook is at most 1 MiB.", 413);
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const raw = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }
+  return raw;
+}
 
 /** The market's routes under `/api/market`. `controls` are the local stack's (dev only), as for contracts. */
 export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; controls: DemoControls | null }) {
@@ -105,9 +132,10 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
 
   // ---------- worker: the agency's listed agent
   app.get("/market/worker", async (c) => {
-    const view = await m.worker.view();
-    if (view.agency_id) await member(m.agencies.row(view.agency_id), account(c), "read");
-    return c.json(view);
+    // Authenticate before any private assignment or deposit read. Disabled configuration exposes no history;
+    // historical agency bindings remain in the database and are never inferred from a replacement configuration.
+    if (m.d.worker) await member(m.agencies.row(m.d.worker.agencyId), account(c), "read");
+    return c.json(await m.worker.view());
   });
   const workerAgency = () => {
     const v = m.d.worker;
@@ -133,7 +161,7 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
   // The market's webhooks: authenticated by their signature, not a session.
   app.post("/market/webhook", async (c) => {
     if (!m.worker.configured) return c.body(null, 404);
-    const r = await m.worker.receive(c.req.raw.headers, new Uint8Array(await c.req.arrayBuffer()));
+    const r = await m.worker.receive(c.req.raw.headers, await webhookBody(c.req.raw));
     return c.body(null, r.status);
   });
 
