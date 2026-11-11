@@ -213,3 +213,108 @@ describe("freeze", () => {
     expect(stub.calls.filter((c) => c[0] === "hire")).toHaveLength(0);
   });
 });
+
+// Findings of the independent review of MultiAgency/demo#7 (2026-11-11): each test fails without its fix.
+describe("review findings", () => {
+  const within = <T>(p: Promise<T>, ms = 1500) => Promise.race([p, new Promise<never>((_, no) => setTimeout(() => no(new Error(`no answer within ${ms} ms`)), ms))]);
+  const intent = (id: string) => ({ ok: true as const, value: { correlationId: id, expiresAt: "2026-11-11T13:00:00.000Z", summary: "Create", intent: { standard: "nep413" as const, payload: { message: "create", recipient: "provider", nonce: "n" } } } });
+
+  test("1. a creation that succeeded while the platform doesn't yet show the agent created waits instead of looping", async () => {
+    const { m, db, stub, agency } = marketWith();
+    db.query("UPDATE market_agencies SET stage = 'needs_create', agent_id = NULL, owner_public_key = 'ed25519:k' WHERE id = ?").run(agency.id);
+    stub.identityAnswer = { ok: true, value: { agentId: null, created: false, owner: "acme.near", signer: "wallet" } };
+    stub.prepareAnswers.push(intent("c-1"));
+    expect(await within(m.agencies.next(agency.id))).toMatchObject({ kind: "owner_step", correlation_id: "c-1" });
+    expect(await within(m.agencies.submitStep("c-1", { publicKey: "ed25519:k", signature: "s" }))).toMatchObject({ kind: "wait" });
+    expect(await within(m.agencies.next(agency.id))).toMatchObject({ kind: "wait" });
+    stub.identityAnswer = null; // the platform now shows it created
+    expect(m.agencies.row(agency.id).stage).toBe("needs_create");
+    expect((await within(m.agencies.next(agency.id))).kind).not.toBe("wait");
+    expect(m.agencies.row(agency.id).stage).not.toBe("needs_create");
+  });
+
+  test("4. an unread freeze state refuses the approval: the gate fails closed", async () => {
+    const { m, stub, agency } = marketWith();
+    const q = await m.hires.quote(agency.id, "writer", "Brief");
+    stub.frozenAnswer = { ok: false, kind: "unavailable" };
+    await expect(m.hires.approve(q.request_id, null)).rejects.toThrow(/frozen/);
+    expect(stub.calls.filter((c) => c[0] === "hire")).toHaveLength(0);
+  });
+
+  test("5. a DAO consent request the platform ended (409, a DAO stop) is filed again, not waited on forever", async () => {
+    const { m, db, stub, agency } = marketWith({ signer: "dao" });
+    db.query("UPDATE market_agencies SET stage = 'needs_consent' WHERE id = ?").run(agency.id);
+    expect(await m.agencies.next(agency.id)).toMatchObject({ kind: "dao_vote" }); // filed; nothing read yet
+    stub.daoConsentStates.push({ ok: false, kind: "refused", code: "http_409" });
+    stub.daoConsentStates.push({ ok: true, value: { state: "pending" } });
+    expect(await m.agencies.next(agency.id)).toMatchObject({ kind: "dao_vote" });
+    expect(stub.calls.filter((c) => c[0] === "daoConsent.file")).toHaveLength(2);
+  });
+
+  test("5. a DAO hire whose vote request the platform ended reads vote_expired, and can be filed again", async () => {
+    const { m, stub, agency } = marketWith({ signer: "dao" });
+    const q = await m.hires.quote(agency.id, "writer", "Brief");
+    await m.hires.approve(q.request_id, null);
+    stub.daoHireStates.push({ ok: false, kind: "refused", code: "http_409" });
+    expect((await m.hires.follow(q.request_id)).state).toBe("vote_expired");
+  });
+
+  test("6. a DAO step whose answer names no hash leaves nothing behind: the next call prepares again", async () => {
+    const { m, db, stub, agency } = marketWith({ signer: "dao" });
+    db.query("UPDATE market_agencies SET stage = 'needs_grant' WHERE id = ?").run(agency.id);
+    stub.prepareAnswers.push({ ok: true, value: { correlationId: "g-1", expiresAt: "2026-11-11T13:00:00.000Z", summary: "Grant", dao: { hash: null as unknown as string, proposal: null, proposalAndVote: null } } });
+    await expect(m.agencies.next(agency.id)).rejects.toThrow(/no hash/);
+    stub.prepareAnswers.push({ ok: true, value: { correlationId: "g-2", expiresAt: "2026-11-11T13:00:00.000Z", summary: "Grant", dao: { hash: "h".repeat(64), proposal: null, proposalAndVote: null } } });
+    expect(await m.agencies.next(agency.id)).toMatchObject({ kind: "dao_vote", vote: { hash: "h".repeat(64) } });
+  });
+
+  test("7. a setup refused for its signature is not rescued from the reservation list", async () => {
+    const { m, db, stub, agency } = marketWith();
+    db.query("UPDATE market_agencies SET stage = 'needs_setup', agent = NULL, agent_id = NULL WHERE id = ?").run(agency.id);
+    const next = await m.agencies.next(agency.id);
+    if (next.kind !== "sign") throw new Error("expected a sign step");
+    stub.setupAnswer = { ok: false, kind: "refused", code: "signature_invalid" };
+    stub.reservationsAnswer = { ok: true, value: [{ agent: "own-old", owner: "acme.near", released: false }] };
+    await expect(m.agencies.signed(agency.id, { step: "setup", nonce: next.sign.nonce, publicKey: "ed25519:wrong", signature: "bad" })).rejects.toThrow(/signature_invalid/);
+    expect(m.agencies.row(agency.id)).toMatchObject({ stage: "needs_setup", owner_public_key: null });
+  });
+
+  test("8. two concurrent approvals of one quote ask once", async () => {
+    const { m, stub, agency } = marketWith();
+    const q = await m.hires.quote(agency.id, "writer", "Brief");
+    stub.hireAnswers.push(answer(q.request_id, "unknown"), answer(q.request_id, "unknown"));
+    const both = await Promise.allSettled([m.hires.approve(q.request_id, null), m.hires.approve(q.request_id, null)]);
+    expect(both.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(stub.calls.filter((c) => c[0] === "hire")).toHaveLength(1);
+  });
+
+  test("9. asking for the next step twice keeps the text the wallet is about to sign", async () => {
+    const { m, db, agency } = marketWith();
+    db.query("UPDATE market_agencies SET stage = 'needs_setup', agent = NULL, agent_id = NULL WHERE id = ?").run(agency.id);
+    const first = await m.agencies.next(agency.id);
+    const second = await m.agencies.next(agency.id);
+    if (first.kind !== "sign" || second.kind !== "sign") throw new Error("expected sign steps");
+    expect(second.sign).toEqual(first.sign);
+  });
+});
+
+describe("review findings: worker and config", () => {
+  const item = (status: string) => ({ assignment: { assignmentId: "a1", jobId: "j1", status, escrowAmount: "500000", escrowToken: "X402", slaDeadlineAt: null }, job: { title: "T", description: "B" } });
+  test("2. a submit that never reached the market can be sent again once a poll shows the job still in progress", async () => {
+    const fake = (async (url: string | URL) => {
+      if (new URL(String(url)).pathname.endsWith("/submit")) throw new TypeError("network down");
+      return new Response(JSON.stringify({ assignments: [item("in_progress")] }));
+    }) as unknown as typeof fetch;
+    const { m, agency } = marketWith({ fetch: fake, now: () => new Date(NOW), worker: { token: "aat_test", secret: SECRET, agencyId: "" } });
+    (m.d.worker as { agencyId: string }).agencyId = agency.id;
+    await m.worker.poll();
+    expect((await m.worker.submit("a1", "# Result")).submit_state).toBe("unknown");
+    await m.worker.poll();
+    expect(m.worker.row("a1")).toMatchObject({ submit_state: "none", submit_error: expect.stringContaining("still shows") });
+  });
+
+  test("3. a required volume without DB_PATH refuses to start (the default path is off the volume)", async () => {
+    const { loadConfig } = await import("../src/server/config");
+    expect(() => loadConfig({ PLATFORM: "fake", REQUIRED_MOUNT: "/data", RAILWAY_VOLUME_MOUNT_PATH: "/data" })).toThrow(/DB_PATH/);
+  });
+});

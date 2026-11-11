@@ -15,6 +15,8 @@ const TIMESTAMP_SKEW_S = 300;
 /** Market text kept per job: the market caps deliverables at 256 KiB; briefs are kept to the same bound. */
 const MAX_TEXT = 256 * 1024;
 export const WEBHOOK_PATH = "/api/market/webhook";
+/** A submit still `submitting` after this long was cut off (a crash or restart mid-call). */
+const SUBMIT_STALE_MS = 2 * 60_000;
 
 export interface WorkerConfig {
   /** The `aat_` token (server secret). */
@@ -120,9 +122,11 @@ export class Worker {
         .run(m.assignmentId, m.jobId, clip(m.title), clip(m.description), m.status, m.escrowAmount, m.escrowToken, m.slaDeadlineAt, now, now);
     } else if (fromPoll) {
       const fields: Partial<AssignmentRow> = { status: m.status, escrow_amount: m.escrowAmount ?? known.escrow_amount, escrow_token: m.escrowToken ?? known.escrow_token, sla_deadline_at: m.slaDeadlineAt ?? known.sla_deadline_at };
-      if (known.submit_state === "unknown" || known.submit_state === "submitting") {
-        if (m.status !== "in_progress") fields.submit_state = "submitted";
-      }
+      // A submit left without an answer: a later status shows the market took it; still in progress (and, for one
+      // in flight, a while later), it never arrived, so it may be sent again. Resending a deliverable moves no money.
+      const stale = known.submit_state === "unknown" || (known.submit_state === "submitting" && this.d.now().getTime() - Date.parse(known.updated_at) > SUBMIT_STALE_MS);
+      if (stale && m.status !== "in_progress") fields.submit_state = "submitted";
+      else if (stale) Object.assign(fields, { submit_state: "none", submit_error: "The market didn't answer the last submission and still shows the job in progress: submit it again." });
       this.set(m.assignmentId, fields);
     }
     const row = this.row(m.assignmentId);

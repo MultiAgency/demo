@@ -16,6 +16,10 @@ const SETUP_TTL_MS = 30 * 60_000;
 /** A DAO's setup may last at most 7 days (the platform's limit); two leaves room for a vote. */
 const DAO_SETUP_TTL_MS = 2 * 86_400_000;
 const CONSENT_MS = 90 * 86_400_000;
+/** Setup refusals after which the agent may exist: the body expired before a resend, or the agent was created. */
+const RECOVERABLE_SETUP_CODES = new Set(["already_created", "expired", "signed_expired"]);
+/** How long a text issued for the wallet stays the one to sign: a second request for the step answers it again. */
+const SIGN_REUSE_MS = 10 * 60_000;
 const WAIT_MS = 2_000;
 /** The consent the user decided for a DAO owner (2026-11-09): reads and hires, nothing else. */
 export const DAO_SCOPES = ["read", "market"] as const;
@@ -33,9 +37,15 @@ interface PendingSign {
   message: string;
   nonce: string;
   recipient: string;
+  issued_at?: string;
 }
 
 const wait = (label: string): AgencyNext => ({ kind: "wait", label, retry_ms: WAIT_MS });
+/**
+ * A DAO request the platform answered with a refusal rather than a transient failure: it ended (a DAO stop ends pending
+ * consent requests, 409; a finished one is removed after 30 days, 404). Filed again rather than waited on.
+ */
+export const ended = (f: Fail) => f.kind === "refused" || f.kind === "forbidden";
 const STEP_SUMMARY: Record<MarketStepRow["kind"], string> = {
   agent_create: "Create the agency's market agent",
   grant_issue: "Issue the market agent's grant",
@@ -176,8 +186,13 @@ export class Agencies {
   }
 
   private signRequest(a: AgencyRow, step: PendingSign["step"], message: string, label: string): AgencyNext {
-    const pending: PendingSign = { step, message, nonce: nonceToString(randomNonce()), recipient: this.d.market.host };
-    this.set(a.id, { pending_sign: JSON.stringify(pending) });
+    // A second request for the same step (another tab, a reload) answers the text already issued, so the wallet's
+    // signature over it is still the one accepted.
+    const issued = a.pending_sign ? (JSON.parse(a.pending_sign) as PendingSign) : null;
+    const fresh = issued?.step === step && issued.issued_at && this.d.now().getTime() - Date.parse(issued.issued_at) < SIGN_REUSE_MS;
+    const pending: PendingSign = fresh ? issued! : { step, message, nonce: nonceToString(randomNonce()), recipient: this.d.market.host, issued_at: this.iso() };
+    if (!fresh) this.set(a.id, { pending_sign: JSON.stringify(pending) });
+    message = pending.message;
     return { kind: "sign", step, label, sign: { account_id: a.owner, message, recipient: pending.recipient, nonce: pending.nonce } };
   }
 
@@ -198,6 +213,10 @@ export class Agencies {
       let res = await this.d.market.setup(s);
       if (!res.ok && (res.kind === "unavailable" || res.kind === "unknown")) res = await this.d.market.setup(s);
       let agent = res.ok ? res.value.agent : null;
+      // Only a lost reply, or a refusal that means the agent may exist already, is looked up in the reservations: a
+      // refused signature never binds the key it named.
+      const lost = !res.ok && (res.kind === "unavailable" || res.kind === "unknown" || (res.kind === "refused" && RECOVERABLE_SETUP_CODES.has(res.code)));
+      if (!res.ok && !lost) throw failError(res, "the setup");
       if (!res.ok) {
         const listed = await this.d.market.reservations(a.organization, a.owner);
         const live = listed.ok ? listed.value.filter((x) => !x.released && x.owner === a.owner) : [];
@@ -218,13 +237,13 @@ export class Agencies {
     let v = this.latestVote(a.id, "setup");
     if (v && v.state === "pending") {
       const st = await this.d.market.daoSetup.state(v.id);
-      if (!st.ok) return wait("Waiting for the platform to read the DAO's vote");
-      if (st.value.state === "done") {
+      if (!st.ok && !ended(st)) return wait("Waiting for the platform to read the DAO's vote");
+      if (st.ok && st.value.state === "done") {
         this.setVote(v.id, "done");
         this.set(a.id, { agent: st.value.agent, stage: "needs_create" });
         return this.next(a.id);
       }
-      if (st.value.state === "pending") return { kind: "dao_vote", label, vote: this.voteView(v) };
+      if (st.ok && st.value.state === "pending") return { kind: "dao_vote", label, vote: this.voteView(v) };
       this.setVote(v.id, "expired");
     }
     const message = this.d.market.setupMessage({ organization: a.organization, owner: a.owner, expiresAt: new Date(this.d.now().getTime() + DAO_SETUP_TTL_MS).toISOString() });
@@ -239,13 +258,13 @@ export class Agencies {
     let v = this.latestVote(a.id, "consent");
     if (v && v.state === "pending") {
       const st = await this.d.market.daoConsent.state(v.id);
-      if (!st.ok) return wait("Waiting for the platform to read the DAO's vote");
-      if (st.value.state === "done") {
+      if (!st.ok && !ended(st)) return wait("Waiting for the platform to read the DAO's vote");
+      if (st.ok && st.value.state === "done") {
         this.setVote(v.id, "done");
         this.set(a.id, { consent_id: st.value.consentId, consent_expires_at: st.value.expiresAt, stage: "needs_grant" });
         return this.next(a.id);
       }
-      if (st.value.state === "pending") return { kind: "dao_vote", label, vote: this.voteView(v) };
+      if (st.ok && st.value.state === "pending") return { kind: "dao_vote", label, vote: this.voteView(v) };
       this.setVote(v.id, "expired");
     }
     const expiresAt = new Date(this.d.now().getTime() + CONSENT_MS).toISOString();
@@ -285,7 +304,12 @@ export class Agencies {
     }
     const waitsOnOthers = s && (s.state === "submitted" || s.state === "unknown" || (s.state === "prepared" && (a.signer === "dao" || !!s.confirm_url)));
     if (s && waitsOnOthers) s = await this.pollStep(s.correlation_id);
-    if (s?.state === "success") return this.next(a.id);
+    if (s?.state === "success") {
+      // The step succeeded but the platform may not show its effect yet (say, the agent not yet created): wait for the
+      // next call rather than asking again at once, which would recurse without end.
+      if (!repeatable && this.row(a.id).stage === a.stage) return wait("Waiting for the platform to show the change");
+      return this.next(a.id);
+    }
     if (s && (s.state === "submitted" || s.state === "unknown")) return wait("Waiting for the platform to apply the signed step");
     if (s && s.state === "prepared") return this.stepView(a, s, label);
     const prepared = await this.agent(a).ownerPrepare(action, a.signer);
@@ -310,6 +334,8 @@ export class Agencies {
   }
 
   private storeStep(a: AgencyRow, kind: MarketStepRow["kind"], p: OwnerPrepared): MarketStepRow {
+    // Checked before anything is stored: a prepared DAO step without its vote would be shown as nothing to vote on.
+    if (p.dao && !p.dao.hash) throw new UserError("The platform's DAO proposal named no hash to vote on.", 502);
     const now = this.iso();
     this.d.db
       .query(
@@ -318,7 +344,6 @@ export class Agencies {
       )
       .run(p.correlationId, a.id, kind, p.intent ? JSON.stringify(p.intent) : null, p.confirm?.url ?? null, p.confirm?.expiresAt ?? p.expiresAt, p.summary, now, now);
     if (p.dao) {
-      if (!p.dao.hash) throw new UserError("The platform's DAO proposal named no hash to vote on.", 502);
       this.recordVote(a.id, kind, p.correlationId, { id: `step:${p.correlationId}`, hash: p.dao.hash, description: p.summary, votingUntil: Date.parse(p.expiresAt), proposal: p.dao.proposal, proposalAndVote: p.dao.proposalAndVote });
     }
     return this.step(p.correlationId);
@@ -328,7 +353,7 @@ export class Agencies {
     const pending = await this.agent(a).ownerPending();
     if (!pending.ok) return null;
     const open = pending.value.find((p) => p.type === kind);
-    if (!open) return null;
+    if (!open || (a.signer === "dao" && !open.hash)) return null;
     const known = this.d.db.query("SELECT * FROM market_steps WHERE correlation_id = ?").get(open.correlationId) as MarketStepRow | null;
     if (known) return known;
     return this.storeStep(a, kind, {

@@ -39,12 +39,14 @@ export class Market {
     const a = this.agencies.row(id);
     let account: AgencyView["account"] = null;
     let frozen: boolean | null = null;
-    if (a.stage === "ready" || a.stage === "needs_registration") {
-      const f = await this.agencies.agent(a).frozen();
-      if (f.ok) frozen = f.value;
-      const r = await this.agencies.agent(a).account();
-      if (r.ok) account = { account: r.value.account, registered: r.value.registered, opened: r.value.opened, usdc_usd: fromAtomic(BigInt(r.value.usdc), USDC_DECIMALS) };
-    }
+    const live = a.stage === "ready" || a.stage === "needs_registration";
+    const [f, r, deposit] = await Promise.all([
+      live ? this.agencies.agent(a).frozen() : null,
+      live ? this.agencies.agent(a).account() : null,
+      this.agencies.depositView(a),
+    ]);
+    if (f?.ok) frozen = f.value;
+    if (r?.ok) account = { account: r.value.account, registered: r.value.registered, opened: r.value.opened, usdc_usd: fromAtomic(BigInt(r.value.usdc), USDC_DECIMALS) };
     return {
       id: a.id,
       name: a.name,
@@ -58,7 +60,7 @@ export class Market {
       dao_stop_url: a.signer === "dao" && a.agent ? this.agencies.daoStopUrl(a) : null,
       consent_expires_at: a.consent_expires_at,
       account,
-      deposit: await this.agencies.depositView(a),
+      deposit,
       hires: this.hires.forAgency(a.id).map((h) => this.hires.view(h)),
       worker: this.d.worker?.agencyId === a.id,
     };

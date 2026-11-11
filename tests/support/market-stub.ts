@@ -34,6 +34,12 @@ export class StubMarket implements MarketPlatform {
   daoHireStates: Res<DaoState<{ hireState: string }>>[] = [];
   account: MarketAccount = { account: "f".repeat(64), registered: true, opened: false, usdc: "0", registration: null };
   isFrozen = false;
+  /** Overrides: set to script one answer each (tests of Covenant's handling). */
+  frozenAnswer: Res<boolean> | null = null;
+  identityAnswer: Res<{ agentId: string | null; created: boolean; owner: string; signer: "wallet" | "dao" }> | null = null;
+  setupAnswer: Res<{ agent: string }> | null = null;
+  reservationsAnswer: Res<{ agent: string; owner: string; released: boolean }[]> = ok([]);
+  daoConsentStates: Res<DaoState<{ consentId: string; expiresAt: string }>>[] = [];
 
   setupMessage(i: { organization: string; owner: string; expiresAt: string }) {
     return `setup ${i.organization} ${i.owner}`;
@@ -42,19 +48,26 @@ export class StubMarket implements MarketPlatform {
     return `consent ${i.organization} ${i.scopes.join(",")}`;
   }
   async identity() {
-    return ok({ agentId: "agent-id", created: true, owner: "acme.near", signer: "wallet" as const });
+    return this.identityAnswer ?? ok({ agentId: "agent-id", created: true, owner: "acme.near", signer: "wallet" as const });
   }
   async setup(_s: Signed413) {
-    return ok({ agent: "own-1" });
+    this.calls.push(["setup"]);
+    return this.setupAnswer ?? ok({ agent: "own-1" });
   }
   async reservations() {
-    return ok([]);
+    return this.reservationsAnswer;
   }
   async submitConsent() {
     return ok({ id: "consent-1", expiresAt: "2027-02-01T00:00:00.000Z" });
   }
   readonly daoSetup = { file: async () => ok(request("setup")), state: async () => ok<DaoState<{ agent: string }>>({ state: "done", agent: "own-1" }) };
-  readonly daoConsent = { file: async () => ok(request("consent")), state: async () => ok<DaoState<{ consentId: string; expiresAt: string }>>({ state: "done", consentId: "c-dao", expiresAt: "2027-02-01T00:00:00.000Z" }) };
+  readonly daoConsent = {
+    file: async () => {
+      this.calls.push(["daoConsent.file"]);
+      return ok(request(`consent-${this.calls.length}`));
+    },
+    state: async () => this.daoConsentStates.shift() ?? ok<DaoState<{ consentId: string; expiresAt: string }>>({ state: "done", consentId: "c-dao", expiresAt: "2027-02-01T00:00:00.000Z" }),
+  };
   readonly daoHire = {
     file: async (i: { requestId: string; validUntil: string }) => {
       this.calls.push(["daoHire.file", i.requestId]);
@@ -87,7 +100,7 @@ export class StubMarket implements MarketPlatform {
         return ok(s.account);
       },
       async frozen() {
-        return ok(s.isFrozen);
+        return s.frozenAnswer ?? ok(s.isFrozen);
       },
       async quote(handle: string) {
         s.calls.push(["quote", handle]);

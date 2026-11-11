@@ -109,6 +109,6 @@ export function volumeProblem(env: Record<string, string | undefined>): string |
   if (!required.startsWith("/")) return `REQUIRED_MOUNT must be an absolute path, not ${required}`;
   const mounted = env.RAILWAY_VOLUME_MOUNT_PATH;
   if (mounted !== required) return `No volume is mounted at ${required}${mounted ? ` (Railway mounted one at ${mounted})` : ""}: attach the service's volume there before it starts.`;
-  if (env.DB_PATH && !env.DB_PATH.startsWith(`${required.replace(/\/+$/, "")}/`)) return `DB_PATH must be on the volume at ${required}, not ${env.DB_PATH}.`;
+  if (!env.DB_PATH || !env.DB_PATH.startsWith(`${required.replace(/\/+$/, "")}/`)) return `DB_PATH must be on the volume at ${required}, not ${env.DB_PATH ?? "the default (data/covenant.sqlite, on the container's disk)"}.`;
   return null;
 }

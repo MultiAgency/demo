@@ -7,7 +7,7 @@ import { fromAtomic } from "../../shared/money";
 import { USDC_DECIMALS } from "../../shared/terms";
 import { UserError } from "../engine";
 import { failCode, failError } from "../onboarding";
-import type { Agencies } from "./agencies";
+import { type Agencies, ended } from "./agencies";
 import { type HireRow, type HireState, update } from "./db";
 import type { Fail, HireAnswer, HireTerms, MarketPlatform } from "./port";
 
@@ -74,21 +74,38 @@ export class Hires {
     const r = this.row(requestId);
     const a = this.d.agencies.ready(r.agency_id);
     // A freeze stops the agent's provider sends, not a payment from funds already on its payment key: hire nothing.
+    // Fails closed: unless the platform reads the agent unfrozen, nothing is approved.
     const frozen = await this.d.agencies.agent(a).frozen();
-    if (frozen.ok && frozen.value) throw new UserError("The agency's market agent is frozen. Unfreeze it before approving a job.", 409);
+    if (!frozen.ok) throw new UserError("Couldn't read whether the agency's market agent is frozen, so nothing was approved. Try again.", 503);
+    if (frozen.value) throw new UserError("The agency's market agent is frozen. Unfreeze it before approving a job.", 409);
     const terms = JSON.parse(r.terms) as HireTerms;
     if (a.signer === "dao") {
-      if (r.state !== "quoted" && r.state !== "vote_expired") throw new UserError(`This hire is ${r.state}.`, 409);
+      const from = this.claim(requestId, ["quoted", "vote_expired"], "voting", actor);
       const validUntil = new Date(this.d.now().getTime() + DAO_APPROVAL_MS).toISOString();
       const filed = await this.d.market.daoHire.file({ organization: a.organization, agent: a.agent!, requestId, brief: r.brief, approved: terms, validUntil });
-      if (!filed.ok) throw failError(filed, "the DAO's hire request");
+      if (!filed.ok) {
+        this.set(requestId, { state: from });
+        throw failError(filed, "the DAO's hire request");
+      }
       const v = this.d.agencies.recordVote(a.id, "hire", requestId, filed.value);
-      this.set(requestId, { state: "voting", dao_vote_id: v.id, approved_by: actor });
+      this.set(requestId, { dao_vote_id: v.id });
       return this.row(requestId);
     }
-    if (r.state !== "quoted") throw new UserError(`This hire is ${r.state}.`, 409);
-    this.set(requestId, { state: "hiring", approved_by: actor });
+    this.claim(requestId, ["quoted"], "hiring", actor);
     return this.ask(requestId);
+  }
+
+  /**
+   * Moves the hire from one of `from` to `to` in one statement, so two approvals of one quote can't both proceed.
+   * Answers the state it left.
+   */
+  private claim(requestId: string, from: HireState[], to: HireState, actor: string | null): HireState {
+    const before = this.row(requestId).state;
+    const moved = this.d.db
+      .query(`UPDATE market_hires SET state = ?, approved_by = ?, updated_at = ? WHERE request_id = ? AND state IN (${from.map(() => "?").join(", ")})`)
+      .run(to, actor, this.iso(), requestId, ...from);
+    if (moved.changes !== 1) throw new UserError(`This hire is ${this.row(requestId).state}.`, 409);
+    return before;
   }
 
   /** `market/hire` under the hire's own requestId: paid at most once, only while a fresh quote equals the terms. */
@@ -121,9 +138,11 @@ export class Hires {
   async follow(requestId: string): Promise<HireRow> {
     let r = this.row(requestId);
     if (r.state === "voting") {
-      const st = await this.d.market.daoHire.state(r.dao_vote_id!);
-      if (!st.ok || st.value.state === "pending") return r;
-      if (st.value.state === "expired") {
+      if (!r.dao_vote_id) return r; // being filed by the approval in flight
+      const st = await this.d.market.daoHire.state(r.dao_vote_id);
+      if (!st.ok && !ended(st)) return r;
+      if (st.ok && st.value.state === "pending") return r;
+      if (!st.ok || st.value.state === "expired") {
         this.d.agencies.setVote(r.dao_vote_id!, "expired");
         this.set(requestId, { state: "vote_expired" });
         return this.row(requestId);
