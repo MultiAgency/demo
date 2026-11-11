@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { judgeJob, type JobFetch } from "../src/server/job-judge";
-import type { Config } from "../src/server/config";
+import { loadConfig, type Config } from "../src/server/config";
 import { DEMO_TERMS } from "../src/shared/demo";
 import { jobSubmissionSchema } from "../src/shared/jobs";
 import { parseTerms } from "../src/shared/terms";
 
 // Assessor unit fixtures only: all responses are injected, with no hosted AI or network calls.
-const config: Config["judge"] = { kind: "near-ai", apiKey: "fixture-not-a-live-key", model: "fixture-model", baseUrl: "https://assessor.invalid/v1" };
+const config: Config["judge"] = { kind: "near-ai", apiKey: "fixture-not-a-live-key", model: "fixture-model", baseUrl: "https://assessor.invalid/v1", assessmentTimeoutMs: 30000 };
 const terms = parseTerms(DEMO_TERMS);
 const submission = jobSubmissionSchema.parse({
   client_request_id: "assessor-fixture-001",
@@ -21,6 +21,16 @@ function answer(content: string): JobFetch {
 const result = (completion = 1, confidence = "high") => JSON.stringify({
   deliverables: [{ id: "d1", completion, reason: "The described tests support the criterion." }], confidence,
 });
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(yes => { resolve = yes; });
+  return { promise, resolve };
+}
+async function bounded<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Test guard expired before the assessor deadline")), 1000); })]); }
+  finally { clearTimeout(timer); }
+}
 
 describe("optional job AI assessor — injected unit fixtures", () => {
   test("uses signed criteria and keeps model recommendations within supported scope", async () => {
@@ -88,5 +98,50 @@ describe("optional job AI assessor — injected unit fixtures", () => {
     await expect(judgeJob(config, terms, submission, {}, unavailable)).rejects.toThrow("503");
     const lostResponse: JobFetch = async () => { throw new Error("fixture response lost"); };
     await expect(judgeJob(config, terms, submission, {}, lostResponse)).rejects.toThrow("fixture response lost");
+  });
+
+  for (const phase of ["headers", "body"] as const) {
+    test(`a stalled ${phase} response aborts at the assessment deadline without a fallback or late result`, async () => {
+      const response = deferred<Response>();
+      const body = deferred<unknown>();
+      const started = deferred<void>();
+      let signal: AbortSignal | undefined;
+      let returnedAssessment = false;
+      const send: JobFetch = async (_url, init) => {
+        signal = init.signal ?? undefined;
+        if (phase === "headers") { started.resolve(); return response.promise; }
+        const res = Response.json({});
+        res.json = async () => { started.resolve(); return body.promise; };
+        return res;
+      };
+      const assessment = judgeJob({ ...config, assessmentTimeoutMs: 35 }, terms, submission, {}, send)
+        .then(value => { returnedAssessment = true; return value; });
+      // Attach immediately so a deadline rejection is never an unhandled promise while checking the stalled phase.
+      const observed = assessment.then(value => ({ value, error: null }), error => ({ value: null, error }));
+      try {
+        await bounded(started.promise);
+        const outcome = await bounded(observed);
+        expect(outcome.value).toBeNull();
+        expect(outcome.error).toBeInstanceOf(Error);
+        expect(String(outcome.error)).toMatch(/timed out|deadline/i);
+        expect(signal).toBeInstanceOf(AbortSignal);
+        expect(signal!.aborted).toBe(true);
+        expect(returnedAssessment).toBe(false);
+      } finally {
+        response.resolve(Response.json({ choices: [{ message: { content: result() } }] }));
+        body.resolve({ choices: [{ message: { content: result() } }] });
+        await observed;
+      }
+      await Bun.sleep(0); // Drain the deliberately uncooperative late response; it cannot replace the rejected result.
+      expect(returnedAssessment).toBe(false);
+    });
+  }
+
+  test("assessment deadline configuration defaults to 30 seconds and rejects invalid timer durations", () => {
+    expect(loadConfig({}).judge.assessmentTimeoutMs).toBe(30000);
+    expect(loadConfig({ JOB_ASSESSMENT_TIMEOUT_MS: "45" }).judge.assessmentTimeoutMs).toBe(45);
+    expect(loadConfig({ JOB_ASSESSMENT_TIMEOUT_MS: "2147483647" }).judge.assessmentTimeoutMs).toBe(2147483647);
+    for (const value of ["", "0", "-1", "1.5", "NaN", "Infinity", "2147483648"])
+      expect(() => loadConfig({ JOB_ASSESSMENT_TIMEOUT_MS: value })).toThrow(/JOB_ASSESSMENT_TIMEOUT_MS/);
   });
 });

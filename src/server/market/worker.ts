@@ -163,22 +163,37 @@ export class Worker {
     return this.polling;
   }
 
+  /** A delayed read may update only the pending row it observed, never a confirmed or newer submission. */
+  private recoverSubmission(row: AssignmentRow, agencyId: string, state: "none" | "submitted" | "unknown", error: string | null): boolean {
+    if (this.submitting.has(row.assignment_id)) return false;
+    const current = this.row(row.assignment_id, agencyId);
+    if (current.submit_state !== "unknown" && current.submit_state !== "submitting") return false;
+    const changed = this.d.db.query(`UPDATE market_assignments SET submit_state = ?, submit_error = ?, updated_at = ?
+      WHERE assignment_id = ? AND agency_id = ? AND submit_state = ? AND updated_at = ?
+        AND status = ? AND deliverable IS ? AND submit_error IS ?`)
+      .run(state, error, this.iso(), row.assignment_id, agencyId, row.submit_state, row.updated_at,
+        row.status, row.deliverable, row.submit_error);
+    return changed.changes === 1;
+  }
+
   private async pollOnce(): Promise<void> {
     const cfg = this.cfg();
     try {
       for (const m of await this.d.api.assignments()) this.upsert(m, true, cfg.agencyId);
-      const pending = this.d.db.query("SELECT * FROM market_assignments WHERE agency_id = ? AND submit_state IN ('unknown', 'submitting')").all(cfg.agencyId) as AssignmentRow[];
+      const pending = this.d.db.query("SELECT assignment_id FROM market_assignments WHERE agency_id = ? AND submit_state IN ('unknown', 'submitting')").all(cfg.agencyId) as { assignment_id: string }[];
       let failed: Error | null = null;
-      for (const row of pending) {
+      for (const candidate of pending) {
+        // Earlier version reads awaited above can outlive another assignment's successful POST.
+        const row = this.row(candidate.assignment_id, cfg.agencyId);
+        if (row.submit_state !== "unknown" && row.submit_state !== "submitting") continue;
         // A live POST may still arrive after an empty read. A restarted process has no live local call to wait for.
         if (this.submitting.has(row.assignment_id)) continue;
         try {
           const arrived = await this.d.api.hasDeliverableVersions(row.assignment_id);
-          this.set(row.assignment_id, { submit_state: arrived ? "submitted" : "none", submit_error: null });
+          this.recoverSubmission(row, cfg.agencyId, arrived ? "submitted" : "none", null);
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
-          this.set(row.assignment_id, { submit_state: "unknown", submit_error: error.message });
-          failed ??= error;
+          if (this.recoverSubmission(row, cfg.agencyId, "unknown", error.message)) failed ??= error;
         }
       }
       if (failed) throw failed;

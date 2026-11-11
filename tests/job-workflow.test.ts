@@ -42,6 +42,12 @@ function onlyPayout(c: Awaited<ReturnType<Runtime["covenant"]["viewContract"]>>)
   return payouts[0]!;
 }
 
+async function assessmentTestGuard<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try { return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Test guard expired before the assessor released the contract lock")), 1000); })]); }
+  finally { clearTimeout(timer); }
+}
+
 describe("one builder job — simulated platform", () => {
   test("a work order must be accepted; merge routes and the merge watcher cannot bypass submission", async () => {
     const ctx = await setup(JOB_DEMO_TERMS);
@@ -416,6 +422,88 @@ describe("one builder job — simulated platform", () => {
     expect(onlyPayout(paid).tx_hash).toBe("SIM-DESTINATION-TX-001");
     expect(ctx.stub.transfers).toHaveLength(1);
   });
+
+  for (const phase of ["headers", "body"] as const) {
+    test(`an assessor ${phase} timeout releases queued review without changing proposal or payment identities`, async () => {
+      const ctx = await activate("300", JOB_DEMO_TERMS, {
+        JUDGE: "near-ai", NEARAI_API_KEY: "fixture-only", NEARAI_BASE_URL: "https://assessor.invalid/v1",
+        JOB_ASSESSMENT_TIMEOUT_MS: "40",
+      });
+      const c = ctx.rt.covenant;
+      const s = await c.submitJob(ctx.id, submission(`timeout-${phase}-original`, `INV-TIMEOUT-${phase}`), builder);
+      const original = c.jobSubmissions(ctx.id)[0]!;
+      const before = await c.viewContract(ctx.id);
+      const db = (c as unknown as { d: { db: Database } }).d.db;
+      const originalFetch = globalThis.fetch;
+      let releaseResponse!: (response: Response) => void;
+      let releaseBody!: (body: unknown) => void;
+      let entered!: () => void;
+      const started = new Promise<void>(resolve => { entered = resolve; });
+      const lateResponse = new Promise<Response>(resolve => { releaseResponse = resolve; });
+      const lateBody = new Promise<unknown>(resolve => { releaseBody = resolve; });
+      let signal: AbortSignal | undefined;
+      let calls = 0;
+      let changesDone = false;
+      let proposal: Promise<unknown> | undefined;
+      let changes: Promise<unknown> | undefined;
+      const successfulBody = { choices: [{ message: { content: JSON.stringify({
+        deliverables: [{ id: "d1", completion: 1, reason: "Late fixture assessment" }], confidence: "high",
+      }) } }] };
+      const assertNoProposal = async () => {
+        const current = c.jobSubmissions(ctx.id)[0]!;
+        expect(current).toMatchObject({ id: original.id, revision: original.revision, terms_hash: original.terms_hash,
+          builder: original.builder, report: original.report, invoice: original.invoice, evidence: original.evidence,
+          state: "changes_requested", judgment_id: null, proposed_usd: "0", paid_usd: "0", payout_request_ids: [] });
+        const view = await c.viewContract(ctx.id);
+        expect(view.hash).toBe(before.hash);
+        expect(view.terms).toEqual(before.terms);
+        expect(view.judgment).toBeNull();
+        expect(view.open_judgment).toBeNull();
+        expect(view.payouts).toEqual([]);
+        expect(view.paid_usd).toBe("0");
+        expect(db.query("SELECT id FROM judgments WHERE contract_id = ?").all(ctx.id)).toEqual([]);
+        expect(db.query("SELECT request_id FROM payout_attempts WHERE contract_id = ?").all(ctx.id)).toEqual([]);
+        expect(ctx.stub.calls.requestPayout).toBe(0);
+        expect(ctx.stub.transfers).toEqual([]);
+      };
+      try {
+        globalThis.fetch = (async (url, init) => {
+          calls++;
+          expect(String(url)).toBe("https://assessor.invalid/v1/chat/completions");
+          signal = init?.signal ?? undefined;
+          if (phase === "headers") { entered(); return lateResponse; }
+          const response = Response.json({});
+          response.json = async () => { entered(); return lateBody; };
+          return response;
+        }) as typeof fetch;
+        proposal = c.proposeJob(s.id);
+        const outcome = proposal.then(value => ({ value, error: null }), error => ({ value: null, error }));
+        await assessmentTestGuard(started);
+        changes = c.requestJobChanges(s.id, "Attach the missing acceptance test evidence.").then(value => { changesDone = true; return value; });
+        expect(changesDone).toBe(false);
+        const timedOut = await assessmentTestGuard(outcome);
+        expect(timedOut.value).toBeNull();
+        expect(String(timedOut.error)).toMatch(/timed out|deadline/i);
+        await assessmentTestGuard(changes);
+        expect(changesDone).toBe(true);
+        expect(signal).toBeInstanceOf(AbortSignal);
+        expect(signal!.aborted).toBe(true);
+        await assertNoProposal();
+        releaseResponse(Response.json(successfulBody));
+        releaseBody(successfulBody);
+        await Bun.sleep(0); // The late full-completion assessment cannot create a judgment or payout after timeout.
+        await assertNoProposal();
+        expect(calls).toBe(1); // No fallback or evidence-URL fetch.
+        expect((await c.submitJob(ctx.id, submission(`timeout-${phase}-original`, `INV-TIMEOUT-${phase}`), builder)).id).toBe(s.id);
+      } finally {
+        releaseResponse(Response.json(successfulBody));
+        releaseBody(successfulBody);
+        await Promise.allSettled([proposal, changes].filter((p): p is Promise<unknown> => !!p));
+        globalThis.fetch = originalFetch;
+        await closeRuntime(ctx.rt);
+      }
+    });
+  }
 
   test("insufficient funds are refused and never presented as settlement", async () => {
     const ctx = await activate("0", JOB_DEMO_TERMS);

@@ -382,6 +382,79 @@ describe("worker submit outcome", () => {
     expect(posts).toBe(1);
   });
 
+  for (const replyKind of ["submitted", "refused"] as const) {
+    test(`a queued assignment whose POST becomes ${replyKind} while another version read waits is not recovered from a stale snapshot`, async () => {
+      const firstVersions = deferred<Response>();
+      const firstReadStarted = deferred<void>();
+      const secondPost = deferred<Response>();
+      const secondPostStarted = deferred<void>();
+      let statusB = "in_progress";
+      let postsA = 0;
+      let postsB = 0;
+      let readsA = 0;
+      let readsB = 0;
+      const ctx = context((async (url, init) => {
+        const path = new URL(String(url)).pathname;
+        if (init?.method === "POST") {
+          if (path.endsWith("/a/submit")) { postsA++; throw new TypeError("A's response was lost"); }
+          postsB++;
+          if (postsB === 1) { secondPostStarted.resolve(); return secondPost.promise; }
+          return Response.json({ assignmentId: "b", status: "submitted" });
+        }
+        if (isVersions(url)) {
+          if (path.endsWith("/a/deliverable/versions")) {
+            readsA++;
+            firstReadStarted.resolve();
+            return firstVersions.promise;
+          }
+          readsB++;
+          // A realistic failing read, not a contradictory empty list after B's successful submission.
+          return new Response("{}", { status: 503 });
+        }
+        return Response.json({ assignments: [item("a"), item("b", statusB)] });
+      }) as typeof fetch);
+      await ctx.m.worker.poll();
+      await ctx.m.worker.submit("a", "Original A report");
+      const posting = ctx.m.worker.submit("b", "Original B report");
+      await secondPostStarted.promise;
+      const polling = ctx.m.worker.poll();
+      const pollResult = polling.then(() => null, (error: unknown) => error);
+      try {
+        // The original query contains both A (unknown) and B (submitting); only A is being read yet.
+        await firstReadStarted.promise;
+        statusB = replyKind === "submitted" ? "submitted" : "in_progress";
+        secondPost.resolve(replyKind === "submitted"
+          ? Response.json({ assignmentId: "b", status: "submitted" })
+          : new Response("{}", { status: 409 }));
+        await posting;
+        const before = ctx.m.worker.row("b");
+        expect(before.submit_state).toBe(replyKind === "submitted" ? "submitted" : "none");
+        firstVersions.resolve(Response.json({ versions: [] }));
+        expect(await pollResult).toBeNull();
+        expect(ctx.m.worker.row("b")).toEqual(before);
+        expect(readsA).toBe(1);
+        expect(readsB).toBe(0);
+        expect(postsA).toBe(1);
+        expect(postsB).toBe(1);
+        expect(ctx.m.worker.row("a")).toMatchObject({ submit_state: "none", deliverable: "Original A report" });
+        expect((await ctx.m.worker.view()).last_poll?.error).toBeNull();
+
+        // A successful B can move to buyer-requested rework; a refused B was already eligible for manual retry.
+        statusB = "in_progress";
+        await ctx.m.worker.poll();
+        await ctx.m.worker.submit("b", "Explicit B revision or retry");
+        expect(ctx.m.worker.row("b")).toMatchObject({ submit_state: "submitted", status: "submitted", deliverable: "Explicit B revision or retry" });
+        expect(postsB).toBe(2);
+        expect(readsB).toBe(0);
+      } finally {
+        firstVersions.resolve(Response.json({ versions: [] }));
+        secondPost.resolve(Response.json({ assignmentId: "b", status: "submitted" }));
+        await posting;
+        await pollResult;
+      }
+    });
+  }
+
   for (const replyKind of ["success", "lost"] as const) {
     test(`a late POST ${replyKind} cannot undo a concurrent poll's accepted assignment`, async () => {
       let status = "in_progress";

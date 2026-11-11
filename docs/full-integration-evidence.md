@@ -2,7 +2,26 @@
 
 The integration combines builder report/invoice jobs and wallet signing with the committed Agent Market branch `9c44162` (PR #7). Platform PR #6 was already merged as `fe8934d`. SDK remains **0.5.6**. The original builder changes remain recoverable in local stash `588d3b6ff88fb03dc97aa1bb3217c614b0ed200f` and public-source backup `/tmp/covenant-before-combined-oqgyhdwi`; the separate `demo-market` checkout and its running server were left unchanged.
 
-The user subsequently reserved all commits for themselves and requested a rebase of `covenant-market` onto current main. No integration commit or push was made. Deployment, live credentials, owner signatures and real funds remain outside authorization. A read-only Railway source-trigger query across accessible projects found no deployment trigger for `MultiAgency/demo`; no Railway configuration was applied or deployment performed.
+The user subsequently reserved all commits for themselves and requested a rebase of `covenant-market` onto current main. At that checkpoint no integration commit or push had been made. The user later committed and pushed `1500ce49cd6cab05d19b52fffe1d41be5c663e94`, reviewed in PR #9. Deployment, live credentials, owner signatures and real funds remain outside authorization. A read-only Railway source-trigger query across accessible projects found no deployment trigger for `MultiAgency/demo`; no Railway configuration was applied or deployment performed.
+
+## User validation of commit `1500ce4` — November 11, 2026
+
+The user's pasted run reports **381 tests / 2,199 assertions** and passing typecheck, stand-in browser, SDK restart and combined browser commands. The named receipts and all screenshots were independently read and verified:
+
+- `covenant-browser-yYRwC0/receipt.json`: requested changes, confirmed cancellation, immutable revision and one simulated 300 USDC payment; seven captures.
+- `covenant-restart-launch-3UVu7k/launcher-receipt.json`, child `jobs/covenant-job-restart-IFxhwg/receipt.json`: original request/correlation across app processes `58421 → 60332`, one simulated 300 USDC payment, zero provider errors, no transaction hash. This loses the app HTTP response, not the provider response. App-source SHA-256: `2b828d0371e3040db51aa41d567b0f76c223cd1c19d7d1e954560bd2ba667b68`.
+- `covenant-full-launch-cbdTFO/launcher-receipt.json`, child `jobs/covenant-browser-tmUFGl/receipt.json`: builder settlement plus a distinct 0.5 USDC market service returning `the article`; nine captures.
+
+These directories are under `/private/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T`. SDK evidence uses SDK 0.5.6, Node 24.22.2 and platform snapshot `36a66cb4` / source `f7caad4`. The user's interactive `covenant-full-launch-NsvbUg/jobs/covenant-full-app-F2rvMn` app is on port 3003. These runs predate the subsequent fixes for stale worker recovery snapshots and the AI deadline; they do not validate those fixes retroactively.
+
+## PR #9 review corrections after `1500ce4`
+
+- Worker polls now treat the initial pending list as candidate IDs, re-read eligibility before each versions request and condition recovery writes on the same agency/pending row snapshot. A different job's delayed versions read cannot downgrade a now-confirmed submission or turn a known refusal into uncertainty. Two deterministic two-assignment regressions preserve explicit rework/retry behavior and the empty-versions rule.
+- Optional AI assessment now has a configurable 30-second application deadline (`JOB_ASSESSMENT_TIMEOUT_MS`) covering response headers and JSON body reads. Timeout aborts the request and releases the contract mutex even if the injected client ignores abort. Queued agency changes complete with the original submission/invoice/terms, no judgment, no payout request and no transfer. Late full-completion model results cannot create a proposal. Header and body regressions exercise both the assessor and whole job workflow.
+
+Fresh checks: **388 tests passed, 0 failed, 2,309 assertions across 22 files**, log `/tmp/covenant-pr9-review-fixes-tests.log`; `bun run typecheck` and patch whitespace checks passed. Toolchain: Bun 1.4.2, TypeScript 7.0.2, SDK 0.5.6. Source manifest: `/tmp/covenant-pr9-review-fixes-manifest.json`, 105 selected source/test/script/build files, SHA-256 `93eb0c85b10c96946713c7f78dd7ff1767b9578580603beb4355f8fb586a4d48`, based on user commit `1500ce4` plus these local changes.
+
+These new regressions are offline fixtures; they do not establish hosted AI, worker or payment behavior. The user's running interactive process on port 3003 was left untouched and retains its pre-fix loaded backend. The full browser/SDK receipts above remain evidence for their recorded source. Review corrections are uncommitted for the user; no merge, deployment or live action was performed.
 
 ## Rebase onto current main — November 11, 2026
 
