@@ -2,10 +2,7 @@ import { z } from "zod";
 import { canonicalJson, sha256Hex } from "./canonical";
 import { fromAtomic, isDecimal, normalizeDecimal, toAtomic } from "./money";
 
-/**
- * USDC on NEAR as a NEAR Intents asset id (native Circle USDC, 6 decimals).
- * Confirm against getTokens() in spike SP0 before the first live contract.
- */
+/** USDC on NEAR as a NEAR Intents asset id (native Circle USDC, 6 decimals). The one USDC id in the codebase. */
 export const USDC_NEAR = "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 export const USDC_DECIMALS = 6;
 
@@ -67,6 +64,7 @@ export const termsSchema = z
 
 export type Terms = z.infer<typeof termsSchema>;
 export type TermsInput = z.input<typeof termsSchema>;
+export type Deliverable = Terms["scope"][number];
 
 export function parseTerms(input: unknown): Terms {
   const terms = termsSchema.parse(input);

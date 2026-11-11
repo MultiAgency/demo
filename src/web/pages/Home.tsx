@@ -4,22 +4,16 @@ import { Icon } from "../components/icons";
 import { PolicyCard } from "../components/PolicyCard";
 import { Avatar, Badge, LinkButton, PageLoading, Progress, dateText, usd, type Tone } from "../components/ui";
 
-interface Row {
-  id: string;
-  company: string;
-  contractor: string;
-  payee: string;
-  total: string;
-  paid: string;
-  start: string;
-  end: string;
-  stage: string;
-}
+import type { ContractRow as Row } from "../types";
 
 export const STAGES: Record<string, { label: string; tone: Tone }> = {
   needs_signatures: { label: "Awaiting signatures", tone: "warning" },
-  needs_wallet: { label: "Setting up", tone: "info" },
+  needs_setup: { label: "Setting up", tone: "info" },
+  needs_create: { label: "Setting up", tone: "info" },
+  needs_consent: { label: "Setting up", tone: "info" },
   needs_grant: { label: "Setting up", tone: "info" },
+  needs_policy: { label: "Setting up", tone: "info" },
+  policy_pending: { label: "Setting up", tone: "info" },
   needs_funding: { label: "Needs funding", tone: "warning" },
   active: { label: "Active", tone: "success" },
   ended: { label: "Ended", tone: "neutral" },
@@ -44,7 +38,7 @@ export function Home() {
       <header className="page-header">
         <div>
           <h1>Contracts</h1>
-          <p className="page-sub">Each contract has its own wallet and limits.</p>
+          <p className="page-sub">Each contract has its own platform agent and limits.</p>
         </div>
         <LinkButton href="#/new" variant="primary" icon="plus">
           New contract
@@ -128,7 +122,7 @@ function Welcome() {
         <div className="welcome-copy">
           <Badge tone="accent">Pay-on-merge, judged against the scope</Badge>
           <h1 className="display">The contract is the spending limit.</h1>
-          <p className="lede">Sign a scope. Every merged PR is judged against it and paid for what it's worth. NEAR enforces the most it can ever be.</p>
+          <p className="lede">Sign a scope. Every merged PR is judged against it, and you approve each payout. The platform enforces the most it can ever be.</p>
           <div className="row gap">
             <LinkButton href="#/new" variant="primary" icon="plus">
               Create a contract
@@ -139,7 +133,7 @@ function Welcome() {
           </div>
         </div>
         <div className="welcome-visual">
-          <PolicyCard payee="maria.near" scope={[{ value_usd: "1200" }, { value_usd: "500" }, { value_usd: "300" }]} start="2026-11-01" end="2026-12-31" repos={["acme/app"]} timelockMinutes={10} status="live" agentId="agent · Acme → Maria" />
+          <PolicyCard payee="maria.near" scope={[{ value_usd: "1200" }, { value_usd: "500" }, { value_usd: "300" }]} start="2026-11-01" end="2026-12-31" repos={["acme/app"]} approver="acme.near" status="live" agentId="agent · Acme → Maria" />
         </div>
       </section>
 
@@ -147,9 +141,9 @@ function Welcome() {
         {(
           [
             ["pen", "Sign a scope", "Deliverables with a value each, signed by both sides."],
-            ["wallet", "Fund its own wallet", "The scope becomes the wallet's policy and balance."],
-            ["bot", "Pay on merge", "An AI judge decides how much each merge completes."],
-            ["shieldCheck", "Anyone can verify", "The live wallet, checked against what was signed."],
+            ["wallet", "Fund its own agent", "The scope becomes the agent's policy and balance."],
+            ["bot", "Approve on merge", "A judge decides how much each merge completes; you approve the payout."],
+            ["shieldCheck", "Anyone can verify", "The live policy, checked against what was signed."],
           ] as const
         ).map(([icon, t, d]) => (
           <div className="feature" key={t}>

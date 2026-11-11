@@ -6,7 +6,7 @@
       "name": "covenant",
       "dependencies": {
         "@better-auth/core": "1.7.14",
-        "@near-intents-agent-api/sdk": "0.7.3",
+        "@multiagency/sdk": "0.5.6",
         "@noble/curves": "^2.4.0",
         "@noble/hashes": "^2.4.0",
         "@scure/base": "^2.4.0",
@@ -26,6 +26,8 @@
     },
   },
   "packages": {
+    "@ag-ui/core": ["@ag-ui/core@1.0.3", "", { "peerDependencies": { "zod": "^3.25.18 || ^4.0.0" }, "optionalPeers": ["zod"] }, "sha512-HdMdZPOqworKlnzLaNktnbNYgIzOPbzt5ow6J4bPhbmHCdpWpCSZQFgkifQkn1zVHgCK1V+pmKc8xtW6FsQZKA=="],
+
     "@better-auth/core": ["@better-auth/core@1.7.14", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "zod": "^4.5.4" }, "peerDependencies": { "@better-auth/utils": "^0.4.2 || ^0.5.0", "@better-fetch/fetch": "1.3.3", "@opentelemetry/api": "^1.9.0", "better-call": "1.4.4", "jose": "^6.1.0", "kysely": "^0.28.5 || ^0.29.0", "nanostores": "^1.0.1" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-ByhdrGVwp/el+hoTYKSVOHIH23/lQj9TQ1txdGcWOg22tnfr3hJ6ukzySooeYj/R36XsQgBhkJqIp8mKsNeErA=="],
 
     "@better-auth/drizzle-adapter": ["@better-auth/drizzle-adapter@1.7.14", "", { "peerDependencies": { "@better-auth/core": "^1.7.14", "@better-auth/utils": "^0.4.2 || ^0.5.0", "drizzle-orm": "^0.45.2 || >=1.0.0-rc.1 <2.0.0" }, "optionalPeers": ["drizzle-orm"] }, "sha512-5RC8Ec5Ur15FWsS4As9/VrlRbB3+9EfShxIpA5A1FcD6IgPxFvzQNkAm2+FYx9LUSqx47NPf9hBTG2GUCMP9Ig=="],
@@ -45,6 +47,8 @@
     "@better-fetch/fetch": ["@better-fetch/fetch@1.3.3", "", {}, "sha512-U6SlDt/GUWtK2JAxS/NhdoYTEim+EL1G5byz2TUj83KjLZBUpYzb5SmX0aXaCnbGkAjFKnV/o/0+cyXMbEcqqg=="],
 
     "@isaacs/fs-minipass": ["@isaacs/fs-minipass@4.0.1", "", { "dependencies": { "minipass": "^7.0.4" } }, "sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w=="],
+
+    "@multiagency/sdk": ["@multiagency/sdk@0.5.6", "", { "dependencies": { "@ag-ui/core": "1.0.3", "@orpc/contract": "2.0.0-beta.47" }, "peerDependencies": { "zod": "^4.6.5" }, "bin": { "multiagency-release-server": "bin/release-server.mjs" } }, "sha512-phD2cZFoajM3VG3zLmLYQVwiXVHuBKpQd6UWt1jnVcJgRGHdmKMva727rRijdsWXvVXLEv5XmCo9L7JVlYXvEQ=="],
 
     "@napi-rs/keyring": ["@napi-rs/keyring@1.3.0", "", { "optionalDependencies": { "@napi-rs/keyring-darwin-arm64": "1.3.0", "@napi-rs/keyring-darwin-x64": "1.3.0", "@napi-rs/keyring-freebsd-x64": "1.3.0", "@napi-rs/keyring-linux-arm-gnueabihf": "1.3.0", "@napi-rs/keyring-linux-arm64-gnu": "1.3.0", "@napi-rs/keyring-linux-arm64-musl": "1.3.0", "@napi-rs/keyring-linux-riscv64-gnu": "1.3.0", "@napi-rs/keyring-linux-x64-gnu": "1.3.0", "@napi-rs/keyring-linux-x64-musl": "1.3.0", "@napi-rs/keyring-win32-arm64-msvc": "1.3.0", "@napi-rs/keyring-win32-ia32-msvc": "1.3.0", "@napi-rs/keyring-win32-x64-msvc": "1.3.0" } }, "sha512-WrOw/bcXm0f9qHkumlT1QlArXSTWqaY9sunsDpOk+yCCorCKMxvWT/a3xko4EYHVdeZoh00yI2TydXn6eyICDA=="],
 
@@ -72,7 +76,7 @@
 
     "@napi-rs/keyring-win32-x64-msvc": ["@napi-rs/keyring-win32-x64-msvc@1.3.0", "", { "os": "win32", "cpu": "x64" }, "sha512-4DnCWXwDc0HRKwyRlG5y0VhKZW2tNRQfKKfyj6IX/KWfDNyq9hn4n+GL1auyDcOO/v8PwnhmYo2+rOOqCkvvOg=="],
 
-    "@near-intents-agent-api/sdk": ["@near-intents-agent-api/sdk@0.7.3", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/base": "^2.4.0" } }, "sha512-3yt6/UHEUplXBBpcFLyFj6FhCqrz7IEpuQw5Vacm+ed24h4fWvsrjWhWsA8nz0Ndkptxx3nVHUq2W7JTA4D0/g=="],
+    "@near-intents-agent-api/sdk": ["@near-intents-agent-api/sdk@0.4.1", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/base": "^2.4.0" } }, "sha512-1b9QlOK/j2jiFPfFuSfUS9ZRox+EHOuF8gd0bfwzasAYdGZ1S5QOOIAAYS6Vv6DAhdJHWwH7xk/rgVaQmoQCQQ=="],
 
     "@noble/ciphers": ["@noble/ciphers@2.2.0", "", {}, "sha512-Z6pjIZ/8IJcCGzb2S/0Px5J81yij85xASuk1teLNeg75bfT07MV3a/O2Mtn1I2se43k3lkVEcFaR10N4cgQcZA=="],
 
@@ -81,6 +85,12 @@
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
     "@noble/post-quantum": ["@noble/post-quantum@0.6.1", "", { "dependencies": { "@noble/ciphers": "~2.2.0", "@noble/curves": "~2.2.0", "@noble/hashes": "~2.2.0" } }, "sha512-+pormrDZwjRw05U8ADK4JpHejo87+gBd+muRBB/ozztH5yhDLMDF4jHQWN3NQQAsu1zBNPWTG0ZwVI0CR29H0A=="],
+
+    "@orpc/client": ["@orpc/client@2.0.0-beta.47", "", { "dependencies": { "@orpc/shared": "2.0.0-beta.47", "@standard-server/core": "~0.13.0", "@standard-server/fetch": "~0.13.0", "@standard-server/peer": "~0.13.0" } }, "sha512-V3l1WSv+AWNSpgOqVKbUk7sK98yWLyyLCsaQA/eSCm2SIRPMZyDhxx0vGs/hXMtSTjEuPI5969IWFBn1/ou+GA=="],
+
+    "@orpc/contract": ["@orpc/contract@2.0.0-beta.47", "", { "dependencies": { "@orpc/client": "2.0.0-beta.47", "@orpc/shared": "2.0.0-beta.47", "@standard-schema/spec": "^1.1.0" } }, "sha512-FYJXbplxd940hmDJNbhL/QoJFaLYy68busgYkdtrct0upCv6pFHC1eJDvzzGKQNl18oQqdcQMFNQBV+jfuTO7A=="],
+
+    "@orpc/shared": ["@orpc/shared@2.0.0-beta.47", "", { "dependencies": { "@standard-server/shared": "~0.13.0", "radash": "^12.1.1", "type-fest": "^5.10.0" } }, "sha512-m8SLQbZFgkj888haL8H8VFDNnc7PNOhx0hPCX2Uy/dAs8CBhO/Tkl9dJRoL7qPtv4lVh/2ZDd5MVHiT65Tj8fw=="],
 
     "@scure/base": ["@scure/base@2.4.0", "", {}, "sha512-thZ1TuJwFwBblOhgsjDKvvGirBxNp+wSvY/DR6tJBJOTDhdAAcHJ8Vbr2eFnqaxeca4+t0i9KBf+uHYGWwZORg=="],
 
@@ -91,6 +101,14 @@
     "@simplewebauthn/browser": ["@simplewebauthn/browser@13.3.0", "", {}, "sha512-BE/UWv6FOToAdVk0EokzkqQQDOWtNydYlY6+OrmiZ5SCNmb41VehttboTetUM3T/fr6EAFYVXjz4My2wg230rQ=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
+
+    "@standard-server/core": ["@standard-server/core@0.13.0", "", { "dependencies": { "@standard-server/shared": "0.13.0" } }, "sha512-WQNJGTonK7ysiNupqB7AhZ+Je44Huxx6WJUvOjazN+FojmdZiLP0PwRIB0HwX/AaeelwiWZDaKzxTf65qxHMbw=="],
+
+    "@standard-server/fetch": ["@standard-server/fetch@0.13.0", "", { "dependencies": { "@standard-server/core": "0.13.0", "@standard-server/shared": "0.13.0" } }, "sha512-ue4JcTz+9KjVDnyLea9Ye1wI0V345RXIOzdSzINtAXbFNxNEgZFD6na8JV8hLc6MkwpFiHUwdONbQuDEVcOVdw=="],
+
+    "@standard-server/peer": ["@standard-server/peer@0.13.0", "", { "dependencies": { "@standard-server/core": "0.13.0", "@standard-server/shared": "0.13.0" } }, "sha512-tonIpajTDewOoroNLSo/5O8PFQjbMnbuETNejCMmXpSAqTCMfLr141ZNQQp6BrDRqsumSgcg8j1dH7Un9grxKw=="],
+
+    "@standard-server/shared": ["@standard-server/shared@0.13.0", "", {}, "sha512-NIjg+xC0fa6h5IRmMt1ycQ58Cj9TfmPNVnR0B4nFuCjfidGDouAueiWY41/L4wT5KrPlhJvgJPxqbhMJSNK/ig=="],
 
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
@@ -170,6 +188,8 @@
 
     "near-kit": ["near-kit@0.20.2", "", { "dependencies": { "@napi-rs/keyring": "^1.3.0", "@noble/curves": "^2.2.0", "@noble/hashes": "^2.0.1", "@noble/post-quantum": "^0.6.1", "@scure/base": "^2.2.0", "@scure/bip32": "^2.2.0", "@scure/bip39": "^2.2.0", "@zorsh/zorsh": "^0.5.1", "tar": "^7.5.20", "zod": "^4.4.3" }, "peerDependencies": { "@hot-labs/near-connect": ">=0.11.0", "@near-wallet-selector/core": ">=8.0.0" }, "optionalPeers": ["@hot-labs/near-connect", "@near-wallet-selector/core"] }, "sha512-434on2oFgimsUfvqLSvM3bDntQRnZvoD9QlWbjiORvbGIycrC84//Dol7tq0g2S0VcMySctU+ooljxggmnTkMw=="],
 
+    "radash": ["radash@12.1.1", "", {}, "sha512-h36JMxKRqrAxVD8201FrCpyeNuUY9Y5zZwujr20fFO77tpUtGa6EZzfKw/3WaiBX95fq7+MpsuMLNdSnORAwSA=="],
+
     "react": ["react@19.3.1", "", {}, "sha512-QNhWdt7nrgVWWQG58QuGsAR3jv3Hbe4mb4vz7w2csnHavciZJgda1CPNaldF6eVxv90ud3jUXpKlHL69gO38yw=="],
 
     "react-dom": ["react-dom@19.3.1", "", { "dependencies": { "scheduler": "^0.28.0" }, "peerDependencies": { "react": "^19.3.1" } }, "sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ=="],
@@ -180,7 +200,11 @@
 
     "set-cookie-parser": ["set-cookie-parser@3.2.2", "", {}, "sha512-df017qMeYuXo4emL09nlyMpi2i2MtEIKS/6jtXH3vmjFgIRsOi852/5RmhJ4EkvN3ZF8jXadM/EkTPXgc8yPIw=="],
 
+    "tagged-tag": ["tagged-tag@1.0.0", "", {}, "sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng=="],
+
     "tar": ["tar@7.5.22", "", { "dependencies": { "@isaacs/fs-minipass": "^4.0.0", "chownr": "^3.0.0", "minipass": "^7.1.2", "minizlib": "^3.1.0", "yallist": "^5.0.0" } }, "sha512-MFO/QzvtAOmJbkhOaCTvbGcFN9L9b+JunIsDwaKljSOdcLMea3NJ1k9Usz/rjdfSXTq4dfzfeS7W4p4YOAAHeA=="],
+
+    "type-fest": ["type-fest@5.10.0", "", { "dependencies": { "tagged-tag": "^1.0.0" } }, "sha512-NoSdpq/WEiAg5sjmBkmV/hfxv6HJH4NqPNrqjtSO5CwRmpsDfaf4begxW34KdJykH/l1yHtwBWQkCRdoXO8mPA=="],
 
     "typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
@@ -193,7 +217,5 @@
     "@noble/post-quantum/@noble/curves": ["@noble/curves@2.2.0", "", { "dependencies": { "@noble/hashes": "2.2.0" } }, "sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ=="],
 
     "@noble/post-quantum/@noble/hashes": ["@noble/hashes@2.2.0", "", {}, "sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg=="],
-
-    "better-near-auth/@near-intents-agent-api/sdk": ["@near-intents-agent-api/sdk@0.4.1", "", { "dependencies": { "@noble/curves": "^2.4.0", "@noble/hashes": "^2.4.0", "@scure/base": "^2.4.0" } }, "sha512-1b9QlOK/j2jiFPfFuSfUS9ZRox+EHOuF8gd0bfwzasAYdGZ1S5QOOIAAYS6Vv6DAhdJHWwH7xk/rgVaQmoQCQQ=="],
   }
 }

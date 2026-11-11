@@ -1,50 +1,56 @@
-import { DEMO_TIMELOCK_MS, PRODUCTION_TIMELOCK_MS } from "../shared/compile";
-import { LIVE_PROVIDER_READY } from "./provider/live";
+import { readFileSync } from "node:fs";
 
 export interface Config {
-  provider: "sim" | "live";
+  platform: "fake" | "remote";
   port: number;
   dbPath: string;
-  secretKey: string | null;
-  allowWrites: boolean;
+  /** MultiAgency platform (PLATFORM=remote). */
+  platformUrl: string | null;
+  deployment: string;
+  /** App credential (`tap_…`). Server memory only: never in /api/config, events, logs or URLs. */
+  credential: string | null;
+  caPem: string | null;
+  /** Dev/test only: a local platform stack's directory (state.json). Refused in production. */
+  stackDir: string | null;
+  rpcUrl: string | null;
+  consentGraceDays: number;
+  statusPollMs: number;
   evidence: "fake" | "github";
   githubToken: string | null;
-  timelockMs: number;
-  devWallet: boolean;
-  agentApiKey: string | null;
-  agentApiBaseUrl: string | null;
   /** The agent's judge. NEAR AI Cloud when NEARAI_API_KEY is set, otherwise rule-based. */
   judge: { kind: "rules" | "near-ai"; apiKey: string | null; model: string; baseUrl: string };
   /** Check for new merges on a timer (ms). 0 = only when "Run agent" is pressed. */
   pollMs: number;
   /** Sign in with NEAR (Better-Auth + better-near-auth). */
-  auth: {
-    secret: string | null;
-    publicUrl: string;
-    /** NEP-413 recipient for sign-in. Defaults to the MultiAgency account, like its everything.dev apps. */
-    recipient: string;
-    /** When true, company actions need the representative signed in, and contractor actions the contractor. */
-    required: boolean;
-  };
+  auth: { secret: string | null; publicUrl: string; recipient: string; required: boolean };
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
-  const provider = (env.PROVIDER ?? "sim") as Config["provider"];
-  if (provider !== "sim" && provider !== "live") throw new Error(`PROVIDER must be sim or live, got ${provider}`);
-  const devWallet = provider === "sim";
+  const platform = (env.PLATFORM ?? "fake") as Config["platform"];
+  if (platform !== "fake" && platform !== "remote") throw new Error(`PLATFORM must be fake or remote, got ${platform}`);
+  const stackDir = env.PLATFORM_STACK_DIR || null;
+  if (stackDir && env.NODE_ENV === "production") throw new Error("PLATFORM_STACK_DIR is for local testing only and is refused when NODE_ENV=production.");
+  if (stackDir && platform !== "remote") throw new Error("PLATFORM_STACK_DIR needs PLATFORM=remote.");
+  const production = platform === "remote" && !stackDir;
+
+  let credential = env.PLATFORM_CREDENTIAL || null;
+  if (env.PLATFORM_CREDENTIAL_FILE) credential = readFileSync(env.PLATFORM_CREDENTIAL_FILE, "utf8").trim();
+  const caPem = env.PLATFORM_CA_FILE ? readFileSync(env.PLATFORM_CA_FILE, "utf8") : null;
 
   const cfg: Config = {
-    provider,
+    platform,
     port: Number(env.PORT ?? 3000),
-    dbPath: env.DB_PATH || (provider === "sim" ? ":memory:" : "data/covenant.sqlite"),
-    secretKey: env.SECRET_KEY || null,
-    allowWrites: env.ALLOW_WRITES === "true",
-    evidence: (env.GITHUB ?? (provider === "sim" ? "fake" : "github")) as Config["evidence"],
+    dbPath: env.DB_PATH || (production ? "data/covenant.sqlite" : ":memory:"),
+    platformUrl: env.PLATFORM_URL || null,
+    deployment: env.PLATFORM_DEPLOYMENT || "covenant",
+    credential,
+    caPem,
+    stackDir,
+    rpcUrl: env.NEAR_RPC_URL || null,
+    consentGraceDays: env.CONSENT_GRACE_DAYS ? Number(env.CONSENT_GRACE_DAYS) : 30,
+    statusPollMs: env.STATUS_POLL_MS ? Number(env.STATUS_POLL_MS) : 60_000,
+    evidence: (env.GITHUB ?? (production ? "github" : "fake")) as Config["evidence"],
     githubToken: env.GITHUB_TOKEN || null,
-    timelockMs: env.TIMELOCK_MS ? Number(env.TIMELOCK_MS) : provider === "sim" ? DEMO_TIMELOCK_MS : PRODUCTION_TIMELOCK_MS,
-    devWallet,
-    agentApiKey: env.NEAR_INTENTS_AGENT_API_KEY || env.AGENT_API_KEY || null,
-    agentApiBaseUrl: env.AGENT_API_BASE_URL || null,
     judge: {
       kind: env.JUDGE === "rules" || !env.NEARAI_API_KEY ? "rules" : "near-ai",
       apiKey: env.NEARAI_API_KEY || null,
@@ -56,19 +62,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       secret: env.BETTER_AUTH_SECRET || null,
       publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
       recipient: env.SIWN_RECIPIENT || "multiagentic.near",
-      required: provider === "live" || env.REQUIRE_AUTH === "true",
+      required: production || env.REQUIRE_AUTH === "true",
     },
   };
 
-  if (cfg.provider === "live") {
-    // Hard safety rules for real money.
-    if (!LIVE_PROVIDER_READY) throw new Error("PROVIDER=live is not wired yet. It lands after spikes SP0-SP4 (docs/spikes.md).");
-    if (cfg.devWallet) throw new Error("The demo wallet can never run with PROVIDER=live.");
-    if (!cfg.secretKey) throw new Error("PROVIDER=live needs SECRET_KEY (32 bytes hex) to encrypt the grant credential.");
-    if (!cfg.agentApiKey) throw new Error("PROVIDER=live needs NEAR_INTENTS_AGENT_API_KEY.");
-    if (cfg.dbPath === ":memory:") throw new Error("PROVIDER=live needs a DB_PATH on disk.");
-    if (!cfg.auth.secret) throw new Error("PROVIDER=live needs BETTER_AUTH_SECRET (openssl rand -base64 32).");
+  if (production) {
+    if (!cfg.platformUrl) throw new Error("PLATFORM=remote needs PLATFORM_URL.");
+    if (!cfg.credential) throw new Error("PLATFORM=remote needs PLATFORM_CREDENTIAL_FILE (preferred) or PLATFORM_CREDENTIAL.");
+    if (cfg.dbPath === ":memory:") throw new Error("PLATFORM=remote needs a DB_PATH on disk.");
+    if (!cfg.auth.secret) throw new Error("PLATFORM=remote needs BETTER_AUTH_SECRET (openssl rand -base64 32).");
   }
   if (cfg.evidence !== "fake" && cfg.evidence !== "github") throw new Error("GITHUB must be fake or github");
+  if (!Number.isFinite(cfg.consentGraceDays) || cfg.consentGraceDays < 0) throw new Error("CONSENT_GRACE_DAYS must be a number of days");
+  if (!Number.isFinite(cfg.statusPollMs) || cfg.statusPollMs <= 0) throw new Error("STATUS_POLL_MS must be a positive number of ms");
   return cfg;
 }
