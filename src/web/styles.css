@@ -2570,3 +2570,29 @@ textarea:focus {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
+/* Builder submissions reuse the contract's forms and review surfaces. */
+.job-radio { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.job-builder { margin-top: 24px; }
+.job-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.job-summary > div { display: flex; flex-direction: column; gap: 3px; }
+.job-report p { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; margin-top: 6px; }
+.job-evidence ul { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.job-evidence li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; overflow-wrap: anywhere; }
+.job-empty { padding-top: 16px; color: var(--muted); }
+.job-change-form { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
+.job-change-form .field { width: 100%; }
+.job-payment { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border); min-width: 0; }
+.job-payment .row { flex-wrap: wrap; }
+.job-payment .kv-line { width: 100%; min-width: 0; flex-wrap: wrap; }
+.job-payment > .disclosure { width: 100%; min-width: 0; }
+.job-payment .mono { min-width: 0; flex-shrink: 1; }
+.job-payment .mono, .job-builder .mono { overflow-wrap: anywhere; word-break: break-word; }
+.job-evidence-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.job-evidence-fields legend { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+.job-evidence-row { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.job-evidence-row .grid2 { margin-top: 10px; }
+@media (max-width: 560px) {
+  .job-summary { grid-template-columns: 1fr; gap: 10px; }
+  .job-builder .card-header, .job-builder .kv-line { flex-wrap: wrap; }
+}

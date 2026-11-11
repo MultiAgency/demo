@@ -2,7 +2,20 @@
 
 **The contract is the spending limit.**
 
-Covenant is MultiAgency's payroll app for pay-on-merge contracts. A company and a contractor sign a scope of deliverables, each with a value. Covenant sets the contract up on the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk`: an agent made for this contract, whose signed policy pays only the contractor, never more than the largest deliverable in one payment, funded with the scope total. Every time one of the contractor's PRs is merged, a judge decides how complete each deliverable is, Covenant requests the difference, and the platform holds that payout until the company approves it.
+Covenant is MultiAgency's payroll app for signed builder work orders. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Covenant uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.6: an agent for this contract, a fixed payee, bounded payments and explicit agency approval.
+
+The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. Existing signed v2 pay-on-merge contracts keep their original behavior; new v3 work orders explicitly sign the report/invoice and payment clauses.
+
+For **Contracts and Agent Market in one local app**, run `bun run demo:full` and open the URL it prints (default port **3002**). This starts a fresh SDK gateway and market simulator, keeping other checkouts untouched. See the [combined manual walkthrough](docs/full-demo.md) and [integration evidence](docs/full-integration-evidence.md); `bun run demo:full:check` checks both paths through the browser. All signatures and funds are simulated. The pinned simulator's worker/directory and recovery limits remain explicit.
+
+```bash
+bun run demo:job
+DEMO_JOB_CHANGES=1 DEMO_JOB_LOST_REPLY=1 bun run demo:job
+```
+
+These complete one job on the existing **platform stand-in**, with simulated signatures and settlement. See the [workflow map](docs/workflow-map.md), [exact demonstration steps](docs/job-demo.md), [current evidence](docs/job-evidence.md) and [verified Agent Market boundary](docs/market-boundary.md). The job's sole payment path is the platform held payout. Market x402 delivery settles automatically; standard market jobs add automatic acceptance deadlines. Neither is silently substituted for explicit agency review.
+
+Run the complete two-party browser check with `bun run demo:browser` ([browser proof](docs/browser-demo.md)). Run `bun run demo:job:restart` to create a fresh isolated SDK stack and verify a lost app response followed by a full app process restart ([restart proof](docs/job-restart.md)). No stack path is required. The [careful review](docs/review-2026-11-11.md) records the safety fixes and remaining platform cases. The [wallet signing adapter](docs/wallet-signing.md) reuses the existing sign-in client and has local fixture checks; an actual wallet walkthrough remains unverified. The [staging acceptance plan](docs/staging-acceptance.md) performs no hosted action.
 
 > The judge decides how much. The company approves each payout. The contract decides the most it could ever be.
 
@@ -49,7 +62,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42); production runs 0.5.4 until 0.5.5 is deployed. Covenant pins `@multiagency/sdk` 0.5.6; the local stack above runs a platform that already has 0.5.5. The owner's freeze link (the platform's wallet stop page) and recovering a lost setup reply through `reservations` also need 0.5.5; on 0.5.4 a lost setup reply shows the setup error as before.
+Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Covenant pins published `@multiagency/sdk` 0.5.6. The platform's dated staging record reports 0.5.6; its older production record reports 0.5.4. Fresh public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
 
 ## Hire and work on the agent market
 
@@ -74,7 +87,9 @@ PLATFORM=remote PLATFORM_STACK_DIR=<dir> bun run demo   # the browser: Agent mar
 
 **Not yet:** the worker side and the directory can't run against the stack's simulated market (MultiAgency/platform#68). A DAO's market agent gets its grant and is frozen through Covenant only on platform 0.5.7 (on `main`, unreleased); on 0.5.6 its setup stops before the grant and says why. See [platform gaps](docs/platform-gaps.md#agent-market-sdk-056-platform-main-7528643), M1–M5.
 
-## Do X → see Y (browser demo)
+## Do X → see Y (legacy merge-based browser demo)
+
+Choose **Pay on merge** when creating a contract for this walkthrough. The new default report/invoice walkthrough is in [job-demo.md](docs/job-demo.md).
 
 | Do | See |
 |---|---|
@@ -130,7 +145,7 @@ We don't claim:
 - a cryptographic proof to the contractor: the Verify page relays the platform's read through Covenant;
 - escrow: the company owns the agent, can reject a payout or freeze the agent on the platform's wallet stop page (nothing pays until it unfreezes);
 - guaranteed payment for the contractor;
-- that the stand-in proves the hosted platform's behaviour. The stack run is the integration evidence; hosted platforms get held-withdrawal approval with the 0.5.5 deploy;
+- that the stand-in proves the hosted platform's behaviour. The stack run is local integration evidence; current hosted approval requires a separate authenticated check;
 - a mainnet run: the recorded runs are on the platform's local stack, with a simulated chain.
 
 ## What's NEAR here

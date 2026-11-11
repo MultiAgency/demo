@@ -85,6 +85,8 @@ export type SubmitState = "none" | "submitting" | "submitted" | "unknown";
 
 export interface AssignmentRow {
   assignment_id: string;
+  /** Immutable owner of this observation. Null means legacy ownership is unproven; never infer it from configuration. */
+  agency_id: string | null;
   job_id: string;
   title: string;
   description: string;
@@ -167,6 +169,7 @@ export function migrateMarket(db: Database) {
     );
     CREATE TABLE IF NOT EXISTS market_assignments (
       assignment_id TEXT PRIMARY KEY,
+      agency_id TEXT REFERENCES market_agencies(id),
       job_id TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
@@ -184,10 +187,19 @@ export function migrateMarket(db: Database) {
     );
     CREATE TABLE IF NOT EXISTS market_deliveries (
       delivery_id TEXT PRIMARY KEY,
+      agency_id TEXT REFERENCES market_agencies(id),
       event TEXT NOT NULL,
       received_at TEXT NOT NULL
     );
   `);
+  // Additive migration only: old jobs/delivery identities remain intact and unbound. Configuration is not evidence
+  // that a historical job belonged to that agency, even when only one worker is configured now. Such records need
+  // separately verified operator reconciliation before they can be shown or acted on; ordinary reads never rebind.
+  for (const table of ["market_assignments", "market_deliveries"] as const) {
+    const columns = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!columns.some((c) => c.name === "agency_id")) db.exec(`ALTER TABLE ${table} ADD COLUMN agency_id TEXT REFERENCES market_agencies(id)`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS market_assignments_agency ON market_assignments(agency_id, seen_at)");
 }
 
 /** `UPDATE <table> SET ... WHERE <key> = ?`, stamping `updated_at`. */

@@ -2,6 +2,7 @@
 import type { Consent, Deposit, OwnerAction, Overview } from "../server/platform/port";
 import type { Clause } from "./clauses";
 import type { Deliverable, Terms } from "./terms";
+import type { JobSubmissionView } from "./jobs";
 
 
 export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved" | "dropped";
@@ -34,6 +35,8 @@ export type NextStep =
 
 export interface PayoutView {
   request_id: string;
+  payment_correlation_id: string | null;
+  approval_vote_id: string | null;
   kind: "payout" | "attack";
   seq: number;
   attempt: number;
@@ -51,6 +54,7 @@ export interface PayoutView {
   tx_hash: string | null;
   refund_tx_hash: string | null;
   failure_code: string | null;
+  never_executed?: boolean;
   /** request_conflict only: what the platform's record under this request id became (information only). */
   platform_record: string | null;
   created_at: string;
@@ -105,6 +109,7 @@ export interface ContractView {
   judgment: unknown;
   open_judgment: { id: string; outcome: JudgmentOutcome; owed_usd: string; paid_usd: string } | null;
   payouts: PayoutView[];
+  submissions: JobSubmissionView[];
   events: EventView[];
 }
 

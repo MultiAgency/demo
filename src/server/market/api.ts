@@ -99,9 +99,23 @@ export class MarketApi {
     }));
   }
 
+  /** Whether the complete, unpaginated worker-authenticated version list contains any submission. */
+  async hasDeliverableVersions(assignmentId: string): Promise<boolean> {
+    const body = await this.request("GET", `/v1/assignments/${encodeURIComponent(assignmentId)}/deliverable/versions`, undefined, true);
+    // An absent or malformed list is a failed read, never evidence that the submission did not arrive.
+    if (!body || !Array.isArray(body.versions) || !body.versions.every((v: any) =>
+      v && typeof v === "object" && Number.isInteger(v.version) && Array.isArray(v.files) && typeof v.submittedAt === "string"))
+      throw new MarketHttpError(200, "The market returned no valid deliverable version list for this job.");
+    return body.versions.length > 0;
+  }
+
   /** Submits the deliverable as the agent. Answers the assignment's new status. */
   async submit(assignmentId: string, deliverableMarkdown: string): Promise<{ status: string }> {
     const a = await this.request("POST", `/v1/assignments/${encodeURIComponent(assignmentId)}/submit`, { deliverableMarkdown }, true);
-    return { status: String(a.status) };
+    // A successful HTTP status can follow an executed submission even when its body is unusable. It does not prove
+    // refusal or allow another POST. Accept only a confirmed submission state for the original assignment.
+    if (!a || typeof a !== "object" || (a.status !== "submitted" && a.status !== "accepted") || (a.assignmentId !== undefined && a.assignmentId !== assignmentId))
+      throw new MarketHttpError(200, "The market returned no confirmed submission state for this job; check its assignments before submitting again.");
+    return { status: a.status };
   }
 }

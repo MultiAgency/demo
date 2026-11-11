@@ -1,7 +1,7 @@
 // Onboarding: what the representative does next (setup, create, consents, grant, policy), and the owner steps every owner action goes
 // through (prepare → store a row before returning → wallet signs or confirm link → submit → status).
 import type { Database } from "bun:sqlite";
-import type { Fail, OwnerAction, OwnerPrepared, Platform, Signed413 } from "./platform/port";
+import type { Fail, OwnerAction, OwnerPrepared, Platform, Res, Signed413 } from "./platform/port";
 import type { NextStep } from "../shared/views";
 import { policyChanges, policyProblem } from "../shared/policy-request";
 import { endInstant, type Terms } from "../shared/terms";
@@ -90,8 +90,7 @@ export class Onboarding {
     switch (a.stage) {
       case "needs_setup": {
         const expiresAt = new Date(now.getTime() + SETUP_TTL_MS).toISOString();
-        const message = this.d.platform.setupMessage({ organization: a.organization, owner: a.owner, expiresAt });
-        return this.signRequest(a, "setup", message, expiresAt, "Set up the contract's platform agent");
+        return this.signRequest(a, "setup", (expiry) => this.d.platform.setupMessage({ organization: a.organization, owner: a.owner, expiresAt: expiry }), expiresAt, "Set up the contract's platform agent");
       }
       case "needs_create": {
         const pending = this.latestStep(a.organization, "agent_create");
@@ -116,12 +115,10 @@ export class Onboarding {
         const cap = now.getTime() + MAX_CONSENT_MS;
         if (!a.payout_consent_id) {
           const expiresAt = new Date(Math.min(end, cap)).toISOString();
-          const message = this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["payout"], expiresAt });
-          return this.signRequest(a, "consent_payout", message, expiresAt, `Let Covenant request payouts until ${expiresAt.slice(0, 10)} (the contract end)`);
+          return this.signRequest(a, "consent_payout", (expiry) => this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["payout"], expiresAt: expiry }), expiresAt, `Let Covenant request payouts until ${expiresAt.slice(0, 10)} (the contract end)`);
         }
         const expiresAt = new Date(Math.min(end + this.d.graceDays * 86_400_000, cap)).toISOString();
-        const message = this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["owner", "read"], expiresAt });
-        return this.signRequest(a, "consent_owner", message, expiresAt, `Let Covenant prepare your approvals and read the agent until ${expiresAt.slice(0, 10)}`);
+        return this.signRequest(a, "consent_owner", (expiry) => this.d.platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: ["owner", "read"], expiresAt: expiry }), expiresAt, `Let Covenant prepare your approvals and read the agent until ${expiresAt.slice(0, 10)}`);
       }
       case "needs_grant":
         return this.ownerStepFor(id, a, "grant_issue", "Issue the agent's payout grant", () => ({ type: "grant_issue", label: "payout" }));
@@ -160,10 +157,14 @@ export class Onboarding {
     }
   }
 
-  private signRequest(a: PlatformAgentRow, step: SignStep, message: string, expiresAt: string, label: string): NextStep {
-    const pending: PendingSign = { step, message, nonce: nonceToString(randomNonce()), recipient: this.d.platform.host, expires_at: expiresAt };
-    this.setAgent(a.organization, { pending_sign: JSON.stringify(pending) });
-    return { kind: "sign", step, label, sign: { account_id: a.owner, message, recipient: pending.recipient, nonce: pending.nonce } };
+  private signRequest(a: PlatformAgentRow, step: SignStep, messageFor: (expiresAt: string) => string, expiresAt: string, label: string): NextStep {
+    const saved = a.pending_sign ? JSON.parse(a.pending_sign) as PendingSign : null;
+    const reuse = saved && saved.step === step && saved.recipient === this.d.platform.host &&
+      Date.parse(saved.expires_at) > this.d.now().getTime() && Date.parse(saved.expires_at) <= Date.parse(expiresAt) &&
+      saved.message === messageFor(saved.expires_at);
+    const pending: PendingSign = reuse ? saved : { step, message: messageFor(expiresAt), nonce: nonceToString(randomNonce()), recipient: this.d.platform.host, expires_at: expiresAt };
+    if (!reuse) this.setAgent(a.organization, { pending_sign: JSON.stringify(pending) });
+    return { kind: "sign", step, label, sign: { account_id: a.owner, message: pending.message, recipient: pending.recipient, nonce: pending.nonce } };
   }
 
   async signed(id: string, body: { step: SignStep; nonce: string; publicKey: string; signature: string }): Promise<NextStep> {
@@ -171,6 +172,7 @@ export class Onboarding {
     const a = this.agentRow(row.organization);
     const pending = a?.pending_sign ? (JSON.parse(a.pending_sign) as PendingSign) : null;
     if (!a || !pending || pending.step !== body.step || pending.nonce !== body.nonce) throw new UserError("This signature doesn't answer the current step. Ask for the next step again.", 409);
+    if (Date.parse(pending.expires_at) <= this.d.now().getTime()) throw new UserError("This signing request has expired. Ask for the next step again.", 409);
     const s: Signed413 = { message: pending.message, nonce: pending.nonce, publicKey: body.publicKey, signature: body.signature };
     if (body.step === "setup") {
       // Resending the same body while it is unexpired answers the same agent and consent and reserves nothing new.
@@ -285,7 +287,21 @@ export class Onboarding {
     if (!s.intent) throw new UserError("This step is confirmed on the platform's page, not signed here.");
     const a = this.agentRow(s.organization);
     if (!a) throw new UserError("Unknown organization.", 404);
-    const res = await this.handle(a).ownerSubmit(correlationId, JSON.parse(s.intent), sig);
+    // Claim before external I/O. A crash, a thrown transport error or a lost reply must never leave this signable.
+    this.d.db.transaction(() => {
+      if (s.kind === "approval_vote" && s.request_id) {
+        const other = this.d.db.query("SELECT correlation_id FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' AND correlation_id != ? AND state IN ('submitted', 'unknown') LIMIT 1")
+          .get(s.request_id, correlationId) as { correlation_id: string } | null;
+        if (other) throw new UserError("A vote for this payout is already submitted or uncertain. Follow its original identity before preparing another.", 409);
+      }
+      const claimed = this.d.db.query("UPDATE owner_steps SET state = 'unknown', updated_at = ? WHERE correlation_id = ? AND state = 'prepared'").run(this.iso(), correlationId);
+      if (claimed.changes !== 1) throw new UserError("This owner step was already submitted. Follow its original identity.", 409);
+      if (s.kind === "approval_vote" && s.request_id && (s.verdict === "approve" || s.verdict === "reject"))
+        this.d.db.query("UPDATE payout_attempts SET vote = ?, vote_correlation_id = ?, updated_at = ? WHERE request_id = ?").run(s.verdict, correlationId, this.iso(), s.request_id);
+    })();
+    let res: Res<{ status: string; failureCode: string | null }>;
+    try { res = await this.handle(a).ownerSubmit(correlationId, JSON.parse(s.intent), sig); }
+    catch { return this.step(correlationId); }
     if (!res.ok) {
       if (res.kind === "unavailable" || res.kind === "unknown" || res.kind === "provider") {
         this.setStep(correlationId, { state: "unknown" });

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import { api } from "../api";
 import { Icon } from "../components/icons";
 import { PolicyCard } from "../components/PolicyCard";
-import { Avatar, Badge, LinkButton, PageLoading, Progress, dateText, usd, type Tone } from "../components/ui";
+import { Alert, Avatar, Badge, Button, LinkButton, PageLoading, Progress, dateText, usd, type Tone } from "../components/ui";
+import { AccountReadGate, useAccountResource } from "../useAccountResource";
 
 import type { ContractRow as Row } from "../types";
 
@@ -21,11 +22,11 @@ export const STAGES: Record<string, { label: string; tone: Tone }> = {
 };
 
 export function Home() {
-  const [rows, setRows] = useState<Row[] | null>(null);
-  useEffect(() => {
-    api<Row[]>("GET", "/contracts").then(setRows, () => setRows([]));
-  }, []);
-
+  const read = useCallback(() => api<Row[]>("GET", "/contracts"), []);
+  const resource = useAccountResource("contracts", read);
+  const rows = resource.value;
+  if (!resource.enabled) return <AccountReadGate />;
+  if (resource.error) return <div className="page stack"><Alert tone="danger">{resource.error}</Alert><Button variant="secondary" onClick={resource.reload}>Retry loading contracts</Button></div>;
   if (rows === null) return <PageLoading />;
   if (rows.length === 0) return <Welcome />;
 

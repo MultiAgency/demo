@@ -2,11 +2,13 @@ import type { Database } from "bun:sqlite";
 import { clauseFor } from "../shared/clauses";
 import { canonicalJson, sha256Hex } from "../shared/canonical";
 import { fromAtomic, toAtomic } from "../shared/money";
+import { jobSubmissionSchema, type JobSubmissionView } from "../shared/jobs";
 import { expectations, largestAtomic, policyDifferences, policyProblem, totalAtomic } from "../shared/policy-request";
 import { endInstant, parseTerms, scopeTotal, startInstant, type Terms, TERMS_RECIPIENT, termsHash, termsSigningMessage, USDC_DECIMALS } from "../shared/terms";
 import type { AttemptState, ContractView, EventView, JudgmentOutcome, NextStep, PayoutView, ScopeRow, SetupStage, VerifyView } from "../shared/views";
 import type { Config } from "./config";
-import type { AttemptRow, ContractRow, EventRow, JudgmentRow, LineRow, OwnerStepRow, PlatformAgentRow, SignatureRecord } from "./db";
+import type { AttemptRow, ContractRow, EventRow, JudgmentRow, LineRow, OwnerStepRow, PlatformAgentRow, SignatureRecord, JobRow, JobInvoiceRow } from "./db";
+import { judgeJob } from "./job-judge";
 import { type EvidenceSource, injectedPullRequest } from "./evidence/github";
 import type { Judge, Judgment, Level } from "./judge";
 import { nonceFromString, nonceToString, randomNonce, verifyNep413 } from "./nep413";
@@ -135,16 +137,25 @@ export class Covenant {
     return { representative: t.representative.near_account, contractor: t.contractor.near_account };
   }
 
+  contractRequiresParty(id: string): boolean {
+    return this.terms(this.row(id)).v === 3;
+  }
+
+  requireContractorToken(id: string, token: unknown) {
+    if (sha256Hex(typeof token === "string" ? token : "") !== this.row(id).contractor_link_hash)
+      throw new UserError("Use the builder's private link to submit this job.", 403);
+  }
+
   /** Contracts the merge watcher runs: set up and not ended. A frozen one is re-read each time, so an unfreeze resumes it. */
   activeContractIds(): string[] {
     const rows = this.d.db.query("SELECT c.* FROM contracts c JOIN platform_agents a ON a.organization = c.organization WHERE a.stage = 'ready'").all() as ContractRow[];
     const now = this.d.now().getTime();
-    return rows.filter((r) => now < Date.parse(endInstant(this.terms(r)))).map((r) => r.id);
+    return rows.filter((r) => this.terms(r).v === 2 && now < Date.parse(endInstant(this.terms(r)))).map((r) => r.id);
   }
 
   /** Contracts with a live payout or attack to follow on the status timer. */
   followUpIds(): string[] {
-    const rows = this.d.db.query("SELECT DISTINCT contract_id FROM payout_attempts WHERE state IN (" + OPEN_STATES.map((s) => `'${s}'`).join(",") + ")").all() as { contract_id: string }[];
+    const rows = this.d.db.query("SELECT DISTINCT contract_id FROM payout_attempts WHERE state IN (" + OPEN_STATES.map((s) => `'${s}'`).join(",") + ") UNION SELECT contract_id FROM judgments WHERE outcome = 'pending'").all() as { contract_id: string }[];
     return rows.map((r) => r.contract_id);
   }
 
@@ -226,6 +237,151 @@ export class Covenant {
     return this.getContract(id);
   }
 
+  // ================================================================ report/invoice jobs (signed v3 terms)
+
+  /** Immutable revisions and idempotent filing. Actor comes from the authenticated route, never the body. */
+  async submitJob(id: string, input: unknown, actor: string): Promise<JobSubmissionView> {
+    return this.mutex.run(id, async () => {
+      const row = this.row(id);
+      const terms = this.terms(row);
+      if (terms.v !== 3) throw new UserError("This contract uses merged-PR acceptance.", 409);
+      if (actor !== terms.contractor.near_account) throw new UserError("Only the agreed builder can submit this job.", 403);
+      const parsed = jobSubmissionSchema.safeParse(input);
+      if (!parsed.success) throw new UserError(formatZod(parsed.error));
+      const body = parsed.data;
+      const hash = sha256Hex(canonicalJson(body));
+      const prior = this.d.db.query("SELECT * FROM job_submissions WHERE contract_id = ? AND client_request_id = ?").get(id, body.client_request_id) as JobRow | null;
+      if (prior) {
+        if (prior.content_hash !== hash) throw new UserError("This submission identity already has different content. Retry the original body.", 409);
+        return this.jobView(prior);
+      }
+      if (!row.rep_sig || !row.contractor_sig) throw new UserError("Both parties must accept the work order before submission.", 409);
+      this.requireActive(row, terms);
+      const latest = this.jobRows(id)[0];
+      if (latest && ["submitted", "proposed", "changes_pending"].includes(latest.state)) throw new UserError("The previous submission is still open. Wait for confirmed cancellation or settlement before filing another.", 409);
+      if (this.attempts(id).some(isOpen)) throw new UserError("A payment outcome is still unresolved; a new submission cannot replace it.", 409);
+      if (body.evidence.some((e) => !terms.scope.some((d) => d.id === e.deliverable_id))) throw new UserError("Evidence must reference a deliverable in the accepted scope.");
+      if (this.d.db.query("SELECT 1 FROM job_invoices WHERE contract_id = ? AND number = ?").get(id, body.invoice.number)) throw new UserError("That invoice number is already filed. Retry its original submission identity.", 409);
+      const amount = toAtomic(body.invoice.amount_usd, USDC_DECIMALS);
+      const committed = this.attempts(id).filter(isCommitted).reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
+      if (amount > BigInt(totalAtomic(terms)) - committed) throw new UserError("The invoice exceeds the remaining agreed scope budget.", 409);
+      const sid = `s_${sha256Hex(`${id}:${body.client_request_id}`).slice(0, 24)}`;
+      const invoiceId = `i_${sid.slice(2)}`;
+      const now = this.nowIso();
+      this.d.db.transaction(() => {
+        this.d.db.query("INSERT INTO job_submissions (id, contract_id, client_request_id, content_hash, revision, terms_hash, builder, report, evidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .run(sid, id, body.client_request_id, hash, (latest?.revision ?? 0) + 1, row.hash, actor, body.report, JSON.stringify(body.evidence), now);
+        this.d.db.query("INSERT INTO job_invoices (id, submission_id, contract_id, number, amount_atomic) VALUES (?, ?, ?, ?, ?)")
+          .run(invoiceId, sid, id, body.invoice.number, amount.toString());
+        this.event(id, "submission", `Builder ${actor} submitted revision ${(latest?.revision ?? 0) + 1}: ${sid}, invoice ${body.invoice.number} (${invoiceId}) for ${usdText(amount)} under terms ${row.hash}. No approval or payment yet.`);
+      })();
+      return this.jobView(this.job(sid));
+    });
+  }
+
+  jobContract(submissionId: string): string { return this.job(submissionId).contract_id; }
+
+  jobSubmissions(id: string): JobSubmissionView[] {
+    this.row(id);
+    return this.jobRows(id).map((s) => this.jobView(s));
+  }
+
+  /** The proposal and its payment identity are committed together before the SDK sees any request. */
+  async proposeJob(submissionId: string): Promise<ContractView> {
+    const first = this.job(submissionId);
+    return this.mutex.run(first.contract_id, async () => {
+      const s = this.job(submissionId);
+      // A lost proposal reply is observed, never judged or sent under a second identity.
+      if (s.judgment_id) return this.view(s.contract_id);
+      if (s.state !== "submitted") throw new UserError("Only an open submission can receive a proposal.", 409);
+      const row = this.row(s.contract_id);
+      const terms = this.terms(row);
+      await this.refreshFrozen(row.id);
+      this.requireActive(row, terms);
+      if (s.terms_hash !== row.hash || termsHash(terms) !== row.hash) throw new UserError("The submission's accepted terms do not match.", 409);
+      if (this.openJudgment(row.id) || this.attempts(row.id).some(isOpen)) throw new UserError("An earlier payment outcome is unresolved.", 409);
+      const invoice = this.jobInvoice(s.id);
+      const judgment = await judgeJob(this.d.config.judge, terms, {
+        client_request_id: s.client_request_id, report: s.report, evidence: JSON.parse(s.evidence),
+        invoice: { number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
+      }, this.acceptedCompletion(row.id));
+      const owed = owedFor(terms, completionOf(judgment), this.committedBy(row.id)).reduce((n, l) => n + l.amount, 0n);
+      const proposed = owed < BigInt(invoice.amount_atomic) ? owed : BigInt(invoice.amount_atomic);
+      const plan = planPayout(terms, completionOf(judgment), this.committedBy(row.id), proposed);
+      const runId = `r_${sha256Hex(s.id).slice(0, 24)}`;
+      const rid = requestIdFor(row.hash, this.nextSeq(row.id, "payout"), 1);
+      const now = this.nowIso();
+      this.d.db.transaction(() => {
+        this.d.db.query("INSERT INTO judgments (id, contract_id, at, json, outcome, closed_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(runId, row.id, now, JSON.stringify(judgment), plan ? "pending" : "nothing", plan ? null : now);
+        this.d.db.query("UPDATE job_submissions SET judgment_id = ?, proposed_atomic = ?, state = ? WHERE id = ?")
+          .run(runId, proposed.toString(), plan ? "proposed" : "closed", s.id);
+        if (plan) this.insertAttempt({ request_id: rid, kind: "payout", contract_id: row.id, seq: this.nextSeq(row.id, "payout"), attempt: 1, run_id: runId, recipient: terms.payee.address, amount: plan.amount, lines: plan.lines });
+        this.event(row.id, "proposal", `Agent proposed ${usdText(proposed)} for submission ${s.id}, invoice ${invoice.id}, judgment ${runId}. ${judgment.summary}`);
+      })();
+      if (plan) await this.send(rid);
+      return this.view(row.id);
+    });
+  }
+
+  /** Record feedback first. A live/unknown payout must be proven rejected before a revision is allowed. */
+  async requestJobChanges(submissionId: string, reason: string): Promise<ContractView> {
+    const first = this.job(submissionId);
+    return this.mutex.run(first.contract_id, async () => {
+      const s = this.job(submissionId);
+      const text = reason.trim();
+      if (text.length < 3 || text.length > 4000) throw new UserError("Describe the requested changes (3–4000 characters).");
+      if (s.changes) {
+        if (s.changes !== text) throw new UserError("This revision already has recorded feedback.", 409);
+        return this.view(s.contract_id);
+      }
+      if (s.state !== "submitted" && s.state !== "proposed") throw new UserError("This submission is already closed.", 409);
+      const attempts = s.judgment_id ? this.attempts(s.contract_id).filter((a) => a.run_id === s.judgment_id) : [];
+      if (attempts.some((a) => a.vote === "approve" || a.state === "processing" || isPaid(a) || (a.state === "failed" && !a.resolution)))
+        throw new UserError("A payout was approved or may have moved. Resolve its outcome before requesting changes.", 409);
+      this.d.db.query("UPDATE job_submissions SET changes = ?, state = ? WHERE id = ?")
+        .run(text, s.judgment_id ? "changes_pending" : "changes_requested", s.id);
+      this.event(s.contract_id, "changes", `Agency requested changes on ${s.id}: ${text}${s.judgment_id ? " Any live payout must be rejected and confirmed before resubmission." : ""}`);
+      if (s.judgment_id) await this.followUpLocked(s.contract_id);
+      return this.view(s.contract_id);
+    });
+  }
+
+  private job(id: string): JobRow {
+    const s = this.d.db.query("SELECT * FROM job_submissions WHERE id = ?").get(id) as JobRow | null;
+    if (!s) throw new UserError("No such submission.", 404);
+    return s;
+  }
+
+  private jobRows(id: string): JobRow[] {
+    return this.d.db.query("SELECT * FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC").all(id) as JobRow[];
+  }
+
+  private jobForJudgment(runId: string | null): JobRow | null {
+    return runId ? this.d.db.query("SELECT * FROM job_submissions WHERE judgment_id = ?").get(runId) as JobRow | null : null;
+  }
+
+  private jobInvoice(id: string): JobInvoiceRow {
+    return this.d.db.query("SELECT * FROM job_invoices WHERE submission_id = ?").get(id) as JobInvoiceRow;
+  }
+
+  private jobView(s: JobRow): JobSubmissionView {
+    const invoice = this.jobInvoice(s.id);
+    const payouts = s.judgment_id ? this.attempts(s.contract_id).filter((a) => a.run_id === s.judgment_id) : [];
+    return {
+      id: s.id, revision: s.revision, terms_hash: s.terms_hash, builder: s.builder, report: s.report,
+      evidence: JSON.parse(s.evidence), invoice: { id: invoice.id, number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
+      state: s.state, changes: s.changes, judgment_id: s.judgment_id, proposed_usd: usdOf(s.proposed_atomic),
+      paid_usd: usdOf(payouts.filter(isPaid).reduce((n, a) => n + BigInt(a.amount_atomic), 0n)),
+      payout_request_ids: payouts.map((a) => a.request_id), created_at: s.created_at,
+    };
+  }
+
+  private requireJobApproval(att: AttemptRow) {
+    const s = this.jobForJudgment(att.run_id);
+    if (s?.changes) throw new UserError("Changes were requested. Reject this payout; the previous approval cannot be submitted.", 409);
+  }
+
   // ================================================================ onboarding and owner steps
 
   async next(id: string): Promise<NextStep> {
@@ -246,13 +402,17 @@ export class Covenant {
   async submitOwnerStep(correlationId: string, sig: { publicKey: string; signature: string }) {
     const contractId = this.ownerStepContract(correlationId);
     const work = async () => {
+      const prepared = this.onboarding.step(correlationId);
+      if (prepared.kind === "approval_vote" && prepared.verdict === "approve" && prepared.request_id) {
+        this.requireJobApproval(this.attempt(prepared.request_id));
+      }
       const s = await this.onboarding.submitStep(correlationId, sig);
       if (s.kind === "approval_vote" && s.request_id && (s.state === "submitted" || s.state === "unknown")) {
-        // The vote is recorded as soon as owner/submit answered (or its reply was lost): a later FAILED with no tx
-        // is then provably our reject. The payout itself is followed through payouts/status, not owner/status.
+        // The original decision/link was saved before submit I/O. An attempted vote is not its outcome:
+        // the payout is followed through payouts/status, with explicit non-execution proof needed for rejection.
         const att = this.attempt(s.request_id);
         this.setAttempt(att.request_id, { vote: s.verdict as "approve" | "reject" });
-        this.event(att.contract_id, "vote", `The representative signed ${s.verdict === "approve" ? "an approval" : "a rejection"} of ${usdText(att.amount_atomic)} (${att.request_id}).`);
+        this.event(att.contract_id, "vote", `The representative submitted ${s.verdict === "approve" ? "an approval" : "a rejection"} attempt for ${usdText(att.amount_atomic)} (${att.request_id}). ${s.state === "unknown" ? "Its submission outcome is unknown." : "Follow the payout for its outcome."}`);
         await this.followAttempt(this.attempt(att.request_id));
         if (att.kind === "payout") await this.advanceJudgment(att.contract_id);
       }
@@ -299,6 +459,7 @@ export class Covenant {
     await this.refreshFrozen(id);
     const row = this.row(id);
     const terms = this.terms(row);
+    if (terms.v === 3) throw new UserError("This work order requires a builder report and invoice. Propose compensation from its submission.", 409);
     this.requireActive(row, terms);
     await this.followUpLocked(id);
     const open = this.openJudgment(id);
@@ -351,6 +512,7 @@ export class Covenant {
     return this.mutex.run(id, async () => {
       const j = this.openJudgment(id);
       if (!j) throw new UserError("There is no open judgment to retry.", 409);
+      if (this.jobForJudgment(j.id)?.changes) throw new UserError("Changes are pending. Follow and reject the existing payout; do not retry it.", 409);
       const last = latestAttempt(this.attempts(id).filter((a) => a.run_id === j.id && a.kind === "payout"));
       if (!last) throw new UserError("The open judgment has no payout yet.", 409);
       if (last.state === "refused") {
@@ -384,6 +546,10 @@ export class Covenant {
     return this.mutex.run(att.contract_id, async () => {
       const a = this.attempt(requestId);
       if (a.kind !== "payout" || a.state !== "failed" || a.resolution !== null) throw new UserError("Only an unresolved failed payout can be resolved.", 409);
+      if (this.terms(this.row(a.contract_id)).v === 3 && outcome !== "arrived" &&
+          (a.never_executed !== 1 || !!a.tx_hash || !!a.refund_tx_hash)) {
+        throw new UserError("This job's failed payment remains committed until the platform proves it never executed. Manual review cannot authorize a replacement or release its budget.", 409);
+      }
       this.setAttempt(requestId, { resolution: outcome });
       const text = { arrived: "the money arrived; it stays paid", reowe: "nothing arrived; it is owed again", rejected: "it was rejected; its work is excluded" }[outcome];
       this.event(a.contract_id, "resolve", `The representative resolved the failed payout ${requestId}: ${text}.`);
@@ -402,6 +568,7 @@ export class Covenant {
     const first = this.attempt(requestId);
     return this.mutex.run(first.contract_id, async () => {
       let att = this.attempt(requestId);
+      if (verdict === "approve") this.requireJobApproval(att);
       // An attack payout is never counted against the scope, so it may only be rejected: its money can't move uncounted.
       if (att.kind === "attack" && verdict === "approve") throw new UserError("A demo attack payout can only be rejected.", 409);
       if (att.state !== "held") throw new UserError(`This payout is ${att.state}, not waiting for approval.`, 409);
@@ -413,7 +580,20 @@ export class Covenant {
       const row = this.row(att.contract_id);
       const terms = this.terms(row);
       const a = this.onboarding.agentRow(row.organization)!;
-      const step = await this.onboarding.prepare(att.contract_id, a, { type: "approval_vote", approvalId: att.approval_id, verdict, correlationId: att.correlation_id }, { request_id: requestId, verdict });
+      const action = { type: "approval_vote" as const, approvalId: att.approval_id, verdict, correlationId: att.correlation_id };
+      const prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
+      if (prior.some((s) => s.state === "submitted" || s.state === "unknown"))
+        throw new UserError("A vote for this payout is already submitted or uncertain. Follow its original identity before preparing another.", 409);
+      const pending = prior.filter((s) => s.state === "prepared");
+      if (pending.some((s) => !s.expires_at || !Number.isFinite(Date.parse(s.expires_at))))
+        throw new UserError("The prepared vote has no verifiable expiry. Follow its original identity before preparing another.", 409);
+      const same = pending.find((s) => s.verdict === verdict && s.action === JSON.stringify(action) && Date.parse(s.expires_at!) > this.d.now().getTime());
+      if (pending.some((s) => s.confirm_url && s !== same))
+        throw new UserError("A platform confirmation may already have been signed. Follow this payout's original identity before preparing another vote.", 409);
+      // Only never-submitted preparations can be superseded; stale wallet prompts can no longer submit them here.
+      for (const s of pending) if (s !== same)
+        this.d.db.query("UPDATE owner_steps SET state = 'expired', failure_code = 'superseded', updated_at = ? WHERE correlation_id = ? AND state = 'prepared'").run(this.nowIso(), s.correlation_id);
+      const step = same ?? await this.onboarding.prepare(att.contract_id, a, action, { request_id: requestId, verdict });
       const payment = step.payment_terms ? (JSON.parse(step.payment_terms) as { terms: { recipient: string; asset: string; amount: string; chain?: string } | null }) : null;
       const t = payment?.terms ?? null;
       if (verdict === "approve") {
@@ -445,6 +625,8 @@ export class Covenant {
     const att = this.attempt(requestId);
     const row = this.row(att.contract_id);
     const terms = this.terms(row);
+    // A change request may stop a request only before sending or after status proved not_found.
+    if (this.jobForJudgment(att.run_id)?.changes) return this.transition(att, { state: "dropped", code: "changes_requested", failKind: null });
     const a = this.onboarding.agentRow(row.organization);
     if (!a?.agent) return this.transition(att, { state: "blocked", code: "setup", failKind: "blocked", retryAfterMs: this.d.config.statusPollMs });
     let expected: { revision: number; digest: string } | null = null;
@@ -511,6 +693,8 @@ export class Covenant {
       retry_at: t.retryAfterMs !== undefined ? new Date(this.d.now().getTime() + t.retryAfterMs).toISOString() : null,
     };
     if (t.correlationId) fields.correlation_id = t.correlationId;
+    if (t.neverExecuted !== undefined) fields.never_executed = t.neverExecuted ? 1 : 0;
+    if (t.failureCode !== undefined) fields.failure_code = t.failureCode;
     this.setAttempt(att.request_id, fields);
     let cur = this.attempt(att.request_id);
     const h = this.handleFor(cur);
@@ -518,10 +702,19 @@ export class Covenant {
     if ((cur.state === "paid" || cur.state === "failed") && cur.correlation_id && h) {
       const ps = await h.paymentStatus(cur.correlation_id);
       const ev = ps.ok ? ps.value.evidence : null;
-      const patch: Partial<AttemptRow> = { tx_hash: ev?.txHash ?? null, refund_tx_hash: ev?.refundTxHash ?? null, failure_code: ps.ok ? ps.value.failureCode : null };
+      const txHash = ev?.txHash ?? ev?.destinationTxHash ?? cur.tx_hash;
+      const refundTxHash = ev?.refundTxHash ?? cur.refund_tx_hash;
+      const patch: Partial<AttemptRow> = { tx_hash: txHash, refund_tx_hash: refundTxHash, failure_code: (ps.ok ? ps.value.failureCode : null) ?? cur.failure_code };
       if (cur.state === "failed") {
-        if (!ps.ok) patch.state = "failed"; // can't prove nothing moved without the evidence
-        else patch.state = classifyFailed(cur.vote, ev?.txHash ?? null);
+        if (ps.ok && ps.value.status === "SUCCESS") {
+          patch.state = "paid";
+          patch.never_executed = 0;
+        } else {
+          const consistent = !ps.ok || ps.value.status === "FAILED";
+          const proof = cur.never_executed === 1 && consistent && !txHash && !refundTxHash && !ev?.refundedAmount;
+          if (!proof) patch.never_executed = 0;
+          patch.state = classifyFailed(cur.vote, txHash, proof);
+        }
       }
       this.setAttempt(cur.request_id, patch);
       cur = this.attempt(cur.request_id);
@@ -561,7 +754,7 @@ export class Covenant {
   /** Follow every live attempt of a contract, then move its open judgment along. Caller holds the mutex. */
   private async followUpLocked(id: string) {
     for (const att of this.attempts(id)) {
-      if (OPEN_STATES.includes(att.state)) {
+      if (OPEN_STATES.includes(att.state) || (att.state === "failed" && att.resolution === null)) {
         try {
           await this.followAttempt(att);
         } catch (err) {
@@ -576,13 +769,23 @@ export class Covenant {
     const h = this.handleFor(att);
     if (!h) return;
     const now = this.d.now().getTime();
+    if (att.state === "blocked" && att.code === "request_conflict") {
+      if (!att.retry_at || Date.parse(att.retry_at) <= now) await this.readConflict(att, h);
+      return; // Other terms under this identity must never become this job's payment or cancellation.
+    }
+    if (this.jobForJudgment(att.run_id)?.changes && (att.state === "blocked" || att.state === "waiting")) {
+      // Even preflight failures are observed first: no cancellation inference from an error or timeout.
+      const status = await h.payoutStatus(att.request_id);
+      if (status.ok) return this.apply(att, status);
+      return;
+    }
     if (att.state === "waiting" || att.state === "blocked") {
       if (att.retry_at && Date.parse(att.retry_at) > now) return;
-      if (att.code === "request_conflict") return this.readConflict(att, h); // look, never re-send
       return this.send(att.request_id); // the same id, never a new one
     }
     const st = await h.payoutStatus(att.request_id);
     if (st.ok) {
+      if (att.state === "failed" && st.value.state === "not_found") return; // A known recorded failure is observed, never replayed.
       if (st.value.state === "not_found") return this.send(att.request_id);
       const mapped = fromAnswer(st.value).state;
       if (mapped === att.state && (mapped === "held" || mapped === "processing" || mapped === "unknown")) {
@@ -591,7 +794,7 @@ export class Covenant {
       }
       return this.apply(att, st);
     }
-    // payouts/status needs the payout scope; after the end only `read` is left, so follow the payment by correlation.
+    // SDK 0.5.6 reads payouts/status under read; this fallback follows older/incompatible gateways by correlation.
     if (st.kind === "forbidden" && att.correlation_id) {
       const ps = await h.paymentStatus(att.correlation_id);
       if (!ps.ok) return;
@@ -607,6 +810,16 @@ export class Covenant {
       if (!j) return;
       const terms = this.terms(this.row(id));
       const mine = this.attempts(id).filter((a) => a.run_id === j.id && a.kind === "payout");
+      if (this.jobForJudgment(j.id)?.changes) {
+        if (mine.some(isOpen)) return;
+        // An off-app approval may have raced the cancellation. Never describe money that moved as cancelled.
+        if (mine.some(isCommitted)) {
+          this.closeJudgment(j, "approved");
+          return;
+        }
+        this.closeJudgment(j, "rejected");
+        return;
+      }
       const owed = this.owedTotal(id, terms, j);
       const step = judgmentStep(mine, owed);
       const last = latestAttempt(mine);
@@ -635,7 +848,7 @@ export class Covenant {
   private async newAttempt(j: JudgmentRow, seq: number, attempt: number, auto: boolean): Promise<boolean> {
     const row = this.row(j.contract_id);
     const terms = this.terms(row);
-    const plan = planPayout(terms, completionOf(JSON.parse(j.json) as Judgment), this.committedBy(j.contract_id));
+    const plan = planPayout(terms, completionOf(JSON.parse(j.json) as Judgment), this.committedBy(j.contract_id), this.jobBudgetRemaining(j));
     if (!plan) {
       const mine = this.attempts(j.contract_id).filter((a) => a.run_id === j.id);
       this.closeJudgment(j, mine.some(isPaid) ? "approved" : "nothing");
@@ -651,8 +864,24 @@ export class Covenant {
   }
 
   private closeJudgment(j: JudgmentRow, outcome: "approved" | "rejected" | "dropped" | "nothing") {
+    // The judgment, submission state and event are one durable outcome. A crash or failed write must leave
+    // the pending judgment available to the recovery timer, even if its payout is already terminal.
+    this.d.db.transaction(() => this.finalizeJudgmentRecords(j, outcome))();
+  }
+
+  private finalizeJudgmentRecords(j: JudgmentRow, outcome: "approved" | "rejected" | "dropped" | "nothing") {
     const now = this.nowIso();
     this.d.db.query("UPDATE judgments SET outcome = ?, closed_at = ? WHERE id = ? AND outcome = 'pending'").run(outcome, now, j.id);
+    const job = this.jobForJudgment(j.id);
+    if (job) {
+      const mine = this.attempts(j.contract_id).filter((a) => a.run_id === j.id);
+      const confirmed = mine.some((a) => a.state === "paid") && mine.filter(isCommitted).every((a) => a.state === "paid");
+      const cancelled = !!job.changes && mine.every((a) => !isCommitted(a));
+      const state = cancelled ? "changes_requested" : outcome === "approved" && confirmed ? "settled" : "closed";
+      this.d.db.query("UPDATE job_submissions SET state = ? WHERE id = ?").run(state, job.id);
+      this.event(j.contract_id, "submission", `Submission ${job.id}: ${state}. ${cancelled ? "No live payout remains; the builder can submit a new immutable revision." : "Approval and payment evidence remain linked through the judgment and request IDs."}`);
+      return;
+    }
     const judgment = JSON.parse(j.json) as Judgment;
     const eligible = judgment.prs.filter((p) => p.eligible);
     if (outcome === "approved") {
@@ -832,6 +1061,7 @@ export class Covenant {
       judgment: latest ? { ...(JSON.parse(latest.json) as Judgment), id: latest.id, at: latest.at, outcome: latest.outcome } : null,
       open_judgment: open,
       payouts: attempts.map((x) => this.payoutView(x)),
+      submissions: this.jobSubmissions(id),
       events: this.events(id),
     };
   }
@@ -860,6 +1090,8 @@ export class Covenant {
     const state: AttemptState = p.state === "failed" && p.resolution !== null ? "resolved" : p.state;
     return {
       request_id: p.request_id,
+      payment_correlation_id: p.correlation_id,
+      approval_vote_id: p.vote_correlation_id,
       kind: p.kind,
       seq: p.seq,
       attempt: p.attempt,
@@ -877,6 +1109,7 @@ export class Covenant {
       tx_hash: p.tx_hash,
       refund_tx_hash: p.refund_tx_hash,
       failure_code: p.failure_code,
+      never_executed: p.never_executed === 1,
       platform_record: p.platform_record,
       created_at: p.created_at,
     };
@@ -1013,7 +1246,17 @@ export class Covenant {
   }
 
   private owedTotal(id: string, terms: Terms, j: JudgmentRow): bigint {
-    return owedFor(terms, completionOf(JSON.parse(j.json) as Judgment), this.committedBy(id)).reduce((n, l) => n + l.amount, 0n);
+    const owed = owedFor(terms, completionOf(JSON.parse(j.json) as Judgment), this.committedBy(id)).reduce((n, l) => n + l.amount, 0n);
+    const remaining = this.jobBudgetRemaining(j);
+    return remaining !== undefined && remaining < owed ? remaining : owed;
+  }
+
+  private jobBudgetRemaining(j: JudgmentRow): bigint | undefined {
+    const job = this.jobForJudgment(j.id);
+    if (!job) return undefined;
+    const committed = this.attempts(j.contract_id).filter((a) => a.run_id === j.id && isCommitted(a)).reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
+    const left = BigInt(job.proposed_atomic) - committed;
+    return left > 0n ? left : 0n;
   }
 
   private openJudgment(id: string): JudgmentRow | null {

@@ -62,7 +62,7 @@ export interface TermsSigningRequest {
   nonce: string;
 }
 
-/** POST /api/sim/sign: a demo-wallet NEP-413 signature (demo_controls only). */
+/** A wallet's NEP-413 signature, or its explicitly simulated demo equivalent. */
 export interface Signed {
   account_id: string;
   public_key: string;

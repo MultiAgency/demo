@@ -8,12 +8,15 @@ import { USDC_DECIMALS } from "../../shared/terms";
 import { UserError } from "../engine";
 import { failCode, failError } from "../onboarding";
 import { type Agencies, ended } from "./agencies";
-import { type HireRow, type HireState, update } from "./db";
-import type { Fail, HireAnswer, HireTerms, MarketPlatform } from "./port";
+import { type AgencyRow, type HireRow, type HireState, update } from "./db";
+import type { Fail, HireAnswer, HireTerms, MarketPlatform, Res } from "./port";
 
 /** How long a DAO's approval may stay valid: two days to vote and pay. The platform caps it at its own maximum. */
 const DAO_APPROVAL_MS = 2 * 86_400_000;
 const LIVE: HireState[] = ["voting", "hiring", "unknown"];
+/** These gateway validation refusals explicitly precede creating a DAO hire request. Other failures prove no outcome. */
+const DAO_NOT_FILED = new Set(["invalid_request", "brief_mismatch", "expires_too_soon"]);
+const DAO_FILING_UNKNOWN = "dao_filing_unknown";
 
 export interface HiresDeps {
   db: Database;
@@ -23,6 +26,7 @@ export interface HiresDeps {
 }
 
 export class Hires {
+  private approvals = new Set<string>();
   constructor(private d: HiresDeps) {}
 
   private iso() {
@@ -71,48 +75,87 @@ export class Hires {
    * vote that expired is filed again under the same requestId.
    */
   async approve(requestId: string, actor: string | null): Promise<HireRow> {
-    const r = this.row(requestId);
-    const a = this.d.agencies.ready(r.agency_id);
-    // A freeze stops the agent's provider sends, not a payment from funds already on its payment key: hire nothing.
-    // Fails closed: unless the platform reads the agent unfrozen, nothing is approved.
-    const frozen = await this.d.agencies.agent(a).frozen();
-    if (!frozen.ok) throw new UserError("Couldn't read whether the agency's market agent is frozen, so nothing was approved. Try again.", 503);
-    if (frozen.value) throw new UserError("The agency's market agent is frozen. Unfreeze it before approving a job.", 409);
-    const terms = JSON.parse(r.terms) as HireTerms;
-    if (a.signer === "dao") {
-      const from = this.claim(requestId, ["quoted", "vote_expired"], "voting", actor);
-      const validUntil = new Date(this.d.now().getTime() + DAO_APPROVAL_MS).toISOString();
-      const filed = await this.d.market.daoHire.file({ organization: a.organization, agent: a.agent!, requestId, brief: r.brief, approved: terms, validUntil });
-      if (!filed.ok) {
-        this.set(requestId, { state: from });
-        throw failError(filed, "the DAO's hire request");
-      }
-      const v = this.d.agencies.recordVote(a.id, "hire", requestId, filed.value);
-      this.set(requestId, { dao_vote_id: v.id });
-      return this.row(requestId);
-    }
-    this.claim(requestId, ["quoted"], "hiring", actor);
-    return this.ask(requestId);
+    if (this.approvals.has(requestId)) throw new UserError("This hire's approval is already being followed under its original id.", 409);
+    this.approvals.add(requestId);
+    try { return await this.approveOnce(requestId, actor); }
+    finally { this.approvals.delete(requestId); }
   }
 
-  /**
-   * Moves the hire from one of `from` to `to` in one statement, so two approvals of one quote can't both proceed.
-   * Answers the state it left.
-   */
-  private claim(requestId: string, from: HireState[], to: HireState, actor: string | null): HireState {
-    const before = this.row(requestId).state;
-    const moved = this.d.db
-      .query(`UPDATE market_hires SET state = ?, approved_by = ?, updated_at = ? WHERE request_id = ? AND state IN (${from.map(() => "?").join(", ")})`)
-      .run(to, actor, this.iso(), requestId, ...from);
-    if (moved.changes !== 1) throw new UserError(`This hire is ${this.row(requestId).state}.`, 409);
-    return before;
+  /** Unavailable or thrown policy reads grant no permission to send from an already funded payment key. */
+  private async frozen(a: AgencyRow): Promise<boolean | null> {
+    try {
+      const res = await this.d.agencies.agent(a).frozen();
+      return res.ok && typeof res.value === "boolean" ? res.value : null;
+    } catch { return null; }
+  }
+
+  private requireNoUnknownDaoFiling(agencyId: string, requestId: string) {
+    const uncertain = this.d.db.query(`SELECT request_id FROM market_hires WHERE agency_id = ? AND request_id != ?
+      AND state = 'unknown' AND dao_vote_id IS NULL LIMIT 1`).get(agencyId, requestId) as { request_id: string } | null;
+    if (uncertain) throw new UserError(`DAO hire ${uncertain.request_id} has an uncertain filing. Preserve that original identity before approving another hire.`, 409);
+  }
+
+  private async approveOnce(requestId: string, actor: string | null): Promise<HireRow> {
+    let r = this.row(requestId);
+    const a = this.d.agencies.ready(r.agency_id);
+    if (a.signer === "dao") this.requireNoUnknownDaoFiling(a.id, requestId);
+    // A freeze stops the agent's provider sends, not a payment from funds already on its payment key: hire nothing.
+    const frozen = await this.frozen(a);
+    if (frozen === null) throw new UserError("Couldn't confirm whether the market agent is frozen. Check again before approving this job.", 503);
+    if (frozen) throw new UserError("The agency's market agent is frozen. Unfreeze it before approving a job.", 409);
+    r = this.row(requestId);
+    const terms = JSON.parse(r.terms) as HireTerms;
+    if (a.signer === "dao") {
+      if (r.state !== "quoted" && r.state !== "vote_expired") throw new UserError(`This hire is ${r.state}.`, 409);
+      const validUntil = new Date(this.d.now().getTime() + DAO_APPROVAL_MS).toISOString();
+      // The platform generates the vote hash. Losing that answer must not leave a remotely filed approval discardable
+      // or fileable again. The SDK has no lookup by requestId: retain uncertainty, then observe market/status only.
+      this.d.db.transaction(() => {
+        this.requireNoUnknownDaoFiling(a.id, requestId);
+        const claimed = this.d.db.query(`UPDATE market_hires SET state = 'unknown', dao_vote_id = NULL, code = ?, approved_by = ?, updated_at = ?
+          WHERE request_id = ? AND state IN ('quoted', 'vote_expired')`)
+          .run(DAO_FILING_UNKNOWN, actor, this.iso(), requestId);
+        if (claimed.changes !== 1) throw new UserError("This DAO hire was already filed or is uncertain. Follow its original identity.", 409);
+      })();
+      let filed: Awaited<ReturnType<MarketPlatform["daoHire"]["file"]>>;
+      try { filed = await this.d.market.daoHire.file({ organization: a.organization, agent: a.agent!, requestId, brief: r.brief, approved: terms, validUntil }); }
+      catch { return this.row(requestId); }
+      if (!filed.ok) {
+        if (filed.kind === "refused" && DAO_NOT_FILED.has(filed.code)) {
+          if (this.row(requestId).state === "unknown") this.set(requestId, { state: "refused", code: filed.code });
+          throw failError(filed, "the DAO's hire request");
+        }
+        return this.row(requestId);
+      }
+      const value = filed.value;
+      this.d.db.transaction(() => {
+        const v = this.d.agencies.recordVote(a.id, "hire", requestId, value);
+        const current = this.row(requestId);
+        // A concurrent status read may already have confirmed settlement while the filing's answer was in flight.
+        this.set(requestId, { state: current.state === "unknown" ? "voting" : current.state, dao_vote_id: v.id,
+          code: current.state === "unknown" ? null : current.code });
+      })();
+      return this.row(requestId);
+    }
+    if (r.state !== "quoted") throw new UserError(`This hire is ${r.state}.`, 409);
+    const claimed = this.d.db.query("UPDATE market_hires SET state = 'hiring', approved_by = ?, updated_at = ? WHERE request_id = ? AND state = 'quoted'")
+      .run(actor, this.iso(), requestId);
+    if (claimed.changes !== 1) throw new UserError("This hire was already approved. Follow its original identity.", 409);
+    return this.ask(requestId);
   }
 
   /** `market/hire` under the hire's own requestId: paid at most once, only while a fresh quote equals the terms. */
   private async ask(requestId: string): Promise<HireRow> {
     const r = this.row(requestId);
     const a = this.d.agencies.row(r.agency_id);
-    const res = await this.d.agencies.agent(a).hire(requestId, r.brief, JSON.parse(r.terms) as HireTerms);
+    // Includes not_found recovery after reload: approval never bypasses a later freeze or an unanswered policy read.
+    if (await this.frozen(a) !== false) return this.row(requestId);
+    let res: Res<HireAnswer>;
+    try { res = await this.d.agencies.agent(a).hire(requestId, r.brief, JSON.parse(r.terms) as HireTerms); }
+    catch {
+      this.set(requestId, { state: "unknown" });
+      return this.row(requestId);
+    }
     if (res.ok) this.apply(requestId, res.value);
     else this.failed(requestId, res);
     return this.row(requestId);
@@ -127,20 +170,44 @@ export class Hires {
   }
 
   private apply(requestId: string, ans: HireAnswer) {
-    const fields: Partial<HireRow> = { task_state: ans.taskState, code: ans.code };
+    const current = this.row(requestId);
+    const fields: Partial<HireRow> = { task_state: ans.taskState,
+      code: ans.code ?? (ans.state === "unknown" && current.code === DAO_FILING_UNKNOWN ? DAO_FILING_UNKNOWN : null) };
     if (ans.taskId) fields.task_id = ans.taskId;
     if (ans.deliverable !== null) fields.deliverable = ans.deliverable;
     if (ans.state === "paid" || ans.state === "not_charged" || ans.state === "refused" || ans.state === "unknown") fields.state = ans.state;
     this.set(requestId, fields);
   }
 
+  /** A relay response can be lost after payment. Observe the original payment before declaring its vote expired. */
+  private async terminalStatus(requestId: string): Promise<HireRow | null> {
+    const r = this.row(requestId);
+    const a = this.d.agencies.row(r.agency_id);
+    try {
+      const st = await this.d.agencies.agent(a).status(requestId);
+      if (st.ok && st.value.requestId === requestId &&
+        (st.value.state === "paid" || st.value.state === "not_charged" || st.value.state === "refused")) {
+        this.apply(requestId, st.value);
+        return this.row(requestId);
+      }
+    } catch { /* No readable settlement evidence: retain the original vote and its uncertainty. */ }
+    return null;
+  }
+
   /** Moves one live hire along: the DAO's vote, then what the platform's journal proves about the payment. */
   async follow(requestId: string): Promise<HireRow> {
     let r = this.row(requestId);
+    if (r.state === "voting" && !r.dao_vote_id) {
+      this.set(requestId, { state: "unknown", code: DAO_FILING_UNKNOWN });
+      r = this.row(requestId);
+    }
     if (r.state === "voting") {
-      if (!r.dao_vote_id) return r; // being filed by the approval in flight
-      const st = await this.d.market.daoHire.state(r.dao_vote_id);
-      if (!st.ok && !ended(st)) return r;
+      const st = await this.d.market.daoHire.state(r.dao_vote_id!);
+      if (!st.ok || st.value.state === "expired") {
+        const settled = await this.terminalStatus(requestId);
+        if (settled) return settled;
+      }
+      if (!st.ok && !ended(st, "hire")) return r;
       if (st.ok && st.value.state === "pending") return r;
       if (!st.ok || st.value.state === "expired") {
         this.d.agencies.setVote(r.dao_vote_id!, "expired");

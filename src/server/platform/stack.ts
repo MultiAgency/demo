@@ -69,8 +69,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * The stack's file controls as `DemoControls`: simulated funding of a created agent and settlement of an approved payout.
- * Lost replies, outages and failures after approval are injected on the fake only (the stack can't drop a withdrawal's
- * reply).
+ * The narrow DemoControls interface exposes funding and settlement. The stack also supports file commands such as
+ * dropWithdrawResponse; the process-restart fault recipe invokes that existing command directly.
  */
 export class StackControls implements DemoControls, MarketControls {
   private seq = 0;

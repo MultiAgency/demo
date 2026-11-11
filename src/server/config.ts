@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 
 export interface Config {
   platform: "fake" | "remote";
@@ -81,7 +82,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     cfg.market.worker = { token: env.MARKET_AGENT_TOKEN!, secret: env.MARKET_WEBHOOK_SECRET!, agencyId: env.MARKET_WORKER_AGENCY! };
   }
 
-  const mount = volumeProblem(env);
+  const mount = volumeProblem(env, cfg.dbPath);
   if (mount) throw new Error(mount);
   if (production) {
     if (!/^https:\/\//.test(cfg.auth.publicUrl)) throw new Error("PLATFORM=remote needs PUBLIC_URL, the app's https origin: sign-in and its cookies name it.");
@@ -103,12 +104,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
  * the next deploy, with every saved requestId and vote with it. Railway's `requiredMountPath` can't be set from
  * `.railway/railway.ts` (as for Treasury's service), so the server checks.
  */
-export function volumeProblem(env: Record<string, string | undefined>): string | null {
+export function volumeProblem(env: Record<string, string | undefined>, dbPath = env.DB_PATH || "data/covenant.sqlite"): string | null {
   const required = env.REQUIRED_MOUNT;
   if (!required) return null;
-  if (!required.startsWith("/")) return `REQUIRED_MOUNT must be an absolute path, not ${required}`;
+  if (!isAbsolute(required)) return `REQUIRED_MOUNT must be an absolute path, not ${required}`;
   const mounted = env.RAILWAY_VOLUME_MOUNT_PATH;
-  if (mounted !== required) return `No volume is mounted at ${required}${mounted ? ` (Railway mounted one at ${mounted})` : ""}: attach the service's volume there before it starts.`;
-  if (!env.DB_PATH || !env.DB_PATH.startsWith(`${required.replace(/\/+$/, "")}/`)) return `DB_PATH must be on the volume at ${required}, not ${env.DB_PATH ?? "the default (data/covenant.sqlite, on the container's disk)"}.`;
+  const root = resolve(required);
+  if (!mounted || !isAbsolute(mounted) || resolve(mounted) !== root) return `No volume is mounted at ${required}${mounted ? ` (Railway mounted one at ${mounted})` : ""}: attach the service's volume there before it starts.`;
+  if (dbPath === ":memory:" || !resolve(dbPath).startsWith(`${root === "/" ? "" : root}/`)) return `DB_PATH must be on the volume at ${required}, not ${dbPath}.`;
   return null;
 }

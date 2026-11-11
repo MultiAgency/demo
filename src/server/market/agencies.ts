@@ -16,10 +16,8 @@ const SETUP_TTL_MS = 30 * 60_000;
 /** A DAO's setup may last at most 7 days (the platform's limit); two leaves room for a vote. */
 const DAO_SETUP_TTL_MS = 2 * 86_400_000;
 const CONSENT_MS = 90 * 86_400_000;
-/** Setup refusals after which the agent may exist: the body expired before a resend, or the agent was created. */
+/** Recover reservations only when setup may already exist, never after an invalid signature. */
 const RECOVERABLE_SETUP_CODES = new Set(["already_created", "expired", "signed_expired"]);
-/** How long a text issued for the wallet stays the one to sign: a second request for the step answers it again. */
-const SIGN_REUSE_MS = 10 * 60_000;
 const WAIT_MS = 2_000;
 /** The consent the user decided for a DAO owner (2026-11-09): reads and hires, nothing else. */
 export const DAO_SCOPES = ["read", "market"] as const;
@@ -37,15 +35,13 @@ interface PendingSign {
   message: string;
   nonce: string;
   recipient: string;
-  issued_at?: string;
+  expires_at: string;
 }
 
 const wait = (label: string): AgencyNext => ({ kind: "wait", label, retry_ms: WAIT_MS });
-/**
- * A DAO request the platform answered with a refusal rather than a transient failure: it ended (a DAO stop ends pending
- * consent requests, 409; a finished one is removed after 30 days, 404). Filed again rather than waited on.
- */
-export const ended = (f: Fail) => f.kind === "refused" || f.kind === "forbidden";
+/** Only explicit gateway terminal answers end a DAO request; lost access and generic 4xx answers do not. */
+export const ended = (f: Fail, kind: "setup" | "consent" | "hire") => f.kind === "refused" &&
+  (f.code === "signed_expired" || f.code === "vote_lapsed" || (kind === "consent" && f.code === "dao_stopped"));
 const STEP_SUMMARY: Record<MarketStepRow["kind"], string> = {
   agent_create: "Create the agency's market agent",
   grant_issue: "Issue the market agent's grant",
@@ -54,6 +50,7 @@ const STEP_SUMMARY: Record<MarketStepRow["kind"], string> = {
 };
 
 export class Agencies {
+  private ownerOperations = new Map<string, { kind: MarketStepRow["kind"]; promise: Promise<AgencyNext> }>();
   constructor(private d: AgenciesDeps) {}
 
   private iso() {
@@ -151,7 +148,7 @@ export class Agencies {
     const a = this.row(id);
     switch (a.stage) {
       case "needs_setup":
-        return a.signer === "wallet" ? this.signRequest(a, "setup", this.d.market.setupMessage({ organization: a.organization, owner: a.owner, expiresAt: new Date(this.d.now().getTime() + SETUP_TTL_MS).toISOString() }), "Set up the agency's market agent") : this.daoSetup(a);
+        return a.signer === "wallet" ? this.signRequest(a, "setup", (expiresAt) => this.d.market.setupMessage({ organization: a.organization, owner: a.owner, expiresAt }), new Date(this.d.now().getTime() + SETUP_TTL_MS).toISOString(), "Set up the agency's market agent") : this.daoSetup(a);
       case "needs_create": {
         const who = await this.d.market.identity(a.agent!);
         if (who.ok && who.value.created && who.value.agentId) {
@@ -185,38 +182,36 @@ export class Agencies {
     }
   }
 
-  private signRequest(a: AgencyRow, step: PendingSign["step"], message: string, label: string): AgencyNext {
-    // A second request for the same step (another tab, a reload) answers the text already issued, so the wallet's
-    // signature over it is still the one accepted.
-    const issued = a.pending_sign ? (JSON.parse(a.pending_sign) as PendingSign) : null;
-    const fresh = issued?.step === step && issued.issued_at && this.d.now().getTime() - Date.parse(issued.issued_at) < SIGN_REUSE_MS;
-    const pending: PendingSign = fresh ? issued! : { step, message, nonce: nonceToString(randomNonce()), recipient: this.d.market.host, issued_at: this.iso() };
-    if (!fresh) this.set(a.id, { pending_sign: JSON.stringify(pending) });
-    message = pending.message;
-    return { kind: "sign", step, label, sign: { account_id: a.owner, message, recipient: pending.recipient, nonce: pending.nonce } };
+  private signRequest(a: AgencyRow, step: PendingSign["step"], messageFor: (expiresAt: string) => string, expiresAt: string, label: string | ((expiresAt: string) => string)): AgencyNext {
+    const saved = a.pending_sign ? JSON.parse(a.pending_sign) as PendingSign : null;
+    const reuse = saved && saved.step === step && saved.recipient === this.d.market.host &&
+      Date.parse(saved.expires_at) > this.d.now().getTime() && Date.parse(saved.expires_at) <= Date.parse(expiresAt) &&
+      saved.message === messageFor(saved.expires_at);
+    const pending: PendingSign = reuse ? saved : { step, message: messageFor(expiresAt), nonce: nonceToString(randomNonce()), recipient: this.d.market.host, expires_at: expiresAt };
+    if (!reuse) this.set(a.id, { pending_sign: JSON.stringify(pending) });
+    return { kind: "sign", step, label: typeof label === "function" ? label(pending.expires_at) : label, sign: { account_id: a.owner, message: pending.message, recipient: pending.recipient, nonce: pending.nonce } };
   }
 
   private walletConsent(a: AgencyRow): AgencyNext {
     const expiresAt = new Date(this.d.now().getTime() + CONSENT_MS).toISOString();
-    const message = this.d.market.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: [...WALLET_SCOPES], expiresAt });
-    return this.signRequest(a, "consent", message, `Let Covenant quote and hire on the market for this agency until ${expiresAt.slice(0, 10)}`);
+    return this.signRequest(a, "consent", (until) => this.d.market.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: [...WALLET_SCOPES], expiresAt: until }), expiresAt, (until) => `Let Covenant quote and hire on the market for this agency until ${until.slice(0, 10)}`);
   }
 
   /** The wallet's NEP-413 signature over the setup or consent text Covenant issued last. */
   async signed(id: string, body: { step: PendingSign["step"]; nonce: string; publicKey: string; signature: string }): Promise<AgencyNext> {
     const a = this.row(id);
     const pending = a.pending_sign ? (JSON.parse(a.pending_sign) as PendingSign) : null;
-    if (a.signer !== "wallet" || !pending || pending.step !== body.step || pending.nonce !== body.nonce) throw new UserError("This signature doesn't answer the current step. Ask for the next step again.", 409);
+    if (a.signer !== "wallet" || !pending || pending.step !== body.step || pending.nonce !== body.nonce || !(Date.parse(pending.expires_at) > this.d.now().getTime())) throw new UserError("This signature doesn't answer the current unexpired step. Ask for the next step again.", 409);
     const s = { message: pending.message, nonce: pending.nonce, publicKey: body.publicKey, signature: body.signature };
     if (body.step === "setup") {
       // Resending the same unexpired body answers the same agent; a lost reply is found through reservations.
       let res = await this.d.market.setup(s);
       if (!res.ok && (res.kind === "unavailable" || res.kind === "unknown")) res = await this.d.market.setup(s);
       let agent = res.ok ? res.value.agent : null;
-      // Only a lost reply, or a refusal that means the agent may exist already, is looked up in the reservations: a
-      // refused signature never binds the key it named.
-      const lost = !res.ok && (res.kind === "unavailable" || res.kind === "unknown" || (res.kind === "refused" && RECOVERABLE_SETUP_CODES.has(res.code)));
-      if (!res.ok && !lost) throw failError(res, "the setup");
+      // A refused signature proves no key binding, even if this owner already has a reservation.
+      const recoverable = !res.ok && (res.kind === "unavailable" || res.kind === "unknown" ||
+        (res.kind === "refused" && RECOVERABLE_SETUP_CODES.has(res.code)));
+      if (!res.ok && !recoverable) throw failError(res, "the setup");
       if (!res.ok) {
         const listed = await this.d.market.reservations(a.organization, a.owner);
         const live = listed.ok ? listed.value.filter((x) => !x.released && x.owner === a.owner) : [];
@@ -237,7 +232,7 @@ export class Agencies {
     let v = this.latestVote(a.id, "setup");
     if (v && v.state === "pending") {
       const st = await this.d.market.daoSetup.state(v.id);
-      if (!st.ok && !ended(st)) return wait("Waiting for the platform to read the DAO's vote");
+      if (!st.ok && !ended(st, "setup")) return wait("Waiting for the platform to read the DAO's vote");
       if (st.ok && st.value.state === "done") {
         this.setVote(v.id, "done");
         this.set(a.id, { agent: st.value.agent, stage: "needs_create" });
@@ -258,7 +253,7 @@ export class Agencies {
     let v = this.latestVote(a.id, "consent");
     if (v && v.state === "pending") {
       const st = await this.d.market.daoConsent.state(v.id);
-      if (!st.ok && !ended(st)) return wait("Waiting for the platform to read the DAO's vote");
+      if (!st.ok && !ended(st, "consent")) return wait("Waiting for the platform to read the DAO's vote");
       if (st.ok && st.value.state === "done") {
         this.setVote(v.id, "done");
         this.set(a.id, { consent_id: st.value.consentId, consent_expires_at: st.value.expiresAt, stage: "needs_grant" });
@@ -294,20 +289,47 @@ export class Agencies {
    * One owner action, prepared once and followed to its end. `repeatable` actions (freeze, unfreeze) may run again
    * later, so an earlier success is history, not this request's answer.
    */
-  private async ownerStep(a: AgencyRow, action: MarketOwnerAction, label: string, repeatable = false): Promise<AgencyNext> {
+  private ownerStep(a: AgencyRow, action: MarketOwnerAction, label: string, repeatable = false): Promise<AgencyNext> {
+    const running = this.ownerOperations.get(a.id);
+    if (running) return running.kind === action.type ? running.promise : Promise.resolve(wait("Waiting for the agency's original owner step"));
+    const promise = this.advanceOwnerStep(a, action, label, repeatable).finally(() => {
+      if (this.ownerOperations.get(a.id)?.promise === promise) this.ownerOperations.delete(a.id);
+    });
+    this.ownerOperations.set(a.id, { kind: action.type, promise });
+    return promise;
+  }
+
+  /** A different action must not race an owner submission, or an intent signable outside this app. */
+  private async blockingStep(a: AgencyRow, kind: MarketStepRow["kind"]): Promise<MarketStepRow | null> {
+    const others = this.d.db.query(`SELECT * FROM market_steps WHERE agency_id = ? AND kind != ?
+      AND (state IN ('submitted', 'unknown') OR (state = 'prepared' AND (confirm_url IS NOT NULL OR ? = 'dao')))`)
+      .all(a.id, kind, a.signer) as MarketStepRow[];
+    for (const other of others) {
+      const s = await this.pollStep(other.correlation_id);
+      if (s.state === "submitted" || s.state === "unknown" || s.state === "prepared") return s;
+    }
+    return null;
+  }
+
+  private async advanceOwnerStep(a: AgencyRow, action: MarketOwnerAction, label: string, repeatable: boolean): Promise<AgencyNext> {
     const kind = action.type;
+    if (await this.blockingStep(a, kind)) return wait("Waiting for the agency's original owner step");
     let s = this.latestStep(a.id, kind);
     if (repeatable && s?.state === "success") s = null;
-    if (s && s.state === "prepared" && Date.parse(s.expires_at) <= this.d.now().getTime()) {
+    // A confirm page or DAO may already have submitted an intent. Only its status can end that uncertainty.
+    const external = a.signer === "dao" || !!s?.confirm_url;
+    if (s && s.state === "prepared" && !external && !(Date.parse(s.expires_at) > this.d.now().getTime())) {
       this.setStep(s.correlation_id, { state: "expired" });
       s = this.step(s.correlation_id);
     }
     const waitsOnOthers = s && (s.state === "submitted" || s.state === "unknown" || (s.state === "prepared" && (a.signer === "dao" || !!s.confirm_url)));
     if (s && waitsOnOthers) s = await this.pollStep(s.correlation_id);
     if (s?.state === "success") {
-      // The step succeeded but the platform may not show its effect yet (say, the agent not yet created): wait for the
-      // next call rather than asking again at once, which would recurse without end.
-      if (!repeatable && this.row(a.id).stage === a.stage) return wait("Waiting for the platform to show the change");
+      // Recover a crash between the recorded owner outcome and its local setup-stage application.
+      await this.applySuccess(this.row(a.id), s.kind);
+      const current = this.row(a.id);
+      if ((kind === "agent_create" || kind === "grant_issue") && current.stage === a.stage)
+        return wait("Waiting for the completed owner step to appear in the agency's setup");
       return this.next(a.id);
     }
     if (s && (s.state === "submitted" || s.state === "unknown")) return wait("Waiting for the platform to apply the signed step");
@@ -334,18 +356,22 @@ export class Agencies {
   }
 
   private storeStep(a: AgencyRow, kind: MarketStepRow["kind"], p: OwnerPrepared): MarketStepRow {
-    // Checked before anything is stored: a prepared DAO step without its vote would be shown as nothing to vote on.
+    const known = this.d.db.query("SELECT * FROM market_steps WHERE correlation_id = ?").get(p.correlationId) as MarketStepRow | null;
+    if (known) {
+      if (known.agency_id !== a.id || known.kind !== kind) throw new UserError("The platform returned an owner identity belonging to another step.", 502);
+      return known;
+    }
     if (p.dao && !p.dao.hash) throw new UserError("The platform's DAO proposal named no hash to vote on.", 502);
     const now = this.iso();
-    this.d.db
-      .query(
-        `INSERT INTO market_steps (correlation_id, agency_id, kind, intent, confirm_url, expires_at, summary, state, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`,
-      )
-      .run(p.correlationId, a.id, kind, p.intent ? JSON.stringify(p.intent) : null, p.confirm?.url ?? null, p.confirm?.expiresAt ?? p.expiresAt, p.summary, now, now);
-    if (p.dao) {
-      this.recordVote(a.id, kind, p.correlationId, { id: `step:${p.correlationId}`, hash: p.dao.hash, description: p.summary, votingUntil: Date.parse(p.expiresAt), proposal: p.dao.proposal, proposalAndVote: p.dao.proposalAndVote });
-    }
+    this.d.db.transaction(() => {
+      this.d.db
+        .query(
+          `INSERT INTO market_steps (correlation_id, agency_id, kind, intent, confirm_url, expires_at, summary, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?)`,
+        )
+        .run(p.correlationId, a.id, kind, p.intent ? JSON.stringify(p.intent) : null, p.confirm?.url ?? null, p.confirm?.expiresAt ?? p.expiresAt, p.summary, now, now);
+      if (p.dao) this.recordVote(a.id, kind, p.correlationId, { id: `step:${p.correlationId}`, hash: p.dao.hash, description: p.summary, votingUntil: Date.parse(p.expiresAt), proposal: p.dao.proposal, proposalAndVote: p.dao.proposalAndVote });
+    })();
     return this.step(p.correlationId);
   }
 
@@ -354,8 +380,6 @@ export class Agencies {
     if (!pending.ok) return null;
     const open = pending.value.find((p) => p.type === kind);
     if (!open || (a.signer === "dao" && !open.hash)) return null;
-    const known = this.d.db.query("SELECT * FROM market_steps WHERE correlation_id = ?").get(open.correlationId) as MarketStepRow | null;
-    if (known) return known;
     return this.storeStep(a, kind, {
       correlationId: open.correlationId,
       expiresAt: open.expiresAt,
@@ -387,9 +411,24 @@ export class Agencies {
     const s = this.step(correlationId);
     if (s.state !== "prepared" || !s.intent) throw new UserError(`This step is ${s.state === "prepared" ? "confirmed elsewhere" : `already ${s.state}`}.`, 409);
     const a = this.row(s.agency_id);
-    const res = await this.agent(a).ownerSubmit(correlationId, JSON.parse(s.intent), sig);
+    if (!(Date.parse(s.expires_at) > this.d.now().getTime())) {
+      this.setStep(correlationId, { state: "expired" });
+      throw new UserError("This owner step expired. Ask for the next step again.", 409);
+    }
+    // Claim before external I/O: a crash or thrown transport error must not leave the original intent signable again.
+    this.d.db.transaction(() => {
+      const other = this.d.db.query(`SELECT correlation_id FROM market_steps WHERE agency_id = ? AND correlation_id != ?
+        AND (state IN ('submitted', 'unknown') OR (state = 'prepared' AND (confirm_url IS NOT NULL OR ? = 'dao'))) LIMIT 1`)
+        .get(a.id, correlationId, a.signer);
+      if (other) throw new UserError("Another owner step is submitted or uncertain. Follow its original identity first.", 409);
+      const claimed = this.d.db.query("UPDATE market_steps SET state = 'unknown', updated_at = ? WHERE correlation_id = ? AND state = 'prepared'").run(this.iso(), correlationId);
+      if (claimed.changes !== 1) throw new UserError("This owner step was already submitted. Follow its original identity.", 409);
+    })();
+    let res: Awaited<ReturnType<MarketAgent["ownerSubmit"]>>;
+    try { res = await this.agent(a).ownerSubmit(correlationId, JSON.parse(s.intent), sig); }
+    catch { return wait("Waiting for the platform to answer the original owner step"); }
     if (!res.ok) {
-      if (res.kind === "unavailable" || res.kind === "unknown" || res.kind === "provider") this.setStep(correlationId, { state: "unknown" });
+      if (res.kind === "unavailable" || res.kind === "unknown" || res.kind === "provider") return wait("Waiting for the platform to answer the original owner step");
       else {
         this.setStep(correlationId, { state: "failed", failure_code: failCode(res) });
         throw failError(res, s.kind);
@@ -437,6 +476,9 @@ export class Agencies {
     // Only the created agent is needed, not a finished setup: an owner may stop an agent whose grant never came.
     const a = this.row(id);
     if (!a.agent_id) throw new UserError("The agency's market agent isn't created yet: there is nothing to freeze.", 409);
+    const running = this.ownerOperations.get(a.id);
+    if (running && running.kind !== kind) return wait("Waiting for the agency's original owner step");
+    if (await this.blockingStep(a, kind)) return wait("Waiting for the agency's original owner step");
     const frozen = await this.agent(a).frozen();
     if (frozen.ok && frozen.value === (kind === "agent_freeze")) return { kind: "done" };
     return this.ownerStep(a, { type: kind }, kind === "agent_freeze" ? "Freeze the market agent" : "Unfreeze the market agent", true);

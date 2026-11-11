@@ -627,7 +627,11 @@ class FakeAgent implements AgentHandle {
     const pay = this.p.state.payments.get(op.correlationId!)!;
     this.p.touch(pay);
     const state = pay.status === "PENDING_APPROVAL" ? "held" : pay.status === "PROCESSING" ? "processing" : pay.status === "SUCCESS" ? "succeeded" : "failed";
-    return { ...base, state, status: pay.status };
+    return { ...base, state, status: pay.status, ...(state === "failed" && {
+      failureCode: pay.failureCode,
+      // This simulator owns the payment state; only its completed rejection proves non-execution.
+      neverExecuted: pay.failureCode === "rejected_by_owner" && !pay.txHash,
+    }) };
   }
 
   async requestPayout(i: { requestId: string; recipient: string; amount: string; expectedPolicy: Reviewed }): Promise<Res<PayoutAnswer>> {

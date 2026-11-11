@@ -1,16 +1,20 @@
 import { toAtomic } from "../shared/money";
 import type { AppConfig, NextStep, PayoutView, Signed, SignRequest, VoteAnswer } from "./types";
+import type { WorkflowSigner } from "./wallet-signing";
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, readonly status?: number) { super(message); }
+}
 
 export async function api<T = any>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
+    cache: "no-store",
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(json.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(json.error ?? `Request failed (${res.status})`, res.status);
   return json as T;
 }
 
@@ -19,24 +23,24 @@ export function canDemoSign(config: AppConfig): boolean {
   return config.demo_controls;
 }
 
-/**
- * Sign a NEP-413 message. With demo controls the server's demo wallet signs. Wallet signing in remote
- * mode is out this week: the UI shows the message to sign instead (see SignMessage in components).
- */
-export async function signMessage(config: AppConfig, req: SignRequest): Promise<Signed> {
-  if (!canDemoSign(config)) throw new ApiError(`Sign this message as ${req.account_id} with your NEAR wallet.`);
+/** The demo signer and the session's wallet signer both preserve the server-issued payload. */
+export async function signMessage(config: AppConfig, req: SignRequest, walletSigner?: WorkflowSigner): Promise<Signed> {
+  if (!canDemoSign(config)) {
+    if (!walletSigner) throw new ApiError("Sign in with NEAR before signing this work order.");
+    return walletSigner(req);
+  }
   return api<Signed>("POST", "/sim/sign", { account_id: req.account_id, message: req.message, nonce: req.nonce, recipient: req.recipient });
 }
 
 /** Carry out one onboarding step that needs a signature. Returns the next step. */
-export async function completeStep(config: AppConfig, contractId: string, step: NextStep): Promise<NextStep | null> {
+export async function completeStep(config: AppConfig, contractId: string, step: NextStep, walletSigner?: WorkflowSigner): Promise<NextStep | null> {
   if (step.kind === "sign") {
-    const s = await signMessage(config, step.sign);
+    const s = await signMessage(config, step.sign, walletSigner);
     return api<NextStep>("POST", `/contracts/${contractId}/onboarding/signed`, { step: step.step, nonce: step.sign.nonce, publicKey: s.public_key, signature: s.signature });
   }
   if (step.kind === "owner_step") {
     if (step.sign) {
-      const s = await signMessage(config, step.sign);
+      const s = await signMessage(config, step.sign, walletSigner);
       await api("POST", `/owner-steps/${step.correlation_id}/submit`, { publicKey: s.public_key, signature: s.signature });
     } else if (step.confirm && config.demo_controls) {
       await api("POST", "/sim/confirm", { url: step.confirm.url });
@@ -58,9 +62,9 @@ export async function prepareVote(rid: string, verdict: "approve" | "reject"): P
   return api<VoteAnswer>("POST", `/payouts/${rid}/vote`, { verdict });
 }
 
-export async function submitVote(config: AppConfig, v: VoteAnswer): Promise<void> {
+export async function submitVote(config: AppConfig, v: VoteAnswer, walletSigner?: WorkflowSigner): Promise<void> {
   if (v.sign) {
-    const s = await signMessage(config, v.sign);
+    const s = await signMessage(config, v.sign, walletSigner);
     await api("POST", `/owner-steps/${v.correlation_id}/submit`, { publicKey: s.public_key, signature: s.signature });
   } else if (v.confirm && config.demo_controls) {
     await api("POST", "/sim/confirm", { url: v.confirm.url });

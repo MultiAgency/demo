@@ -89,6 +89,9 @@ export interface PayoutAnswer {
   status: string | null;
   correlationId: string | null;
   code: string | null;
+  failureCode?: string | null;
+  /** Authoritative platform proof. A failure code or absent transaction is insufficient. */
+  neverExecuted?: boolean;
 }
 export interface Held {
   correlationId: string;
@@ -166,6 +169,8 @@ export interface DemoControls {
   advance?(ms: number): void; // fake only
 }
 export interface PlatformConfig {
+  /** Stand-in only: browser demos retain the distinct approval and settlement phases. */
+  autoSettle?: "after-read" | "manual";
   mode: "fake" | "remote";
   deployment: string;
   url?: string;

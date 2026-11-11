@@ -3,6 +3,14 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AttemptState, JudgmentOutcome } from "../shared/views";
 import { OPEN_STATES } from "./payouts";
+import type { JobSubmissionState } from "../shared/jobs";
+
+export interface JobRow {
+  id: string; contract_id: string; client_request_id: string; content_hash: string; revision: number;
+  terms_hash: string; builder: string; report: string; evidence: string; judgment_id: string | null;
+  proposed_atomic: string; state: JobSubmissionState; changes: string | null; created_at: string;
+}
+export interface JobInvoiceRow { id: string; submission_id: string; contract_id: string; number: string; amount_atomic: string }
 
 export interface SignatureRecord {
   account_id: string;
@@ -91,6 +99,7 @@ export interface AttemptRow {
   vote_correlation_id: string | null;
   failure_code: string | null;
   tx_hash: string | null;
+  never_executed: number;
   refund_tx_hash: string | null;
   resolution: "arrived" | "reowe" | "rejected" | null;
   retry_at: string | null;
@@ -128,8 +137,15 @@ export interface EventRow {
 export function openDb(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { strict: true });
+  try {
+    refuseOldSchema(db);
+    refuseUnprovenRejections(db);
+    refuseUnprovenJobResolutions(db);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
-  refuseOldSchema(db);
   const open = OPEN_STATES.map((s) => `'${s}'`).join(",");
   db.exec(`
     CREATE TABLE IF NOT EXISTS contracts (
@@ -192,6 +208,34 @@ export function openDb(path: string): Database {
       closed_at TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS one_open_judgment ON judgments(contract_id) WHERE outcome = 'pending';
+    CREATE TABLE IF NOT EXISTS job_submissions (
+      id TEXT PRIMARY KEY,
+      contract_id TEXT NOT NULL REFERENCES contracts(id),
+      client_request_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      terms_hash TEXT NOT NULL,
+      builder TEXT NOT NULL,
+      report TEXT NOT NULL,
+      evidence TEXT NOT NULL,
+      judgment_id TEXT UNIQUE REFERENCES judgments(id),
+      proposed_atomic TEXT NOT NULL DEFAULT '0',
+      state TEXT NOT NULL DEFAULT 'submitted',
+      changes TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(contract_id, client_request_id),
+      UNIQUE(contract_id, revision)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS one_open_submission ON job_submissions(contract_id)
+      WHERE state IN ('submitted', 'proposed', 'changes_pending');
+    CREATE TABLE IF NOT EXISTS job_invoices (
+      id TEXT PRIMARY KEY,
+      submission_id TEXT NOT NULL UNIQUE REFERENCES job_submissions(id),
+      contract_id TEXT NOT NULL REFERENCES contracts(id),
+      number TEXT NOT NULL,
+      amount_atomic TEXT NOT NULL,
+      UNIQUE(contract_id, number)
+    );
     CREATE TABLE IF NOT EXISTS payout_attempts (
       request_id TEXT PRIMARY KEY,
       kind TEXT NOT NULL DEFAULT 'payout',
@@ -217,6 +261,7 @@ export function openDb(path: string): Database {
       auto_retry INTEGER NOT NULL DEFAULT 0,
       scenario TEXT,
       platform_record TEXT,
+      never_executed INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (contract_id, kind, seq, attempt)
@@ -246,6 +291,7 @@ export function openDb(path: string): Database {
   `);
   const attemptCols = new Set((db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[]).map((c) => c.name));
   if (!attemptCols.has("platform_record")) db.exec("ALTER TABLE payout_attempts ADD COLUMN platform_record TEXT");
+  if (!attemptCols.has("never_executed")) db.exec("ALTER TABLE payout_attempts ADD COLUMN never_executed INTEGER NOT NULL DEFAULT 0");
   return db;
 }
 
@@ -255,5 +301,34 @@ function refuseOldSchema(db: Database) {
   if (cols.length === 0) return;
   const names = new Set(cols.map((c) => c.name));
   if (names.has("credential_enc") || !names.has("organization"))
-    throw new Error("This database was made by an older Covenant (provider adapter). Delete data/covenant.sqlite and start again.");
+    throw new Error("This database was made by an older Covenant (provider adapter). Preserve it; recovery or migration needs review before this app can use it.");
+}
+
+/** Older rejection inference was insufficient. Refuse it without rewriting history or freeing money. */
+function refuseUnprovenRejections(db: Database) {
+  const columns = db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[];
+  if (!columns.length) return;
+  const hasProof = columns.some((c) => c.name === "never_executed");
+  const unproven = hasProof ? " AND COALESCE(never_executed, 0) != 1" : "";
+  const row = db.query(`SELECT request_id FROM payout_attempts WHERE kind = 'payout' AND state = 'rejected'${unproven} LIMIT 1`).get() as { request_id: string } | null;
+  if (row) throw new Error(`Payout ${row.request_id} was recorded as rejected without non-execution proof. Preserve this database and reconcile the original platform identities before continuing; no schema or records were changed.`);
+}
+
+/** A v3 manual resolution must not silently import budget freed by the earlier, weaker review rule. */
+function refuseUnprovenJobResolutions(db: Database) {
+  const columns = db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[];
+  if (!columns.length) return;
+  const proof = columns.some((c) => c.name === "never_executed") ? "p.never_executed" : "0";
+  const rows = db.query(`SELECT p.request_id, p.tx_hash, p.refund_tx_hash, ${proof} AS never_executed, c.terms
+    FROM payout_attempts p JOIN contracts c ON c.id = p.contract_id
+    WHERE p.kind = 'payout' AND p.state = 'failed' AND p.resolution IN ('reowe', 'rejected')`).all() as {
+      request_id: string; tx_hash: string | null; refund_tx_hash: string | null; never_executed: number; terms: string;
+    }[];
+  for (const row of rows) {
+    let version: unknown;
+    try { version = (JSON.parse(row.terms) as { v?: unknown }).v; } catch { continue; }
+    if (version !== 3) continue; // This compatibility rule applies only to identifiable v3 jobs.
+    if (row.never_executed === 1 && !row.tx_hash && !row.refund_tx_hash) continue;
+    throw new Error(`Payout ${row.request_id} has a manual budget-releasing resolution without verifiable non-execution proof. Preserve this database and reconcile the original platform identities before continuing; no schema or records were changed.`);
+  }
 }

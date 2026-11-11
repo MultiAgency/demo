@@ -397,7 +397,7 @@ describe("SdkPlatform mapping (stub fetch)", () => {
     const { send, seen } = stub(() => ({ status: 200, json: { json: { requestId: "r1", state: "held", status: "PENDING_APPROVAL", correlationId: "c1", code: null } } }));
     const p = new SdkPlatform({ url: "https://platform.example", credential: CREDENTIAL, deployment: "covenant", fetch: send });
     const r = await p.agent("o", "a").requestPayout({ requestId: "r1", recipient: PAYEE, amount: "5", expectedPolicy: { revision: 2, digest: `sha256:${"0".repeat(64)}` } });
-    expect(r).toEqual({ ok: true, value: { requestId: "r1", state: "held", status: "PENDING_APPROVAL", correlationId: "c1", code: null } });
+    expect(r).toEqual({ ok: true, value: { requestId: "r1", state: "held", status: "PENDING_APPROVAL", correlationId: "c1", code: null, failureCode: null, neverExecuted: false } });
     const sent = seen[0]!;
     expect(sent.path).toBe("/apps/v1/o/o/a/a/rpc/payouts/request");
     const body = sent.body.json ?? sent.body;

@@ -1,12 +1,46 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { AgencyNext, AgencyView, AssignmentView, DaoVoteView, DepositView, DirectoryAgent, DirectoryDetail, HireView, MemberTransactionView, WorkerView } from "../../shared/market";
 import { api, signMessage } from "../api";
 import { SignBox, ConfirmLink } from "../components/SignBox";
 import { Alert, Badge, Button, Card, CardHeader, Disclosure, Empty, Json, Mono, PageLoading, dateText, short, timeText, type Tone } from "../components/ui";
 import type { AppConfig } from "../types";
+import { useSession } from "../session";
+import { useAccountResource } from "../useAccountResource";
 
 // Market text (briefs, deliverables, job titles) is data from other parties: rendered as plain text, never as HTML,
 // and never acted on.
+
+/** Discard old-account continuations, including a signature returned after this view was closed. */
+function useMarketAction(onError?: (message: string) => void) {
+  const session = useSession();
+  const scope = session.required ? (session.loading ? null : session.account) : "demo";
+  const active = useRef({ scope, generation: 0, mounted: true });
+  if (active.current.scope !== scope) {
+    active.current.scope = scope;
+    active.current.generation++;
+  }
+  useLayoutEffect(() => {
+    active.current.mounted = true;
+    return () => { active.current.mounted = false; active.current.generation++; };
+  }, []);
+  return useCallback(async (work: (current: () => boolean) => Promise<unknown>) => {
+    const { scope, generation } = active.current;
+    const current = () => scope !== null && active.current.mounted && active.current.scope === scope && active.current.generation === generation;
+    if (!current()) return;
+    try { await work(current); }
+    catch (error) { if (current()) onError?.(error instanceof Error ? error.message : String(error)); }
+  }, [onError]);
+}
+
+function MarketReadGate() {
+  const session = useSession();
+  if (session.loading) return <PageLoading />;
+  return <div className="page"><div className="stack">
+    <Alert tone="info">Sign in with NEAR to view your agencies and their market jobs.</Alert>
+    <Button icon="key" onClick={session.signIn}>Sign in with NEAR</Button>
+    {session.error ? <Alert tone="danger">{session.error}</Alert> : null}
+  </div></div>;
+}
 
 const STAGE: Record<string, { label: string; tone: Tone }> = {
   needs_setup: { label: "Setting up", tone: "info" },
@@ -33,21 +67,28 @@ const HIRE: Record<string, { label: string; tone: Tone; note: string }> = {
 };
 
 export function MarketHome({ config }: { config: AppConfig }) {
-  const [rows, setRows] = useState<{ id: string; name: string; owner: string; signer: string; stage: string }[] | null>(null);
-  const [name, setName] = useState("");
-  const [owner, setOwner] = useState(config.market.owner ?? "");
-  const [signer, setSigner] = useState<"wallet" | "dao">("wallet");
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    api("GET", "/market/agencies").then(setRows, () => setRows([]));
-  }, []);
+  const read = useCallback(() => config.market.enabled ? api<AgencyRow[]>("GET", "/market/agencies") : Promise.resolve([]), [config.market.enabled]);
+  const resource = useAccountResource("market:agencies", read);
   if (!config.market.enabled)
     return (
       <div className="page">
         <Empty icon="bot" title="The agent market needs the platform" sub="Run Covenant against the MultiAgency platform, or its local stack started with --market. There is no stand-in for the market." />
       </div>
     );
-  if (rows === null) return <PageLoading />;
+  if (!resource.enabled) return <MarketReadGate />;
+  if (resource.error) return <div className="page"><Alert tone="danger">{resource.error}</Alert><Button variant="secondary" onClick={resource.reload}>Try again</Button></div>;
+  if (!resource.value) return <PageLoading />;
+  return <MarketHomeContent key={resource.scope} config={config} rows={resource.value} />;
+}
+
+type AgencyRow = { id: string; name: string; owner: string; signer: string; stage: string };
+
+function MarketHomeContent({ config, rows }: { config: AppConfig; rows: AgencyRow[] }) {
+  const [name, setName] = useState("");
+  const [owner, setOwner] = useState(config.market.owner ?? "");
+  const [signer, setSigner] = useState<"wallet" | "dao">("wallet");
+  const [error, setError] = useState<string | null>(null);
+  const act = useMarketAction(setError);
   return (
     <div className="page">
       <header className="page-header">
@@ -101,15 +142,11 @@ export function MarketHome({ config }: { config: AppConfig }) {
           <div>
             <Button
               icon="plus"
-              onClick={async () => {
+              onClick={() => act(async (current) => {
                 setError(null);
-                try {
-                  const { id } = await api<{ id: string }>("POST", "/market/agencies", { name, owner, signer });
-                  window.location.hash = `#/market/${id}`;
-                } catch (e) {
-                  setError((e as Error).message);
-                }
-              }}
+                const { id } = await api<{ id: string }>("POST", "/market/agencies", { name, owner, signer });
+                if (current()) window.location.hash = `#/market/${id}`;
+              })}
             >
               Create agency
             </Button>
@@ -121,14 +158,15 @@ export function MarketHome({ config }: { config: AppConfig }) {
 }
 
 export function AgencyPage({ id, config }: { id: string; config: AppConfig }) {
-  const [view, setView] = useState<AgencyView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => api<AgencyView>("GET", `/market/agencies/${id}`).then(setView, (e: Error) => setError(e.message)), [id]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  if (error && !view) return <div className="page"><Alert tone="danger">{error}</Alert></div>;
-  if (!view) return <PageLoading />;
+  const read = useCallback(() => api<AgencyView>("GET", `/market/agencies/${id}`), [id]);
+  const resource = useAccountResource(`market:agency:${id}`, read);
+  if (!resource.enabled) return <MarketReadGate />;
+  if (resource.error) return <div className="page"><Alert tone="danger">{resource.error}</Alert><Button variant="secondary" onClick={resource.reload}>Try again</Button></div>;
+  if (!resource.value) return <PageLoading />;
+  return <AgencyContent key={resource.scope} id={id} config={config} view={resource.value} load={resource.reload} />;
+}
+
+function AgencyContent({ id, config, view, load }: { id: string; config: AppConfig; view: AgencyView; load: () => Promise<void> }) {
   const live = view.hires.some((h) => h.state === "voting" || h.state === "hiring" || h.state === "unknown");
   return (
     <div className="page">
@@ -141,7 +179,6 @@ export function AgencyPage({ id, config }: { id: string; config: AppConfig }) {
         </div>
         <Badge tone={STAGE[view.stage]?.tone ?? "neutral"}>{STAGE[view.stage]?.label ?? view.stage}</Badge>
       </header>
-      {error ? <Alert tone="danger">{error}</Alert> : null}
       {view.stage !== "ready" ? (
         <Card>
           <OwnerFlow id={id} config={config} path="next" title="Set up the agency's market agent" sub="Setup, creation, consent, the market grant, then the payment key's registration." onDone={load} />
@@ -173,18 +210,17 @@ export function AgencyPage({ id, config }: { id: string; config: AppConfig }) {
  * is signed in the wallet, completed on the platform's confirm page, or voted by the DAO, until it answers `done`.
  */
 function OwnerFlow({ id, config, path, title, sub, onDone }: { id: string; config: AppConfig; path: string; title: string; sub: string; onDone: () => unknown }) {
+  const session = useSession();
   const [next, setNext] = useState<AgencyNext | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const advance = useCallback(async (p?: Promise<AgencyNext>) => {
+  const act = useMarketAction(setError);
+  const advance = useCallback((read?: () => Promise<AgencyNext>) => act(async (current) => {
     setError(null);
-    try {
-      const n = await (p ?? api<AgencyNext>("POST", `/market/agencies/${id}/${path}`));
-      setNext(n);
-      if (n.kind === "done") onDone();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, [id, path, onDone]);
+    const n = await (read ? read() : api<AgencyNext>("POST", `/market/agencies/${id}/${path}`));
+    if (!current()) return;
+    setNext(n);
+    if (n.kind === "done") await onDone();
+  }), [id, path, onDone, act]);
   useEffect(() => {
     void advance();
   }, [advance]);
@@ -196,21 +232,25 @@ function OwnerFlow({ id, config, path, title, sub, onDone }: { id: string; confi
   let body: ReactNode = <PageLoading />;
   if (next?.kind === "sign")
     body = (
-      <SignBox config={config} req={next.sign} label="Sign" onSign={async () => {
-        const s = await signMessage(config, next.sign);
-        await advance(api("POST", `/market/agencies/${id}/signed`, { step: next.step, nonce: next.sign.nonce, publicKey: s.public_key, signature: s.signature }));
-      }} />
+      <SignBox config={config} req={next.sign} label="Sign" onSign={() => act(async (current) => {
+        setError(null);
+        const s = await signMessage(config, next.sign, session.signWorkflow);
+        if (!current()) return;
+        await advance(() => api("POST", `/market/agencies/${id}/signed`, { step: next.step, nonce: next.sign.nonce, publicKey: s.public_key, signature: s.signature }));
+      })} />
     );
   else if (next?.kind === "owner_step")
     body = next.sign ? (
-      <SignBox config={config} req={next.sign} label="Sign" onSign={async () => {
-        const s = await signMessage(config, next.sign!);
+      <SignBox config={config} req={next.sign} label="Sign" onSign={() => act(async (current) => {
+        setError(null);
+        const s = await signMessage(config, next.sign!, session.signWorkflow);
+        if (!current()) return;
         await api("POST", `/market/steps/${next.correlation_id}/submit`, { publicKey: s.public_key, signature: s.signature });
-        await advance();
-      }} />
+        if (current()) await advance();
+      })} />
     ) : next.confirm ? (
       <div className="stack">
-        <ConfirmLink config={config} url={next.confirm.url} expiresAt={next.confirm.expires_at} onDemoComplete={async () => { await api("POST", "/sim/confirm", { url: next.confirm!.url }); await advance(); }} />
+        <ConfirmLink config={config} url={next.confirm.url} expiresAt={next.confirm.expires_at} onDemoComplete={() => act(async (current) => { await api("POST", "/sim/confirm", { url: next.confirm!.url }); if (current()) await advance(); })} />
         <Button variant="secondary" size="sm" onClick={() => advance()}>I've confirmed it: check again</Button>
       </div>
     ) : null;
@@ -224,7 +264,7 @@ function OwnerFlow({ id, config, path, title, sub, onDone }: { id: string; confi
         <Transaction tx={next.transaction} />
         <div className="row gap">
           <Button variant="secondary" onClick={() => advance()}>I've sent it: check again</Button>
-          {config.demo_controls ? <Button onClick={async () => { await api("POST", "/market/sim/register", { agency_id: id }); await advance(); }}>Register (demo)</Button> : null}
+          {config.demo_controls ? <Button onClick={() => act(async (current) => { await api("POST", "/market/sim/register", { agency_id: id }); if (current()) await advance(); })}>Register (demo)</Button> : null}
         </div>
       </div>
     );
@@ -255,6 +295,8 @@ function Transaction({ tx }: { tx: MemberTransactionView }) {
 
 /** A DAO vote, shown the way the platform files it: its description, the check link, and the proposal a member files. */
 function Vote({ vote, config, onVoted }: { vote: DaoVoteView; config: AppConfig; onVoted: () => unknown }) {
+  const [error, setError] = useState<string | null>(null);
+  const act = useMarketAction(setError);
   const tone: Tone = vote.state === "done" ? "success" : vote.state === "expired" ? "neutral" : "warning";
   return (
     <div className="stack">
@@ -277,16 +319,24 @@ function Vote({ vote, config, onVoted }: { vote: DaoVoteView; config: AppConfig;
           {vote.proposal_and_vote ? <Json value={vote.proposal_and_vote} label="File and vote (one transaction)" /> : null}
           {vote.proposal ? <Json value={vote.proposal} label="File the proposal" /> : null}
           <div className="row gap">
-            <Button variant="secondary" size="sm" onClick={onVoted}>Check the vote</Button>
-            {config.demo_controls ? <Button size="sm" onClick={async () => { await api("POST", "/market/sim/vote", { vote_id: vote.id }); await onVoted(); }}>Pass the DAO's vote (demo)</Button> : null}
+            <Button variant="secondary" size="sm" onClick={() => act(async () => { await onVoted(); })}>Check the vote</Button>
+            {config.demo_controls ? <Button size="sm" onClick={() => act(async (current) => { await api("POST", "/market/sim/vote", { vote_id: vote.id }); if (current()) await onVoted(); })}>Pass the DAO's vote (demo)</Button> : null}
           </div>
         </>
       ) : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
     </div>
   );
 }
 
 function AccountCard({ view, config, onChange }: { view: AgencyView; config: AppConfig; onChange: () => unknown }) {
+  const [error, setError] = useState<string | null>(null);
+  const act = useMarketAction(setError);
+  const requestDeposit = () => act(async (current) => {
+    setError(null);
+    await api("POST", `/market/agencies/${view.id}/deposit`);
+    if (current()) await onChange();
+  });
   return (
     <Card>
       <CardHeader title="Market agent" sub={`Consent until ${dateText(view.consent_expires_at)}`} icon="wallet" />
@@ -296,10 +346,11 @@ function AccountCard({ view, config, onChange }: { view: AgencyView; config: App
           <div className="kv-line"><span>On the key</span><span>{view.account ? `${view.account.usdc_usd} USDC` : "—"}</span></div>
           <p className="muted small">The platform tops the key up by each job's price from the agent's balance, within the owner's policy, and signs exactly that payment to the market's published payee.</p>
         </div>
-        <Deposit deposit={view.deposit} purpose="Fund the agent's hires here. Market earnings return here too." onRequest={async () => { await api("POST", `/market/agencies/${view.id}/deposit`); await onChange(); }}>
-          {config.demo_controls ? <Button size="sm" variant="secondary" onClick={async () => { await api("POST", "/market/sim/fund", { agency_id: view.id, usd: "10" }); await onChange(); }}>Fund $10 (demo)</Button> : null}
+        <Deposit deposit={view.deposit} purpose="Fund the agent's hires here. Market earnings return here too." onRequest={requestDeposit}>
+          {config.demo_controls ? <Button size="sm" variant="secondary" onClick={() => act(async (current) => { setError(null); await api("POST", "/market/sim/fund", { agency_id: view.id, usd: "10" }); if (current()) await onChange(); })}>Fund $10 (demo)</Button> : null}
         </Deposit>
       </div>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
       <FreezeControl view={view} config={config} onChange={onChange} />
     </Card>
   );
@@ -379,30 +430,29 @@ function HireCard({ view, onQuoted }: { view: AgencyView; onQuoted: () => unknow
   const [brief, setBrief] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [dirError, setDirError] = useState<string | null>(null);
+  const act = useMarketAction(setError);
+  const directoryAction = useMarketAction(setDirError);
   return (
     <Card>
       <CardHeader title="Hire a listed agent" sub="Pick an agent, write the brief, and ask its price. Quoting moves nothing." icon="bot" />
       <div className="stack">
         <div className="row gap">
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the market's agents" />
-          <Button variant="secondary" onClick={async () => {
+          <Button variant="secondary" onClick={() => directoryAction(async (current) => {
             setDirError(null);
-            try {
-              setFound(await api<DirectoryAgent[]>("GET", `/market/directory?q=${encodeURIComponent(q)}`));
-            } catch (e) {
-              setDirError((e as Error).message);
-            }
-          }}>Search</Button>
+            const rows = await api<DirectoryAgent[]>("GET", `/market/directory?q=${encodeURIComponent(q)}`);
+            if (current()) setFound(rows);
+          })}>Search</Button>
         </div>
         {dirError ? <Alert tone="warning">{dirError}</Alert> : null}
         {found?.length === 0 ? <p className="muted small">No listed agent matches.</p> : null}
         {found?.map((a) => (
-          <button key={a.agent_id} className="list-pick" onClick={async () => {
+          <button key={a.agent_id} className="list-pick" onClick={() => directoryAction(async (current) => {
             setHandle(a.handle);
             setPicked({ agent: a, detail: null });
             const detail = await api<DirectoryDetail>("GET", `/market/directory/${a.agent_id}`).catch(() => null);
-            setPicked({ agent: a, detail });
-          }}>
+            if (current()) setPicked({ agent: a, detail });
+          })}>
             <strong>{a.name}</strong> <span className="muted">@{a.handle} · {a.delivered_jobs} jobs delivered{a.success_rate !== null ? ` · ${a.success_rate}% success` : ""} · window {Math.round(a.sla_seconds / 60)} min</span>
           </button>
         ))}
@@ -424,16 +474,13 @@ function HireCard({ view, onQuoted }: { view: AgencyView; onQuoted: () => unknow
         </label>
         {error ? <Alert tone="danger">{error}</Alert> : null}
         <div>
-          <Button icon="coins" onClick={async () => {
+          <Button icon="coins" onClick={() => act(async (current) => {
             setError(null);
-            try {
-              await api("POST", `/market/agencies/${view.id}/quote`, { handle, brief });
-              setBrief("");
-              await onQuoted();
-            } catch (e) {
-              setError((e as Error).message);
-            }
-          }}>Ask for a quote</Button>
+            await api("POST", `/market/agencies/${view.id}/quote`, { handle, brief });
+            if (!current()) return;
+            setBrief("");
+            await onQuoted();
+          })}>Ask for a quote</Button>
         </div>
       </div>
     </Card>
@@ -442,16 +489,13 @@ function HireCard({ view, onQuoted }: { view: AgencyView; onQuoted: () => unknow
 
 function HireItem({ h, config, signer, onChange }: { h: HireView; config: AppConfig; signer: "wallet" | "dao"; onChange: () => unknown }) {
   const [error, setError] = useState<string | null>(null);
+  const action = useMarketAction(setError);
   const meta = HIRE[h.state]!;
-  const act = (path: string) => async () => {
+  const act = (path: string) => () => action(async (current) => {
     setError(null);
-    try {
-      await api("POST", `/market/hires/${h.request_id}/${path}`);
-      await onChange();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
+    await api("POST", `/market/hires/${h.request_id}/${path}`);
+    if (current()) await onChange();
+  });
   return (
     <div className="hire">
       <div className="row gap">
@@ -489,48 +533,58 @@ function HireItem({ h, config, signer, onChange }: { h: HireView; config: AppCon
         {h.state === "quoted" || h.state === "vote_expired" ? <Button icon="check" onClick={act("approve")}>{signer === "dao" ? (h.state === "vote_expired" ? "File for a new vote" : "File for the DAO's vote") : `Approve and hire for ${h.amount_usd} USDC`}</Button> : null}
         {h.state === "quoted" ? <Button variant="ghost" onClick={act("discard")}>Discard</Button> : null}
         {h.state === "hiring" || h.state === "unknown" ? <Button variant="secondary" size="sm" onClick={act("follow")}>Check the outcome</Button> : null}
-        {h.state === "unknown" && config.demo_controls ? <Button variant="ghost" size="sm" onClick={async () => { await api("POST", "/market/sim/advance", {}); await act("follow")(); }}>Advance the chain past expiry (demo)</Button> : null}
+        {h.state === "unknown" && config.demo_controls ? <Button variant="ghost" size="sm" onClick={() => action(async (current) => { await api("POST", "/market/sim/advance", {}); if (current()) await act("follow")(); })}>Advance the chain past expiry (demo)</Button> : null}
       </div>
     </div>
   );
 }
 
 function WorkerCard() {
-  const [w, setW] = useState<WorkerView | null>(null);
+  const read = useCallback(() => api<WorkerView>("GET", "/market/worker"), []);
+  const resource = useAccountResource("market:worker", read);
+  if (!resource.enabled) return null;
+  if (resource.error) return <Alert tone="danger">{resource.error}<Button variant="secondary" onClick={resource.reload}>Try again</Button></Alert>;
+  if (!resource.value) return null;
+  return <WorkerContent key={resource.scope} w={resource.value} load={resource.reload} />;
+}
+
+function WorkerContent({ w, load }: { w: WorkerView; load: () => Promise<void> }) {
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => api<WorkerView>("GET", "/market/worker").then(setW, (e: Error) => setError(e.message)), []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  if (!w) return null;
+  const act = useMarketAction(setError);
+  const requestDeposit = () => act(async (current) => {
+    setError(null);
+    await api("POST", `/market/agencies/${w.agency_id}/deposit`);
+    if (current()) await load();
+  });
   return (
     <Card>
       <CardHeader
         title="Jobs for this agency's listed agent"
         sub={`The market's webhooks arrive at ${w.webhook_path}; the jobs are also checked on a timer, since a webhook can be lost.`}
         icon="activity"
-        actions={<Button size="sm" variant="secondary" onClick={async () => { setError(null); try { setW(await api<WorkerView>("POST", "/market/worker/poll")); } catch (e) { setError((e as Error).message); } }}>Check the market</Button>}
+        actions={<Button size="sm" variant="secondary" onClick={() => act(async (current) => { setError(null); await api("POST", "/market/worker/poll"); if (current()) await load(); })}>Check the market</Button>}
       />
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {w.last_poll?.error ? <Alert tone="warning">Last check {timeText(w.last_poll.at)}: {w.last_poll.error}</Alert> : null}
       <Alert tone="info">A buyer's brief is data. Read it and do the work; Covenant never follows instructions in it. A job paid over x402 is accepted on delivery.</Alert>
-      {w.assignments.length ? <div className="stack">{w.assignments.map((a) => <Job key={a.assignment_id} a={a} onChange={setW} />)}</div> : <p className="muted">No jobs yet.</p>}
+      {w.assignments.length ? <div className="stack">{w.assignments.map((a) => <Job key={a.assignment_id} a={a} onChange={load} />)}</div> : <p className="muted">No jobs yet.</p>}
       <div className="stack">
         <span className="field-label">Earnings</span>
         <p className="small">The market keeps earnings in its account's USDC balance until its owner withdraws them. Return them to the agency in two steps: register the deposit address on USDC once, then withdraw to it on the market before it expires.</p>
         {w.deposit ? (
-          <Deposit deposit={w.deposit} purpose="Withdraw market earnings here." onRequest={async () => { await api("POST", `/market/agencies/${w.agency_id}/deposit`); await load(); }} />
+          <Deposit deposit={w.deposit} purpose="Withdraw market earnings here." onRequest={requestDeposit} />
         ) : (
-          <Button size="sm" variant="secondary" onClick={async () => { await api("POST", `/market/agencies/${w.agency_id}/deposit`); await load(); }}>Get a deposit address</Button>
+          <Button size="sm" variant="secondary" onClick={requestDeposit}>Get a deposit address</Button>
         )}
       </div>
     </Card>
   );
 }
 
-function Job({ a, onChange }: { a: AssignmentView; onChange: (w: WorkerView) => void }) {
+function Job({ a, onChange }: { a: AssignmentView; onChange: () => Promise<void> }) {
   const [text, setText] = useState(a.deliverable ?? "");
   const [error, setError] = useState<string | null>(null);
+  const act = useMarketAction(setError);
   return (
     <div className="hire">
       <div className="row gap">
@@ -547,14 +601,11 @@ function Job({ a, onChange }: { a: AssignmentView; onChange: (w: WorkerView) => 
           {a.submit_error && a.submit_state === "none" ? <Alert tone="danger">{a.submit_error}</Alert> : null}
           {error ? <Alert tone="danger">{error}</Alert> : null}
           <div>
-            <Button icon="send" disabled={a.submit_state === "unknown" || a.submit_state === "submitting"} onClick={async () => {
+            <Button icon="send" disabled={a.submit_state === "unknown" || a.submit_state === "submitting"} onClick={() => act(async (current) => {
               setError(null);
-              try {
-                onChange(await api<WorkerView>("POST", `/market/worker/jobs/${a.assignment_id}/submit`, { markdown: text }));
-              } catch (e) {
-                setError((e as Error).message);
-              }
-            }}>Submit the deliverable</Button>
+              await api("POST", `/market/worker/jobs/${a.assignment_id}/submit`, { markdown: text });
+              if (current()) await onChange();
+            })}>Submit the deliverable</Button>
           </div>
         </div>
       ) : a.deliverable ? (

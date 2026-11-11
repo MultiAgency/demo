@@ -5,6 +5,7 @@ import type { AppConfig, AttemptState, ContractView, PayoutView, VoteAnswer } fr
 import { Icon, type IconName } from "./icons";
 import { SignBox } from "./SignBox";
 import { Alert, Badge, Button, Card, CardHeader, Empty, Mono, short, timeText, type Tone, usd } from "./ui";
+import { useSession } from "../session";
 
 export const NO_CLAUSE = "The policy refused it.";
 
@@ -231,6 +232,7 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
  * platform will release: payee, USDC, amount, a public withdrawal on NEAR.
  */
 export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView; config: AppConfig; act: Act; attack?: boolean }) {
+  const session = useSession();
   const [vote, setVote] = useState<VoteAnswer | null>(null);
   const [verdict, setVerdict] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -252,7 +254,7 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
     }
     setVerdict(v);
     setVote(answer);
-    if (config.demo_controls) await act(() => submitVote(config, answer));
+    if (config.demo_controls) await act(() => submitVote(config, answer, session.signWorkflow));
   };
 
   return (
@@ -322,7 +324,7 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
       {vote && !config.demo_controls ? (
         <div className="approval-foot">
           {vote.sign ? (
-            <SignBox config={config} req={vote.sign} label={verdict === "approve" ? "Sign approval" : "Sign rejection"} onSign={() => act(() => submitVote(config, vote))} />
+            <SignBox config={config} req={vote.sign} label={verdict === "approve" ? "Sign approval" : "Sign rejection"} onSign={() => act(() => submitVote(config, vote, session.signWorkflow))} />
           ) : vote.confirm ? (
             <a className="btn btn-primary btn-sm" href={vote.confirm.url} target="_blank" rel="noreferrer">
               <Icon name="external" /> <span>Open the platform's confirm page</span>

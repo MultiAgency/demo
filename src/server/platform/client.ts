@@ -265,6 +265,8 @@ const toAnswer = (v: any): PayoutAnswer => ({
   status: v.status ?? null,
   correlationId: v.correlationId ?? null,
   code: v.code ?? null,
+  failureCode: v.failureCode ?? null,
+  neverExecuted: v.neverExecuted === true,
 });
 
 /** A `fetch` that trusts `caPem` for TLS (Bun's `tls.ca`): the local stack's own self-signed certificate. */

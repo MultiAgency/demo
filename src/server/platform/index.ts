@@ -22,7 +22,7 @@ export function makePlatform(cfg: PlatformConfig): PlatformKit {
     const chain = new SimChain();
     const devSigner = KeySigner.random();
     chain.trustKey(devSigner.publicKey);
-    const platform = new FakePlatform({ deployment: cfg.deployment, now: cfg.now, chain });
+    const platform = new FakePlatform({ deployment: cfg.deployment, now: cfg.now, chain, autoSettle: cfg.autoSettle });
     return { platform, chain, controls: platform.controls, devSigner };
   }
   if (cfg.stackDir) {

@@ -1,0 +1,32 @@
+# Builder–agency workflow map
+
+Baseline checked on 2026-11-11: clean local `covenant-market` at `11e1b16861ecdb3463137ec57f52326ca609870b`, tracking `origin/covenant-platform`. Remote `covenant-platform` and open [PR #6](https://github.com/MultiAgency/demo/pull/6) have that same head; remote main remains `1ae4817`. PR CodeQL checks passed. The SDK 0.5.6 integration, held owner approval, policy checks and recovery already existed and are reused.
+
+Read workspace `AGENTS.md`, `HANDOFF.md`, coordination README and current Covenant/platform and Market decisions before implementation. No repo-local AGENTS/HANDOFF/CONTEXT files existed. The user confirmed no unattended runs/freezes before payout-related changes. Other sessions' work, including concurrently appearing `src/server/market/` files, was left untouched.
+
+| Step / actor | UI and durable records | App / SDK behavior | Baseline and current verification |
+| --- | --- | --- | --- |
+| Agency offers work | New contract form; immutable canonical `contracts.terms`, hash and representative signature | `createContract`, NEP-413; platform `setup`, `identity`, consents, `owner/prepare` and `owner/submit` for creation/grant/policy | Scope, values, criteria, payee and dates existed. New signed v3 adds report/invoice acceptance and explicit payment clauses. v2 hashes/behavior preserved. |
+| Builder accepts | Private signing page; `contractor_sig` signs identical terms hash | Existing full-access-key/NEP-413 verification; production uses signed-in account | Existing behavior. Submission requires both signatures and the agreed builder identity. Wallet UI signing now reuses the existing sign-in client with exact-payload/account/session/network guards and offline fixtures; an actual wallet/hosted walkthrough remains unverified. See [wallet-signing.md](wallet-signing.md). |
+| Builder submits | Builder page: report, invoice, HTTPS evidence references; `job_submissions` + `job_invoices` | New idempotent `submitJob`; same client key/body returns same revision and invoice. New content needs a new revision and invoice number. | Missing at baseline; now implemented and locally tested. Snapshots retain builder, terms hash, content hash, revision and evidence; references are never fetched by the server. |
+| Agent proposes | Agency Submission & review tab; existing `judgments`, `payout_attempts`, `payout_lines` linked to submission/invoice | `proposeJob` records assessment and attempt before existing SDK `payouts/request`; policy requires `owner_approval` | New submission assessment; existing payout path. Amount ≤ assessed scope less committed amounts, invoice and remaining budget; each payment ≤ largest deliverable. Optional NEAR AI assesses descriptions; keyless rule proposer needs human quality review. |
+| Agency approves or requests changes | Existing proven-terms approval card; `owner_steps` and vote correlation; immutable feedback on submission | Existing SDK `held`, `paymentStatus`, `owner/prepare approval_vote`, `owner/submit`. New `requestJobChanges` stops new approval/retry. | Held approval existed. Browser/stand-in rework passes with positive `neverExecuted` proof and no contradictory evidence. Pinned SDK simulator rework blocks because its provider omits that proof (G13). Prepared stale approve cannot be submitted. Unknown/conflicting outcomes stay counted. |
+| Builder receives payment | Both party views show request identity, pending approval, processing, confirmed paid and transaction | Existing SDK `payouts/status`, `paymentStatus`; authoritative platform settlement result | Existing settlement tracking reused. New party histories link it to report and invoice. Approval never counts as settlement; manual “arrived” resolution is separately labelled. |
+
+For v3, both the legacy `/run` route and merge watcher are gated off: unsubmitted work cannot trigger compensation. The authenticated report/invoice routes and v3 contract view are available only to the agency and builder. The keyless demo labels open fixture authority and still requires the private builder token for HTTP submission.
+
+## Ownership and payment boundary
+
+Covenant owns signed business terms and report/invoice/review records, as the current Covenant-on-platform decision permits. The platform owns financial authority, consent, provider access, guarded dispatch, approval and settlement. Covenant holds only its app credential remotely and adds no executor, provider key or independent money path.
+
+Current official Market APIs support human `asSelf` workers and listed-agent workers. Standard assignments support submitted work and requested changes, with awarded pricing and automatic acceptance after 3–7 days. Listed-agent A2A/x402 calls automatically accept and settle on delivery. Their shared assignment shape does not imply a shared review lifecycle. Exact endpoints, actors, sources and current observations: [market-boundary.md](market-boundary.md).
+
+This milestone creates no payable Market assignment. Hiring/listing agents remains a separate agreed product slice. A switch to Market settlement would require a decision on fixed pricing, fees/custody and automatic acceptance; the same job must never also be paid by a Covenant withdrawal.
+
+## Limits and concrete gaps
+
+- One agency representative wallet, builder and job are demonstrated. This does not add DAO payroll delegation; the SDK's DAO market vote is a different route.
+- A change request cancels a wholly unpaid proposal. Once any sequence is approved/paid, the request-changes action refuses; already moving funds must first be resolved. Existing rejection can stop a remaining held sequence. Partial-payment/rework product behavior remains outside this milestone.
+- App-server workflow-record APIs, rejection proof and dropped-response identity recovery are concrete platform cases in [platform-gaps.md](platform-gaps.md). App-local records are not advertised as platform-owned records.
+- The keyless proposer counts references as completion. It verifies no remote deliverable quality. Optional cloud assessment is implemented but not called in offline validation.
+- Current implementation, fresh simulated checks, prior real-gateway stack evidence, public health observations and real-payment observations are recorded separately in [job-evidence.md](job-evidence.md).
