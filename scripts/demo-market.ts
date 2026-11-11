@@ -8,7 +8,7 @@
  *   pnpm test:e2e:stack --app covenant --market --no-browser                  # wallet agency
  *   pnpm test:e2e:stack --app covenant --market --dao-treasury --no-browser   # and a DAO agency
  *
- * Each run creates new agencies. Needs a platform at or after main cf59c43 (0.5.7): M1 and M2 are fixed there
+ * Each run creates new agencies. Needs platform 0.5.7 or later: M1 and M2 are fixed there
  * (docs/platform-gaps.md). The one check marked "gap" (M3) passes while that gap holds, so a fix shows as a failure.
  * Exits non-zero on any failure.
  */
