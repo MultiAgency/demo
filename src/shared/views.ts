@@ -137,6 +137,8 @@ export interface ConfigView {
   now: string;
   judge: { kind: "rules" | "near-ai"; model: string | null };
   auth: { required: boolean; recipient: string; network: "mainnet" | "testnet" };
+  /** The agent market: offered only against the platform (or its stack with `--market`). `owner`/`dao`: the stack's. */
+  market: { enabled: boolean; worker: boolean; owner: string | null; dao: string | null };
 }
 
 /*

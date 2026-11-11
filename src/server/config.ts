@@ -23,6 +23,11 @@ export interface Config {
   pollMs: number;
   /** Sign in with NEAR (Better-Auth + better-near-auth). */
   auth: { secret: string | null; publicUrl: string; recipient: string; required: boolean };
+  /**
+   * The agent market (src/server/market). `url` is the market's HTTP API (the local stack's own market overrides it).
+   * The worker's token and webhook secret are server secrets: never in /api/config, events, logs or URLs.
+   */
+  market: { url: string | null; worker: { token: string; secret: string; agencyId: string } | null };
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -64,7 +69,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       recipient: env.SIWN_RECIPIENT || "multiagentic.near",
       required: production || env.REQUIRE_AUTH === "true",
     },
+    market: { url: env.MARKET_URL || null, worker: null },
   };
+
+  const workerVars = [env.MARKET_AGENT_TOKEN, env.MARKET_WEBHOOK_SECRET, env.MARKET_WORKER_AGENCY];
+  if (workerVars.some(Boolean)) {
+    if (!workerVars.every(Boolean)) throw new Error("The market worker needs MARKET_AGENT_TOKEN, MARKET_WEBHOOK_SECRET and MARKET_WORKER_AGENCY together.");
+    if (!env.MARKET_AGENT_TOKEN!.startsWith("aat_")) throw new Error("MARKET_AGENT_TOKEN must be the agent's aat_ token.");
+    cfg.market.worker = { token: env.MARKET_AGENT_TOKEN!, secret: env.MARKET_WEBHOOK_SECRET!, agencyId: env.MARKET_WORKER_AGENCY! };
+  }
 
   if (production) {
     if (!cfg.platformUrl) throw new Error("PLATFORM=remote needs PLATFORM_URL.");

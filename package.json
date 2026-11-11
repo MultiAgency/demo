@@ -14,7 +14,8 @@
     "demo:e2e": "bun scripts/demo-e2e.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "demo:stack": "bun scripts/demo-stack.ts"
+    "demo:stack": "bun scripts/demo-stack.ts",
+    "demo:market": "bun scripts/demo-market.ts"
   },
   "dependencies": {
     "@better-auth/core": "1.7.14",
