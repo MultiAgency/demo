@@ -45,7 +45,11 @@ Humans can bid with their account session and `asSelf: true`; an owned listed ag
 
 Assignments normally follow `in_progress → submitted → accepted`; changes return them to `in_progress`. Disputes may end accepted, cancelled, partially resolved, or back in progress. Identical submit retries with the same Markdown/file set are no-ops; changed contents create a new version. **Accepted does not prove settlement:** an account-backed payout may wait after a rail refusal; an agent token cannot inspect its owner's wallet. Owner ledger/balance confirmation is a separate observation. [`Worker lifecycle`](https://market.near.ai/skill/flows/worker-lifecycle.md)
 
-Covenant reconciles an unanswered worker submission by reading `GET /v1/assignments/{id}/deliverable/versions` with its agent bearer. The official response is an unpaginated `{versions: [...]}` list, oldest first. Empty versions clear local `submit_state` and allow the next explicit submission; any versions mark it `submitted`. Failed or malformed reads keep it `unknown`. Polling never sends a deliverable and waits for any active local submission call to finish before using an empty read. Agency, assignment and saved Markdown remain unchanged. Historical versions survive rework, so this read establishes assignment-level arrival, not which revision arrived, acceptance or settlement; the market's actual assignment status stays intact. [`OpenAPI`](https://market.near.ai/openapi.json), [`Worker API reference`](https://market.near.ai/skill/reference/agent-api.md)
+Covenant records a durable attempt ID, start and complete server version baseline **before** posting a worker submission. Recovery reads `GET /v1/assignments/{id}/deliverable/versions` with its agent bearer, then compares only newer versions against the saved baseline and reads their managed Markdown through `/v1/assignments/{id}/deliverable/versions/{version}/raw`. A newer version with a nonregressing server timestamp and the exact submitted Markdown confirms arrival. Older versions and bare assignment status cannot confirm the new revision. Server version order supplies the boundary; a shared app/server clock is not assumed. [`OpenAPI`](https://market.near.ai/openapi.json), [`Worker API reference`](https://market.near.ai/skill/reference/agent-api.md)
+
+A complete unchanged baseline permits an explicit retry of the **same** saved Markdown under the original attempt ID; it never resends automatically. Failed/malformed reads, mismatched newer content and historical pending rows lacking an attempt baseline remain unknown. Failed initial baseline reads send no POST and report preflight failure. Unbound historical agency rows remain hidden and unchanged while healthy polling continues. Assignment status, acceptance and settlement stay separate from delivery evidence. The earlier “any version means delivered” rule was incorrect for rework and is superseded by these attempt-specific checks.
+
+An uncertain DAO hire filing is recovered only through its original request ID and approved terms. Platform 0.5.7 can return a matching retained request; Covenant probes with an already-expired filing deadline so that neither an older gateway nor an absent/lapsed request can create a fresh vote. Recovery validates the original identity and requires null new proposal transactions before linking the existing vote. A 0.5.6 or unsupported response stays blocked with an explicit explanation. Payment status is observed first, so an already confirmed payment never becomes another filing.
 
 ## Why x402 cannot be the payout leg for this job
 
@@ -67,7 +71,9 @@ OpenAPI snapshot SHA-256: `2c7b2496e05f56aece8b13f8a825845a54b8cae9689efd4f3acf7
 
 ## Release and hosted checks — 2026-11-11
 
-Fresh read-only public metadata establishes:
+These are the initial read-only observations from this date, before the later 0.5.7 source review; they are not a claim that npm's `latest` tag or hosted versions remained unchanged. The app remains pinned to SDK 0.5.6. Fresh integration against platform-main 0.5.7 is recorded in [PR #9 review](pr-9-review.md).
+
+The initial public metadata established:
 
 - [Platform PR #42](https://github.com/MultiAgency/platform/pull/42), the held-withdrawal approval fix, merged **2026-11-08 22:22:03 UTC**, merge `b0ee19042b8522ef61e5715ce702c6edda0594c3`.
 - [Platform PR #61](https://github.com/MultiAgency/platform/pull/61), market hires and hosted-agent release, merged **2026-11-10 17:11:53 UTC**, merge `f7caad4537e982190094e2654a064b25e7725f8a`.

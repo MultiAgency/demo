@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AttemptState, JudgmentOutcome } from "../shared/views";
+import type { AttemptState, JudgmentOutcome, PayoutResolution } from "../shared/views";
 import { OPEN_STATES } from "./payouts";
 import type { JobSubmissionState } from "../shared/jobs";
 
@@ -101,7 +101,7 @@ export interface AttemptRow {
   tx_hash: string | null;
   never_executed: number;
   refund_tx_hash: string | null;
-  resolution: "arrived" | "reowe" | "rejected" | null;
+  resolution: PayoutResolution | null;
   retry_at: string | null;
   auto_retry: number;
   scenario: string | null;
@@ -267,7 +267,7 @@ export function openDb(path: string): Database {
       UNIQUE (contract_id, kind, seq, attempt)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS one_open_payout ON payout_attempts(contract_id)
-      WHERE kind = 'payout' AND (state IN (${open}) OR (state = 'failed' AND resolution IS NULL));
+      WHERE kind = 'payout' AND (state IN (${open}) OR (state = 'failed' AND (resolution IS NULL OR resolution = 'disputed')));
     CREATE TABLE IF NOT EXISTS payout_lines (
       request_id TEXT NOT NULL REFERENCES payout_attempts(request_id),
       deliverable_id TEXT NOT NULL,
@@ -292,6 +292,12 @@ export function openDb(path: string): Database {
   const attemptCols = new Set((db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[]).map((c) => c.name));
   if (!attemptCols.has("platform_record")) db.exec("ALTER TABLE payout_attempts ADD COLUMN platform_record TEXT");
   if (!attemptCols.has("never_executed")) db.exec("ALTER TABLE payout_attempts ADD COLUMN never_executed INTEGER NOT NULL DEFAULT 0");
+  const index = db.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'one_open_payout'").get() as { sql: string } | null;
+  if (index && !index.sql.includes("'disputed'")) db.transaction(() => {
+    // Preserve every row while extending the existing monetary lock to business reviews closed as disputed.
+    db.exec(`DROP INDEX one_open_payout; CREATE UNIQUE INDEX one_open_payout ON payout_attempts(contract_id)
+      WHERE kind = 'payout' AND (state IN (${open}) OR (state = 'failed' AND (resolution IS NULL OR resolution = 'disputed')))`);
+  })();
   return db;
 }
 

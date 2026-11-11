@@ -2,15 +2,17 @@
 
 Current builder-job boundary and dated release observations: [workflow-map.md](workflow-map.md), [market-boundary.md](market-boundary.md). Earlier issue descriptions below retain their original observations; they do not imply that every issue remains open on the latest hosted release.
 
-## Builder-job cases — 2026-11-11 (not filed externally)
+## Builder-job cases — 2026-11-11
 
-**G11: app-server access cannot retain platform-owned work-order/invoice/submission records.** The owner/payee SDK contracts have workflow operations, but `/apps/v1` deliberately excludes them. On the installed SDK 0.5.6:
+G13 is filed as [MultiAgency/platform#83](https://github.com/MultiAgency/platform/issues/83); G14 as [MultiAgency/platform#81](https://github.com/MultiAgency/platform/issues/81). Both were checked against fresh isolated platform main `cc90604` (0.5.7); this is simulated integration evidence, not hosted behavior. See [the PR #9 review record](pr-9-review.md) for the current app changes and exact run evidence.
+
+**G11: app-server access cannot retain platform-owned job/invoice/submission records.** The owner/payee SDK contracts have workflow operations, but `/apps/v1` deliberately excludes them. On the installed SDK 0.5.6:
 
 ```bash
 bun -e 'import { appScopesCover } from "@multiagency/sdk"; for (const path of ["workOrders/create", "invoices", "agreements/offer", "payouts/request", "payouts/status"]) console.log(path, appScopesCover(["read", "owner", "payout"], path));'
 ```
 
-Observed: the first three are `false`; the two payout operations are `true`. Expected for a future shared job record: an app-scoped work order, accepted terms, report/invoice revision and proposal links under existing party isolation. Current supported answer: Covenant retains those business records locally and uses platform payout identities for money, as agreed in the Covenant brief. Do not tunnel through owner credentials or copy platform executors. This is a reproducible capability mismatch, not a hosted request test or a newly invented endpoint.
+Observed: the first three are `false`; the two payout operations are `true`. Expected for a future shared job record: an app-scoped job, accepted terms, report/invoice revision and proposal links under existing party isolation. Current supported answer: Covenant retains those business records locally and uses platform payout identities for money, as agreed in the Covenant brief. Do not tunnel through owner credentials or copy platform executors. This is a reproducible capability mismatch, not a hosted request test or a newly invented endpoint.
 
 **G7(c), corrected after source review:** the frozen snapshot already exposes `dropWithdrawResponse` through `test/e2e/stack-controls.mjs` and its provider. Earlier claims that this control was absent were wrong. The current restart runner reuses it; the actual unresolved result is G14 below. The existing SDK has read-scoped payout status; the older G8 refusal is not a current SDK limitation.
 

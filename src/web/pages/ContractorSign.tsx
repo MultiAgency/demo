@@ -24,7 +24,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
   }, [c?.signatures.contractor, c?.terms.v, reload]);
 
   if (!resource.enabled) return <AccountReadGate className="narrow" />;
-  if (!c) return error ? <div className="narrow stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={reload}>Retry loading work order</Button></div> : <PageLoading />;
+  if (!c) return error ? <div className="narrow stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={reload}>Retry loading job</Button></div> : <PageLoading />;
   const t = c.terms;
   const signed = c.signatures.contractor;
 
@@ -46,7 +46,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
         <div className="doc-head">
           <Avatar name={t.company} tone="accent" />
           <div>
-            <div className="doc-kicker">Work order from {t.company}</div>
+            <div className="doc-kicker">Job from {t.company}</div>
             <h1>{signed ? "You signed this contract" : `${t.contractor.name.split(" ")[0]}, review and sign`}</h1>
           </div>
         </div>

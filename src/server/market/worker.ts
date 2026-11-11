@@ -7,7 +7,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AssignmentView, WorkerView } from "../../shared/market";
 import { UserError } from "../engine";
 import type { Agencies } from "./agencies";
-import { MarketHttpError, type MarketApi, type MarketAssignment } from "./api";
+import { MarketHttpError, type DeliverableVersion, type MarketApi, type MarketAssignment } from "./api";
 import { type AssignmentRow, update } from "./db";
 
 /** The market's tolerance for a webhook's timestamp (docs, "Verify the signature"). */
@@ -50,6 +50,8 @@ export class Worker {
   private lastPoll: { agencyId: string; at: string; error: string | null } | null = null;
   private polling: Promise<void> | null = null;
   private submitting = new Set<string>();
+  /** Status observations preserve rework ordering; they never prove arrival of this attempt's Markdown. */
+  private observedSubmissionStatus = new Set<string>();
   constructor(private d: WorkerDeps) {}
 
   get configured(): boolean {
@@ -133,6 +135,8 @@ export class Worker {
   private upsert(m: MarketAssignment, fromPoll: boolean, agencyId: string) {
     const now = this.iso();
     const known = this.d.db.query("SELECT * FROM market_assignments WHERE assignment_id = ?").get(m.assignmentId) as AssignmentRow | null;
+    // Polling must not adopt an unproven historical owner or let that quarantined row block healthy assignments.
+    if (fromPoll && known?.agency_id === null) return;
     if (known) this.row(m.assignmentId, agencyId);
     if (!known) {
       this.d.db
@@ -143,10 +147,8 @@ export class Worker {
         .run(m.assignmentId, agencyId, m.jobId, clip(m.title), clip(m.description), m.status, m.escrowAmount, m.escrowToken, m.slaDeadlineAt, now, now);
     } else if (fromPoll) {
       const fields: Partial<AssignmentRow> = { status: m.status, escrow_amount: m.escrowAmount ?? known.escrow_amount, escrow_token: m.escrowToken ?? known.escrow_token, sla_deadline_at: m.slaDeadlineAt ?? known.sla_deadline_at };
-      // A stale in-progress observation alone says nothing about delivery. The versions read below resolves an
-      // unanswered submission; an already submitted/accepted assignment supplies direct confirmation.
-      if ((known.submit_state === "unknown" || known.submit_state === "submitting") && (m.status === "submitted" || m.status === "accepted"))
-        Object.assign(fields, { submit_state: "submitted", submit_error: null });
+      if (this.submitting.has(m.assignmentId) && (m.status === "submitted" || m.status === "accepted"))
+        this.observedSubmissionStatus.add(m.assignmentId);
       this.set(m.assignmentId, fields);
     }
     const row = this.row(m.assignmentId, agencyId);
@@ -164,16 +166,47 @@ export class Worker {
   }
 
   /** A delayed read may update only the pending row it observed, never a confirmed or newer submission. */
-  private recoverSubmission(row: AssignmentRow, agencyId: string, state: "none" | "submitted" | "unknown", error: string | null): boolean {
+  private recoverSubmission(row: AssignmentRow, agencyId: string, state: "none" | "submitted" | "unknown", error: string | null, phase = row.submit_phase): boolean {
     if (this.submitting.has(row.assignment_id)) return false;
     const current = this.row(row.assignment_id, agencyId);
     if (current.submit_state !== "unknown" && current.submit_state !== "submitting") return false;
-    const changed = this.d.db.query(`UPDATE market_assignments SET submit_state = ?, submit_error = ?, updated_at = ?
+    const changed = this.d.db.query(`UPDATE market_assignments SET submit_state = ?, submit_error = ?, submit_phase = ?, updated_at = ?
       WHERE assignment_id = ? AND agency_id = ? AND submit_state = ? AND updated_at = ?
-        AND status = ? AND deliverable IS ? AND submit_error IS ?`)
-      .run(state, error, this.iso(), row.assignment_id, agencyId, row.submit_state, row.updated_at,
-        row.status, row.deliverable, row.submit_error);
+        AND status = ? AND deliverable IS ? AND submit_error IS ? AND submit_attempt_id IS ?
+        AND submit_started_at IS ? AND submit_baseline IS ? AND submit_phase IS ?`)
+      .run(state, error, phase, this.iso(), row.assignment_id, agencyId, row.submit_state, row.updated_at,
+        row.status, row.deliverable, row.submit_error, row.submit_attempt_id, row.submit_started_at, row.submit_baseline, row.submit_phase);
     return changed.changes === 1;
+  }
+
+  private baseline(row: AssignmentRow): DeliverableVersion[] | null {
+    if (!row.submit_attempt_id || !row.submit_started_at || !Number.isFinite(Date.parse(row.submit_started_at)) || !row.submit_baseline) return null;
+    try {
+      const versions = JSON.parse(row.submit_baseline);
+      if (!Array.isArray(versions) || !versions.every((v: any, i: number) => v && Number.isInteger(v.version) && v.version >= 1 && v.version <= 2147483647 &&
+        typeof v.submittedAt === "string" && Number.isFinite(Date.parse(v.submittedAt)) && (i === 0 || v.version > versions[i - 1].version))) return null;
+      return versions;
+    } catch { return null; }
+  }
+
+  /** Version order is the server clock boundary. Local started_at is audit data, not a synchronized-clock claim. */
+  private async arrival(row: AssignmentRow, baseline: DeliverableVersion[]): Promise<"arrived" | "absent"> {
+    const versions = await this.d.api.deliverableVersions(row.assignment_id);
+    if (!baseline.every(old => versions.some(v => v.version === old.version && v.submittedAt === old.submittedAt)))
+      throw new MarketHttpError(200, "The market's version history changed; this submission remains unknown.");
+    const last = baseline.at(-1)?.version ?? 0;
+    const newer = versions.filter(v => v.version > last);
+    if (!newer.length) {
+      if (versions.length === baseline.length) return "absent";
+      throw new MarketHttpError(200, "The market returned an inconsistent version baseline; this submission remains unknown.");
+    }
+    const after = Math.max(...baseline.map(v => Date.parse(v.submittedAt)), -Infinity);
+    if (newer.some(v => Date.parse(v.submittedAt) < after))
+      throw new MarketHttpError(200, "The market's version timestamps contradict its baseline; this submission remains unknown.");
+    for (const version of [...newer].reverse()) {
+      if (await this.d.api.deliverableMarkdown(row.assignment_id, version.version) === row.deliverable) return "arrived";
+    }
+    throw new MarketHttpError(200, "New market versions do not match this attempt's Markdown; this submission remains unknown.");
   }
 
   private async pollOnce(): Promise<void> {
@@ -189,8 +222,15 @@ export class Worker {
         // A live POST may still arrive after an empty read. A restarted process has no live local call to wait for.
         if (this.submitting.has(row.assignment_id)) continue;
         try {
-          const arrived = await this.d.api.hasDeliverableVersions(row.assignment_id);
-          this.recoverSubmission(row, cfg.agencyId, arrived ? "submitted" : "none", null);
+          if (row.submit_phase === "preflight" && row.submit_attempt_id && row.submit_started_at && Number.isFinite(Date.parse(row.submit_started_at)) && row.submit_baseline === null) {
+            this.recoverSubmission(row, cfg.agencyId, "none", "Submission preflight did not finish; no submission POST was started. Retry the saved report.");
+            continue;
+          }
+          const baseline = this.baseline(row);
+          if (!baseline || (row.submit_phase !== "posting" && row.submit_phase !== "not_arrived"))
+            throw new MarketHttpError(200, "This historical submission has no proven attempt baseline. Preserve its original report for operator reconciliation.");
+          const arrival = await this.arrival(row, baseline);
+          this.recoverSubmission(row, cfg.agencyId, arrival === "arrived" ? "submitted" : "none", null, arrival === "absent" ? "not_arrived" : "posting");
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
           if (this.recoverSubmission(row, cfg.agencyId, "unknown", error.message)) failed ??= error;
@@ -216,20 +256,53 @@ export class Worker {
     if (new TextEncoder().encode(text).length > MAX_TEXT) throw new UserError("A deliverable is at most 256 KiB.");
     if (r.status !== "in_progress") throw new UserError(`This job is ${r.status}: there is nothing to submit.`, 409);
     if (this.submitting.has(assignmentId) || r.submit_state === "submitting" || r.submit_state === "unknown") throw new UserError("A submission is waiting for the market's answer: check the jobs again first.", 409);
-    this.set(assignmentId, { deliverable: text, submit_state: "submitting", submit_error: null });
+    const retry = r.submit_phase === "not_arrived";
+    if (retry && text !== r.deliverable) throw new UserError("Retry the original saved Markdown while that attempt's arrival remains unrecorded.", 409);
+    const originalBaseline = retry ? this.baseline(r) : null;
+    if (retry && !originalBaseline) throw new UserError("The original attempt has no proven baseline. Preserve it for operator reconciliation.", 409);
+    const attemptId = retry ? r.submit_attempt_id! : crypto.randomUUID();
+    const claimed = this.d.db.query(`UPDATE market_assignments SET deliverable = ?, submit_state = 'submitting', submit_error = NULL,
+      submit_attempt_id = ?, submit_started_at = ?, submit_phase = ?, submit_baseline = ?, updated_at = ?
+      WHERE assignment_id = ? AND agency_id = ? AND status = 'in_progress' AND submit_state = ? AND submit_attempt_id IS ?`)
+      .run(text, attemptId, retry ? r.submit_started_at : this.iso(), retry ? "not_arrived" : "preflight", retry ? r.submit_baseline : null,
+        this.iso(), assignmentId, cfg.agencyId, r.submit_state, r.submit_attempt_id);
+    if (claimed.changes !== 1) throw new UserError("This submission changed. Follow its original attempt before trying again.", 409);
     this.submitting.add(assignmentId);
+    this.observedSubmissionStatus.delete(assignmentId);
     try {
+      let baseline: DeliverableVersion[];
+      try {
+        if (retry) {
+          const arrived = await this.arrival(this.row(assignmentId, cfg.agencyId), originalBaseline!);
+          if (arrived === "arrived") {
+            this.set(assignmentId, { submit_state: "submitted", submit_phase: "posting", submit_error: null });
+            return this.row(assignmentId, cfg.agencyId);
+          }
+          baseline = originalBaseline!;
+        } else baseline = await this.d.api.deliverableVersions(assignmentId);
+      } catch (err) {
+        this.set(assignmentId, { submit_state: retry ? "unknown" : "none", submit_error:
+          `${retry ? "Original submission is still uncertain" : "Submission preflight failed; no submission POST was started"}: ${err instanceof Error ? err.message : String(err)}` });
+        return this.row(assignmentId, cfg.agencyId);
+      }
+      const ready = this.d.db.query(`UPDATE market_assignments SET submit_phase = 'posting', submit_baseline = ?, updated_at = ?
+        WHERE assignment_id = ? AND agency_id = ? AND submit_attempt_id = ? AND submit_state = 'submitting' AND status = 'in_progress'`)
+        .run(JSON.stringify(baseline), this.iso(), assignmentId, cfg.agencyId, attemptId);
+      if (ready.changes !== 1) {
+        this.set(assignmentId, { submit_state: retry ? "unknown" : "none", submit_error: "The assignment changed during preflight; no new submission POST was started." });
+        return this.row(assignmentId, cfg.agencyId);
+      }
       const res = await this.d.api.submit(assignmentId, text);
-      // A poll can already have observed acceptance or subsequent rework while this older reply was pending.
-      if (this.row(assignmentId, cfg.agencyId).submit_state !== "submitted")
-        this.set(assignmentId, { submit_state: "submitted", status: res.status });
+      const current = this.row(assignmentId, cfg.agencyId);
+      if (current.submit_attempt_id === attemptId)
+        this.set(assignmentId, { submit_state: "submitted", status: this.observedSubmissionStatus.has(assignmentId) ? current.status : res.status, submit_error: null });
     } catch (err) {
       const lost = !(err instanceof MarketHttpError) || err.status === 0 || (err.status >= 200 && err.status < 300) || err.status >= 500;
-      // A concurrent poll may already have confirmed arrival while this response was being lost.
-      if (this.row(assignmentId, cfg.agencyId).submit_state !== "submitted")
+      if (this.row(assignmentId, cfg.agencyId).submit_attempt_id === attemptId)
         this.set(assignmentId, { submit_state: lost ? "unknown" : "none", submit_error: err instanceof Error ? err.message : String(err) });
     } finally {
       this.submitting.delete(assignmentId);
+      this.observedSubmissionStatus.delete(assignmentId);
     }
     return this.row(assignmentId, cfg.agencyId);
   }

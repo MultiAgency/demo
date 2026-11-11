@@ -107,7 +107,7 @@ export function termsHash(terms: Terms): string {
   return sha256Hex(canonicalJson(terms));
 }
 
-/** The exact text both parties sign with their NEAR wallet (NEP-413 message field). */
+/** Legacy signing domain: retain these exact bytes for already accepted v2/v3 job signatures. */
 export function termsSigningMessage(hash: string): string {
   return `Covenant work order sha256:${hash}`;
 }

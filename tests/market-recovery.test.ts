@@ -1,6 +1,7 @@
 // Scripted app-state fixtures on disposable disk databases; no hosted market, wallet, or real-payment evidence.
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +9,10 @@ import { Hono } from "hono";
 import type { SessionInfo } from "../src/server/auth";
 import { Market } from "../src/server/market";
 import { MarketApi } from "../src/server/market/api";
-import type { Fail, MarketAgent, MarketPlatform, OwnerPrepared, Res } from "../src/server/market/port";
+import type { DaoHireInput, Fail, FiledDaoHire, MarketAgent, MarketPlatform, OwnerPrepared, Res } from "../src/server/market/port";
+import { SdkMarket } from "../src/server/market/sdk";
 import { marketRoutes } from "../src/server/market/routes";
-import { answer, registeredChain, StubMarket } from "./support/market-stub";
+import { answer, registeredChain, StubMarket, TERMS } from "./support/market-stub";
 
 const NOW = Date.parse("2026-11-11T12:00:00Z");
 const cleanups: (() => void)[] = [];
@@ -290,6 +292,93 @@ describe("market hire freeze recovery", () => {
 });
 
 describe("DAO hire filing recovery", () => {
+  test("a lost filing is restored after reopen under the original job and DAO approval, with no new vote or payment", async () => {
+    const f = fixture("dao");
+    const q = await f.m.hires.quote(f.agency.id, "writer", "Exact brief");
+    const platform: MarketPlatform = f.stub;
+    const originalFile = platform.daoHire.file;
+    let retained!: FiledDaoHire;
+    platform.daoHire.file = async (input) => {
+      const filed = await originalFile(input);
+      if (!filed.ok) throw new Error("Expected fixture approval");
+      retained = filed.value;
+      return { ok: false, kind: "unknown" };
+    };
+    await f.m.hires.approve(q.request_id, "original-member.near");
+    f.reload();
+    let recoveredInput: unknown;
+    platform.daoHire.recover = async (input) => { recoveredInput = input; return { ok: true, value: retained }; };
+    const recovered = await f.m.hires.follow(q.request_id);
+    expect(recovered).toMatchObject({ request_id: q.request_id, state: "voting", dao_vote_id: retained.id,
+      approved_by: "original-member.near", terms: q.terms });
+    expect(recoveredInput).toEqual({ organization: f.agency.organization, agent: "own-1", owner: f.agency.owner,
+      agentId: "agent-id", requestId: q.request_id, brief: q.brief, approved: JSON.parse(q.terms) });
+    expect(f.m.agencies.vote(retained.id)).toMatchObject({ ref: q.request_id, hash: retained.hash, valid_until: retained.validUntil });
+    f.reload();
+    expect(f.m.hires.row(q.request_id).dao_vote_id).toBe(retained.id);
+    expect(calls(f, "daoHire.file")).toEqual([["daoHire.file", q.request_id]]);
+    expect(calls(f, "hire")).toHaveLength(0);
+    expect(f.db.query("SELECT count(*) AS n FROM market_dao_votes").get()).toEqual({ n: 1 });
+  });
+
+  test("recovery observations share one lookup and never race an active original filing", async () => {
+    const f = fixture("dao");
+    const q = await f.m.hires.quote(f.agency.id, "writer", "Exact brief");
+    const platform: MarketPlatform = f.stub;
+    let releaseFile!: () => void;
+    platform.daoHire.file = async () => { await new Promise<void>((resolve) => { releaseFile = resolve; }); return { ok: false, kind: "unknown" }; };
+    const sending = f.m.hires.approve(q.request_id, "member.near");
+    while (!releaseFile) await Promise.resolve();
+    await f.m.hires.follow(q.request_id);
+    expect(calls(f, "daoHire.recover")).toHaveLength(0);
+    releaseFile(); await sending;
+    let releaseRecovery!: (result: Res<FiledDaoHire>) => void;
+    let reads = 0;
+    platform.daoHire.recover = async () => { reads++; return new Promise((resolve) => { releaseRecovery = resolve; }); };
+    const one = f.m.hires.follow(q.request_id);
+    const two = f.m.hires.follow(q.request_id);
+    while (!releaseRecovery) await Promise.resolve();
+    releaseRecovery({ ok: false, kind: "unavailable" });
+    await Promise.all([one, two]);
+    expect(reads).toBe(1);
+    expect(f.m.hires.row(q.request_id)).toMatchObject({ state: "unknown", dao_vote_id: null, terms: q.terms });
+  });
+
+  for (const late of ["status", "recovery"] as const) {
+    test(`a late ${late} cannot undo a recovered approval or confirmed payment`, async () => {
+      const f = fixture("dao");
+      const q = await f.m.hires.quote(f.agency.id, "writer", "Exact brief");
+      const platform: MarketPlatform = f.stub;
+      const originalFile = platform.daoHire.file;
+      const filed = await originalFile({ organization: f.agency.organization, agent: "own-1", requestId: q.request_id,
+        brief: q.brief, approved: JSON.parse(q.terms), validUntil: "2026-11-12T00:00:00.000Z" });
+      if (!filed.ok) throw new Error("Expected retained approval");
+      f.db.query("UPDATE market_hires SET state = 'unknown', code = 'dao_filing_unknown' WHERE request_id = ?").run(q.request_id);
+      let release!: () => void;
+      let first = true;
+      if (late === "status") {
+        f.hooks.status = async () => {
+          if (first) { first = false; await new Promise<void>((resolve) => { release = resolve; }); }
+          return answer(q.request_id, "unknown");
+        };
+        platform.daoHire.recover = async () => filed;
+      } else {
+        platform.daoHire.recover = async () => { await new Promise<void>((resolve) => { release = resolve; }); return filed; };
+      }
+      const old = f.m.hires.follow(q.request_id);
+      while (!release) await Promise.resolve();
+      if (late === "status") expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "voting", dao_vote_id: filed.value.id });
+      else {
+        f.stub.isFrozen = true;
+        f.stub.statusAnswers.push(answer(q.request_id, "paid"));
+        expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "paid" });
+      }
+      release();
+      expect(await old).toMatchObject({ state: late === "status" ? "voting" : "paid", dao_vote_id: filed.value.id });
+      expect(calls(f, "hire")).toHaveLength(0);
+    });
+  }
+
   for (const fault of ["unknown", "unavailable", "provider", "throw"] as const) {
     test(`${fault} filing response preserves a non-discardable original identity and blocks replacement approval`, async () => {
       const f = fixture("dao");
@@ -316,9 +405,10 @@ describe("DAO hire filing recovery", () => {
       const replacement = await f.m.hires.quote(f.agency.id, "writer", "Exact brief");
       await expect(f.m.hires.approve(replacement.request_id, "member.near")).rejects.toThrow(q.request_id);
       f.stub.statusAnswers.push(answer(q.request_id, "not_found", { taskId: null }));
-      expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "unknown", code: "dao_filing_unknown", terms: q.terms });
+      expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "unknown", code: "dao_filing_recovery_unavailable", terms: q.terms });
       // A normal unknown status must not erase why this original filing cannot be replaced.
-      expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "unknown", code: "dao_filing_unknown" });
+      expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "unknown", code: "dao_filing_recovery_unavailable" });
+      await expect(f.m.hires.approve(q.request_id, "member.near")).rejects.toThrow(/platform 0\.5\.7/);
       f.stub.statusAnswers.push(answer(q.request_id, "paid"));
       expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "paid", request_id: q.request_id, terms: q.terms });
       expect(filedIds).toEqual([q.request_id]);
@@ -371,6 +461,32 @@ describe("DAO hire filing recovery", () => {
     expect(calls(f, "hire")).toHaveLength(0);
   });
 
+  test("a failed local recovery transaction retains the original job and can restore the same approval after reopen", async () => {
+    const f = fixture("dao");
+    const q = await f.m.hires.quote(f.agency.id, "writer", "Exact brief");
+    const platform: MarketPlatform = f.stub;
+    const originalFile = platform.daoHire.file;
+    let retained!: FiledDaoHire;
+    platform.daoHire.file = async (input) => {
+      const filed = await originalFile(input);
+      if (!filed.ok) throw new Error("Expected original approval");
+      retained = filed.value;
+      return { ok: false, kind: "unknown" };
+    };
+    await f.m.hires.approve(q.request_id, "member.near");
+    platform.daoHire.recover = async () => ({ ok: true, value: retained });
+    f.db.exec(`CREATE TEMP TRIGGER fail_recovered_link BEFORE UPDATE OF state ON market_hires
+      WHEN NEW.state = 'voting' BEGIN SELECT RAISE(ABORT, 'recovery link fault'); END`);
+    await expect(f.m.hires.follow(q.request_id)).rejects.toThrow(/recovery link fault/);
+    expect(f.db.query("SELECT * FROM market_dao_votes").all()).toEqual([]);
+    expect(f.m.hires.row(q.request_id)).toMatchObject({ state: "unknown", dao_vote_id: null, terms: q.terms });
+    f.reload();
+    expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "voting", dao_vote_id: retained.id, terms: q.terms });
+    expect(calls(f, "daoHire.file")).toEqual([["daoHire.file", q.request_id]]);
+    expect(calls(f, "hire")).toHaveLength(0);
+    expect(f.db.query("SELECT count(*) AS n FROM market_dao_votes").get()).toEqual({ n: 1 });
+  });
+
   test("different request ids racing through preflight cannot bypass the unresolved filing guard", async () => {
     const f = fixture("dao");
     const first = await f.m.hires.quote(f.agency.id, "writer", "Exact brief");
@@ -397,7 +513,7 @@ describe("DAO hire filing recovery", () => {
     expect(f.m.hires.row(second.request_id).state).toBe("quoted");
   });
 
-  test("a partial voting record with no vote hash is followed conservatively without a fabricated lookup", async () => {
+  test("a partial voting record with unavailable recovery cannot invent a vote hash", async () => {
     const f = fixture("dao");
     const q = await f.m.hires.quote(f.agency.id, "writer", "Exact brief");
     f.db.query("UPDATE market_hires SET state = 'voting', dao_vote_id = NULL WHERE request_id = ?").run(q.request_id);
@@ -405,7 +521,7 @@ describe("DAO hire filing recovery", () => {
     let voteReads = 0;
     platform.daoHire.state = async () => { voteReads++; throw new Error("No vote hash"); };
     f.stub.statusAnswers.push(answer(q.request_id, "not_found", { taskId: null }));
-    expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "unknown", code: "dao_filing_unknown" });
+    expect(await f.m.hires.follow(q.request_id)).toMatchObject({ state: "unknown", code: "dao_filing_recovery_unavailable" });
     expect(voteReads).toBe(0);
     expect(calls(f, "daoHire.file")).toHaveLength(0);
     expect(calls(f, "hire")).toHaveLength(0);
@@ -489,4 +605,78 @@ describe("agency API keeps payment observations truthful after freeze", () => {
       expect(calls(f, "hire")).toEqual([["hire", q.request_id]]);
     });
   }
+});
+
+describe("SDK DAO job recovery uses a non-creating capability check", () => {
+  const brief = "Keep this original job brief.";
+  const input = (): DaoHireInput & { owner: string; agentId: string } => ({
+    organization: "original-organization", agent: "original-agent", requestId: "original-job",
+    owner: "council.sputnik-dao.near", agentId: "original-agent-id", brief,
+    approved: { ...TERMS, brief: createHash("sha256").update(brief).digest("hex") },
+  });
+  const retained = () => ({ request: { id: "a".repeat(64), hash: "a".repeat(64), dao: input().owner,
+    organization: input().organization, agent: input().agent, agentId: input().agentId, requestId: input().requestId,
+    approved: input().approved, validUntil: "2026-11-12T00:00:00.000Z", votingUntil: NOW + 60_000,
+    description: "Original DAO job approval" }, transactions: { proposal: null, proposalAndVote: null } });
+  const adapter = (handler: (body: any, init: RequestInit) => Response) => new SdkMarket({
+    url: "https://platform.invalid", credential: "tap_fixture_not_a_live_credential", deployment: "covenant",
+    fetch: (async (url: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(url)).toBe("https://platform.invalid/apps/v1/dao-hires");
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer tap_fixture_not_a_live_credential");
+      return handler(JSON.parse(String(init?.body)), init!);
+    }) as typeof fetch,
+  });
+
+  test("a matching retained approval proves support without relying on the installed SDK version", async () => {
+    let sent = 0;
+    const original = input();
+    const sdk = adapter((body) => {
+      sent++;
+      expect(body).toEqual({ organization: original.organization, agent: original.agent, requestId: original.requestId,
+        brief: original.brief, approved: original.approved, validUntil: "1970-01-01T00:00:00.000Z" });
+      return Response.json(retained());
+    });
+    expect(await sdk.daoHire.recover(original)).toMatchObject({ ok: true, value: {
+      id: "a".repeat(64), hash: "a".repeat(64), validUntil: retained().request.validUntil,
+      proposal: null, proposalAndVote: null,
+    } });
+    expect(sent).toBe(1);
+  });
+
+  for (const host of ["0.5.6", "0.5.7 with no retained approval", "0.5.7 with a lapsed unsigned approval"] as const) {
+    test(`${host}: the expired deadline cannot file a new vote`, async () => {
+      let created = 0;
+      const sdk = adapter((body) => {
+        // Pinned gateway contracts check this before file(): 0.5.7 only short-circuits for a reusable old request.
+        if (Date.parse(body.validUntil) <= NOW + 60_000)
+          return Response.json({ code: "expires_too_soon", error: "Nothing was filed." }, { status: 409 });
+        created++;
+        return Response.json(retained(), { status: 201 });
+      });
+      expect(await sdk.daoHire.recover(input())).toEqual({ ok: false, kind: "refused", code: "dao_filing_recovery_unavailable" });
+      expect(created).toBe(0);
+    });
+  }
+
+  for (const fault of ["job", "organization", "agent", "owner", "agentId", "terms", "hash", "new-transactions"] as const) {
+    test(`${fault}: an unrelated or newly filed answer cannot bind the original job`, async () => {
+      const body = retained();
+      if (fault === "job") body.request.requestId = "other-job";
+      else if (fault === "organization") body.request.organization = "other-organization";
+      else if (fault === "agent") body.request.agent = "other-agent";
+      else if (fault === "owner") body.request.dao = "other.sputnik-dao.near";
+      else if (fault === "agentId") body.request.agentId = "other-agent-id";
+      else if (fault === "terms") body.request.approved.amount = "999999999";
+      else if (fault === "hash") body.request.hash = "b".repeat(64);
+      else (body.transactions as { proposal: unknown }).proposal = { receiverId: "dao.near", actions: [] };
+      expect(await adapter(() => Response.json(body)).daoHire.recover(input())).toMatchObject({ ok: false, kind: "unavailable" });
+    });
+  }
+
+  test("malformed, failed and lost reads provide no recovered identity", async () => {
+    for (const response of [Response.json({}), new Response("not JSON"), Response.json({ error: "unavailable" }, { status: 503 })])
+      expect(await adapter(() => response).daoHire.recover(input())).toMatchObject({ ok: false });
+    expect(await adapter(() => { throw new TypeError("lost lookup response"); }).daoHire.recover(input())).toMatchObject({ ok: false });
+  });
 });

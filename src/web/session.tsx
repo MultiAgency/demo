@@ -36,7 +36,7 @@ const Ctx = createContext<SessionValue>({
   required: false,
   signIn: async () => undefined,
   signOut: async () => undefined,
-  signWorkflow: async () => { throw new Error("Sign in with NEAR before signing this work order."); },
+  signWorkflow: async () => { throw new Error("Sign in with NEAR before signing this job."); },
   error: null,
 });
 

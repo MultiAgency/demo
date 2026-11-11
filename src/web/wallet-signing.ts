@@ -70,10 +70,10 @@ export class WorkflowWalletSigner {
       let nonce: Uint8Array;
       try {
         nonce = nonceFromString(request.nonce);
-        if (nonceToString(nonce) !== request.nonce) refuse("This signing request has an invalid nonce. Reload the work order before signing.");
-      } catch { refuse("This signing request has an invalid nonce. Reload the work order before signing."); }
+        if (nonceToString(nonce) !== request.nonce) refuse("This signing request has an invalid nonce. Reload the job before signing.");
+      } catch { refuse("This signing request has an invalid nonce. Reload the job before signing."); }
       if (![request.account_id, request.message, request.recipient].every((value) => typeof value === "string" && value.trim().length > 0))
-        refuse("This signing request is incomplete. Reload the work order before signing.");
+        refuse("This signing request is incomplete. Reload the job before signing.");
 
       this.assertDeadline(deadline);
       const initial = { ...this.deps.session() };
@@ -113,7 +113,7 @@ export class WorkflowWalletSigner {
       if (signed.accountId !== request.account_id) refuse(`The wallet signed as another account. Connect ${request.account_id} and review the request again.`);
       if (signed.publicKey.includes(":") && !signed.publicKey.startsWith("ed25519:")) refuse("This workflow requires an ed25519 NEAR wallet signature.");
       if (!verifyNep413({ message: request.message, recipient: request.recipient, nonce }, { public_key: signed.publicKey, signature: signed.signature }))
-        refuse("The wallet signature does not match this request. Reload the work order and try again.");
+        refuse("The wallet signature does not match this request. Reload the job and try again.");
 
       this.assertSession(initial, request.account_id);
       this.assertNetwork();

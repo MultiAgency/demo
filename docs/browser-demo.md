@@ -10,7 +10,7 @@ The runner starts an isolated in-memory Covenant server with explicit manual sim
 
 The browser journey performs:
 
-1. Create one report/invoice work order for a $300 deliverable, then sign the exact terms from both party screens.
+1. Create one report/invoice job for a $300 deliverable, then sign the exact terms from both party screens.
 2. Complete the agency's setup/consent/grant/policy/funding checklist.
 3. Submit a builder report, invoice and HTTPS evidence reference; show that submission alone requests no payment.
 4. Propose compensation, request changes, show the builder waiting for cancellation, and sign rejection of the held payout.
@@ -19,7 +19,7 @@ The browser journey performs:
 7. Use the explicit settlement control, refresh both party views, and confirm the same payment request and one successful simulated transfer.
 8. Capture both outcomes at desktop 1440×1000 and mobile 390×844, checking for horizontal page overflow.
 
-The command prints its temporary artifact directory. `receipt.json` links the work order, accepted terms, revised report/invoice, proposal, approval, payment request/correlation and labelled fake transaction. Screenshots cover the held proposal, cancellation wait, approval before settlement and both parties' desktop/mobile outcomes. All signatures, provider/chain behavior and settlement in this browser proof are simulated. Production authentication is not exercised; named-role 401/403 checks remain in `tests/job-workflow.test.ts`.
+The command prints its temporary artifact directory. `receipt.json` links the job, accepted terms, revised report/invoice, proposal, approval, payment request/correlation and labelled fake transaction. Screenshots cover the held proposal, cancellation wait, approval before settlement and both parties' desktop/mobile outcomes. All signatures, provider/chain behavior and settlement in this browser proof are simulated. Production authentication is not exercised; named-role 401/403 checks remain in `tests/job-workflow.test.ts`.
 
 The runner closes only its own browser sessions and server. On failure it retains screenshots, an accessibility snapshot and an error under the artifact directory; it creates no replacement payment to repair a failed assertion. A subsequent run uses an independent fresh fixture server.
 

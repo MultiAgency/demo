@@ -25,7 +25,7 @@ export function AccountReadGate({ className = "page" }: { className?: string }) 
   const session = useSession();
   if (session.loading) return <PageLoading />;
   return <div className={className}><div className="stack">
-    <Alert tone="info">Sign in with NEAR to view this work order and its private submissions.</Alert>
+    <Alert tone="info">Sign in with NEAR to view this job and its private submissions.</Alert>
     <Button icon="key" onClick={session.signIn}>Sign in with NEAR</Button>
     {session.error ? <Alert tone="danger">{session.error}</Alert> : null}
   </div></div>;

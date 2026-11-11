@@ -146,7 +146,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   const asParty = (session: SessionInfo | null, id: string) => {
     if (!config.auth.required) return;
     const parties = covenant.parties(id);
-    if (!session) throw new UserError("Sign in as a party to this work order.", 401);
+    if (!session) throw new UserError("Sign in as a party to this job.", 401);
     if (session.accountId !== parties.representative && session.accountId !== parties.contractor) throw new UserError("Only the agency or builder can read the submission.", 403);
   };
 
@@ -297,8 +297,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   app.post("/payouts/:rid/resolve", async (c) => {
     const rid = c.req.param("rid");
     asRepresentative(c.get("session"), covenant.payoutContract(rid));
-    const body = z.object({ outcome: z.enum(["arrived", "reowe", "rejected"]) }).parse(await c.req.json());
-    return c.json(await covenant.resolve(rid, body.outcome));
+    const body = z.object({ outcome: z.enum(["arrived", "reowe", "rejected", "disputed"]), reason: z.string().trim().min(3).max(4000).optional() }).parse(await c.req.json());
+    return c.json(await covenant.resolve(rid, body.outcome, body.reason));
   });
 
   // Public: anyone with the link can verify a contract.

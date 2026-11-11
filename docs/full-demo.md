@@ -10,7 +10,7 @@ The command verifies and copies the pinned platform snapshot, starts its existin
 
 All accounts, wallet signatures, funding, provider/chain activity and market delivery/settlement are simulated. The platform gateway and SDK 0.5.6 integration are real code. No live worker token, wallet signature, hosted service or funds are needed. Dependencies and the verified workspace snapshot/Node 24.22.2 must already be installed; the command installs nothing.
 
-## Builder work order
+## Builder job
 
 1. Under **Work and payment terms**, **Report and invoice** is already selected. Keep the default parties/dates. Remove `d2` and `d3`, leaving the $300 `d1` CSV export, and select **Create draft**.
 2. Sign as `acme.demo`. Open **Builder submission** in a second tab and sign as `maria.demo`; both accept the same terms hash.
@@ -21,6 +21,8 @@ All accounts, wallet signatures, funding, provider/chain activity and market del
 
 This pinned simulator omits positive rejection non-execution proof (G13), so **requested changes after a held proposal remain conservatively blocked on this SDK demo**. The complete revision/cancellation browser proof remains `bun run demo:browser` on the existing in-process stand-in. Do not weaken the proof or recreate a payment to finish rework.
 
+If the platform reports failure without sufficient evidence, the agency can instead **Close review as disputed**. Both parties see the dispute; the original amount remains committed and unpaid, and no replacement is authorized. Later evidence is followed under the same payment identity. Closing review does not claim settlement or release the monetary hold.
+
 ## Separate Agent Market service
 
 1. In the same app, select **Agent market**. Create a wallet agency with a name and the prefilled `acme.demo` owner.
@@ -29,7 +31,7 @@ This pinned simulator omits positive rejection non-execution proof (G13), so **r
 4. Inspect the 0.5 USDC quote and the x402 lifecycle notice. Select **Approve and hire for 0.5 USDC**. Use **Check the outcome** if still pending; delivery may already have settled it.
 5. Confirm **Paid** and the fixture deliverable, `the article`, under the original market job ID. The builder contract keeps its own single payout and identity.
 
-These are distinct obligations and payment paths: builder work requires post-submission agency review and the platform's held withdrawal; the instant market hire is authorized before work and settles on delivery. Combining their navigation does not make an instant hire another payout path for the builder's work order.
+These are distinct obligations and payment paths: builder work requires post-submission agency review and the platform's held withdrawal; the instant market hire is authorized before work and settles on delivery. Combining their navigation does not make an instant hire another payout path for the builder's job.
 
 The frozen snapshot has no directory or full market-worker/webhook loop (M3). Worker ownership, authorization and delivery-failure behavior are checked with fixtures; no end-to-end worker earnings claim is made. DAO authority/provider-window limits, G13 and dropped provider-response recovery (G14) remain separate platform cases in [platform-gaps.md](platform-gaps.md).
 

@@ -23,10 +23,11 @@ export const ATTEMPT: Record<AttemptState, { label: string; tone: Tone }> = {
   rejected: { label: "Rejected", tone: "neutral" },
   failed: { label: "Failed", tone: "danger" },
   resolved: { label: "Resolved", tone: "neutral" },
+  disputed: { label: "Disputed · awaiting evidence", tone: "warning" },
   dropped: { label: "Dropped", tone: "neutral" },
 };
 
-const RESOLUTION = { arrived: "Marked as arrived", reowe: "Owed again", rejected: "Counted as rejected" } as const;
+const RESOLUTION = { arrived: "Marked as arrived", reowe: "Owed again", rejected: "Counted as rejected", disputed: "Disputed · awaiting evidence" } as const;
 
 export function PayoutsTab({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
   const list = c.payouts.filter((p) => p.kind === "payout");
@@ -220,8 +221,18 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
           <Button size="sm" variant="ghost" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "rejected" }))}>
             Count as rejected
           </Button>
+          <Button size="sm" variant="secondary" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "disputed" }))}>
+            Close review as disputed
+          </Button>
         </>,
       );
+    case "disputed":
+      return note("warning", "alert", "Review closed as disputed; payment evidence is still being checked.",
+        <span>The amount remains committed and is not counted as paid. Covenant follows the original payment identity and authorizes no replacement.</span>,
+        p.never_executed ? <>
+          <Button size="sm" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "reowe" }))}>Reopen after proven non-execution</Button>
+          <Button size="sm" variant="ghost" onClick={() => act(() => api("POST", `/payouts/${p.request_id}/resolve`, { outcome: "rejected" }))}>Close after proven rejection</Button>
+        </> : null);
     default:
       return null;
   }

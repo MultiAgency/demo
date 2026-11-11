@@ -225,7 +225,7 @@ try {
   const created = await request<{ id: string; contractor_token: string }>("POST", "/contracts", terms);
   const id = created.id;
   const offered = await request<ContractView>("GET", `/contracts/${id}`);
-  Object.assign(receipt, { work_order: id, terms_hash: offered.hash });
+  Object.assign(receipt, { job: id, terms_hash: offered.hash });
   report(`01. Offer ${id}; accepted terms ${offered.hash}`);
   for (const role of ["representative", "contractor"] as const) {
     const req = await request<SignRequest>("GET", `/contracts/${id}/signing-request?role=${role}`);
@@ -329,7 +329,7 @@ try {
   check(finalState.providerErrors.length === 0, "The simulator recorded a provider error.");
   Object.assign(receipt, {
     result: "passed", completed_at: new Date().toISOString(), app_pids: [firstPid, active.pid],
-    work_order: id, terms_hash: settled.hash, submission: submitted.id, invoice: submitted.invoice.id,
+    job: id, terms_hash: settled.hash, submission: submitted.id, invoice: submitted.invoice.id,
     judgment: recoveredSubmission.judgment_id, payout_request: requestId, payment_correlation: afterIdentity.correlation_id,
     approval: vote.correlation_id, settlement: paid.state, paid_usd: settled.paid_usd, tx_hash: paid.tx_hash,
     confirmation_source: "platform payouts/status succeeded; provider and chain simulated",

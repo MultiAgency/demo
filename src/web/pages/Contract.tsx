@@ -49,7 +49,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
   };
 
   if (!resource.enabled) return <AccountReadGate />;
-  if (!c) return error ? <div className="page stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={load}>Retry loading work order</Button></div> : <PageLoading />;
+  if (!c) return error ? <div className="page stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={load}>Retry loading job</Button></div> : <PageLoading />;
 
   const setup = c.stage.startsWith("needs_") || c.stage === "policy_pending";
   const stage = STAGES[c.stage] ?? { label: c.stage, tone: "neutral" as Tone };
@@ -249,7 +249,7 @@ function StepAction({ step, c, config, act }: { step: StepId; c: ContractView; c
     case "rep-sign":
       return (
         <div className="check-action">
-          <code className="mono message">Covenant work order sha256:{short(c.hash, 10, 6)}</code>
+          <code className="mono message">Job terms sha256:{short(c.hash, 10, 6)}</code>
           <Button icon="pen" onClick={() => signTerms("representative")} disabled={!config.demo_controls && (session.loading || session.account !== c.terms.representative.near_account)}>
             {config.demo_controls ? `Sign as ${c.terms.representative.near_account}` : "Sign with wallet"}
           </Button>

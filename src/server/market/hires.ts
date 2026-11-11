@@ -8,8 +8,8 @@ import { USDC_DECIMALS } from "../../shared/terms";
 import { UserError } from "../engine";
 import { failCode, failError } from "../onboarding";
 import { type Agencies, ended } from "./agencies";
-import { type AgencyRow, type HireRow, type HireState, update } from "./db";
-import type { Fail, HireAnswer, HireTerms, MarketPlatform, Res } from "./port";
+import { type AgencyRow, type DaoVoteRow, type HireRow, type HireState, update } from "./db";
+import type { Fail, FiledDaoHire, HireAnswer, HireTerms, MarketPlatform, Res } from "./port";
 
 /** How long a DAO's approval may stay valid: two days to vote and pay. The platform caps it at its own maximum. */
 const DAO_APPROVAL_MS = 2 * 86_400_000;
@@ -17,6 +17,7 @@ const LIVE: HireState[] = ["voting", "hiring", "unknown"];
 /** These gateway validation refusals explicitly precede creating a DAO hire request. Other failures prove no outcome. */
 const DAO_NOT_FILED = new Set(["invalid_request", "brief_mismatch", "expires_too_soon"]);
 const DAO_FILING_UNKNOWN = "dao_filing_unknown";
+const DAO_RECOVERY_UNAVAILABLE = "dao_filing_recovery_unavailable";
 
 export interface HiresDeps {
   db: Database;
@@ -27,6 +28,7 @@ export interface HiresDeps {
 
 export class Hires {
   private approvals = new Set<string>();
+  private recovering = new Map<string, Promise<HireRow>>();
   constructor(private d: HiresDeps) {}
 
   private iso() {
@@ -106,10 +108,12 @@ export class Hires {
     r = this.row(requestId);
     const terms = JSON.parse(r.terms) as HireTerms;
     if (a.signer === "dao") {
+      if (r.state === "unknown" && !r.dao_vote_id && r.code === DAO_RECOVERY_UNAVAILABLE)
+        throw new UserError("This job's original DAO approval is unknown. Recovering it requires a matching retained request on platform 0.5.7 or later. No new vote or payment was created; preserve this job and check its original outcome.", 409);
       if (r.state !== "quoted" && r.state !== "vote_expired") throw new UserError(`This hire is ${r.state}.`, 409);
       const validUntil = new Date(this.d.now().getTime() + DAO_APPROVAL_MS).toISOString();
-      // The platform generates the vote hash. Losing that answer must not leave a remotely filed approval discardable
-      // or fileable again. The SDK has no lookup by requestId: retain uncertainty, then observe market/status only.
+      // Save the original identity before I/O. A lost filing is neither discardable nor a reason to file another vote;
+      // supported recovery below only reads an existing matching approval, with a deadline that forbids a new filing.
       this.d.db.transaction(() => {
         this.requireNoUnknownDaoFiling(a.id, requestId);
         const claimed = this.d.db.query(`UPDATE market_hires SET state = 'unknown', dao_vote_id = NULL, code = ?, approved_by = ?, updated_at = ?
@@ -127,21 +131,61 @@ export class Hires {
         }
         return this.row(requestId);
       }
-      const value = filed.value;
-      this.d.db.transaction(() => {
-        const v = this.d.agencies.recordVote(a.id, "hire", requestId, value);
-        const current = this.row(requestId);
-        // A concurrent status read may already have confirmed settlement while the filing's answer was in flight.
-        this.set(requestId, { state: current.state === "unknown" ? "voting" : current.state, dao_vote_id: v.id,
-          code: current.state === "unknown" ? null : current.code });
-      })();
-      return this.row(requestId);
+      return this.recordFiling(requestId, filed.value);
     }
     if (r.state !== "quoted") throw new UserError(`This hire is ${r.state}.`, 409);
     const claimed = this.d.db.query("UPDATE market_hires SET state = 'hiring', approved_by = ?, updated_at = ? WHERE request_id = ? AND state = 'quoted'")
       .run(actor, this.iso(), requestId);
     if (claimed.changes !== 1) throw new UserError("This hire was already approved. Follow its original identity.", 409);
     return this.ask(requestId);
+  }
+
+  private recordFiling(requestId: string, filed: FiledDaoHire): HireRow {
+    this.d.db.transaction(() => {
+      const current = this.row(requestId);
+      if (current.dao_vote_id && current.dao_vote_id !== filed.id)
+        throw new UserError("The platform returned another DAO approval for this job. Preserve its original identity.", 502);
+      const known = this.d.db.query("SELECT * FROM market_dao_votes WHERE id = ?").get(filed.id) as DaoVoteRow | null;
+      if (known && (known.agency_id !== current.agency_id || known.kind !== "hire" || known.ref !== requestId ||
+        known.hash !== filed.hash || known.valid_until !== filed.validUntil))
+        throw new UserError("The returned DAO approval belongs to another job or terms. Nothing was replaced.", 502);
+      const vote = known ?? this.d.agencies.recordVote(current.agency_id, "hire", requestId, filed);
+      // A status read may already have proved payment while the filing response or recovery was in flight.
+      this.set(requestId, { state: current.state === "unknown" ? "voting" : current.state, dao_vote_id: vote.id,
+        code: current.state === "unknown" ? null : current.code });
+    })();
+    return this.row(requestId);
+  }
+
+  /** Same-ID lookup whose expired deadline cannot create a new approval, even if an earlier unsigned vote lapsed. */
+  private recoverFiling(requestId: string): Promise<HireRow> {
+    if (this.approvals.has(requestId)) return Promise.resolve(this.row(requestId));
+    const running = this.recovering.get(requestId);
+    if (running) return running;
+    const recovery = this.recoverFilingOnce(requestId).finally(() => {
+      if (this.recovering.get(requestId) === recovery) this.recovering.delete(requestId);
+    });
+    this.recovering.set(requestId, recovery);
+    return recovery;
+  }
+
+  private async recoverFilingOnce(requestId: string): Promise<HireRow> {
+    const original = this.row(requestId);
+    if (original.state !== "unknown" || original.dao_vote_id) return original;
+    const a = this.d.agencies.row(original.agency_id);
+    if (a.signer !== "dao" || !a.agent || !a.agent_id) return original;
+    let recovered: Res<FiledDaoHire>;
+    try {
+      recovered = await this.d.market.daoHire.recover({ organization: a.organization, agent: a.agent, owner: a.owner,
+        agentId: a.agent_id, requestId, brief: original.brief, approved: JSON.parse(original.terms) as HireTerms });
+    } catch { return this.row(requestId); }
+    if (!recovered.ok) {
+      const current = this.row(requestId);
+      if (current.state === "unknown" && !current.dao_vote_id && recovered.kind === "refused" && recovered.code === DAO_RECOVERY_UNAVAILABLE)
+        this.set(requestId, { code: DAO_RECOVERY_UNAVAILABLE });
+      return this.row(requestId);
+    }
+    return this.recordFiling(requestId, recovered.value);
   }
 
   /** `market/hire` under the hire's own requestId: paid at most once, only while a fresh quote equals the terms. */
@@ -172,7 +216,7 @@ export class Hires {
   private apply(requestId: string, ans: HireAnswer) {
     const current = this.row(requestId);
     const fields: Partial<HireRow> = { task_state: ans.taskState,
-      code: ans.code ?? (ans.state === "unknown" && current.code === DAO_FILING_UNKNOWN ? DAO_FILING_UNKNOWN : null) };
+      code: ans.code ?? (ans.state === "unknown" && (current.code === DAO_FILING_UNKNOWN || current.code === DAO_RECOVERY_UNAVAILABLE) ? current.code : null) };
     if (ans.taskId) fields.task_id = ans.taskId;
     if (ans.deliverable !== null) fields.deliverable = ans.deliverable;
     if (ans.state === "paid" || ans.state === "not_charged" || ans.state === "refused" || ans.state === "unknown") fields.state = ans.state;
@@ -222,10 +266,14 @@ export class Hires {
     if (r.state !== "hiring" && r.state !== "unknown") return r;
     const a = this.d.agencies.row(r.agency_id);
     const st = await this.d.agencies.agent(a).status(requestId);
-    if (!st.ok) return r;
+    if (!st.ok || st.value.requestId !== requestId) return this.row(requestId);
+    // Another observer may have restored the vote or confirmed payment during this older status read.
+    r = this.row(requestId);
+    if (r.state !== "hiring" && r.state !== "unknown") return r;
     // The platform never recorded the wallet owner's hire (its answer was lost first): ask again under the same id.
-    if (st.value.state === "not_found") return a.signer === "wallet" ? this.ask(requestId) : r;
+    if (st.value.state === "not_found") return a.signer === "wallet" ? this.ask(requestId) : this.recoverFiling(requestId);
     this.apply(requestId, st.value);
+    if (a.signer === "dao" && st.value.state === "unknown" && !r.dao_vote_id) return this.recoverFiling(requestId);
     return this.row(requestId);
   }
 

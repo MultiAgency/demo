@@ -7,6 +7,7 @@ import { buildApp, createRuntime, type Runtime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import { loadConfig } from "../src/server/config";
 import { JOB_DEMO_TERMS } from "../src/shared/demo";
+import { jobSubmissionSchema } from "../src/shared/jobs";
 import { termsHash, parseTerms } from "../src/shared/terms";
 import { activate, castVote, onboard, setup, signTerms, START } from "./support/harness";
 
@@ -49,6 +50,19 @@ async function assessmentTestGuard<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe("one builder job — simulated platform", () => {
+  test("malformed evidence URLs are validation failures and HTTP 400, never thrown URL parser exceptions", async () => {
+    const ctx = await activate("300", JOB_DEMO_TERMS);
+    for (const url of ["not a URL", "https://[", "http://evidence.invalid/unsupported"]) {
+      const body = { ...submission("invalid-url-original", "INV-BAD-URL"), evidence: [{ deliverable_id: "d1", label: "CSV evidence", url }] };
+      expect(() => jobSubmissionSchema.safeParse(body)).not.toThrow();
+      expect(jobSubmissionSchema.safeParse(body).success).toBe(false);
+      const response = await appAs(ctx.rt, builder).request(`/api/contracts/${ctx.id}/submissions`, json(body));
+      expect(response.status).toBe(400);
+    }
+    expect(ctx.rt.covenant.jobSubmissions(ctx.id)).toEqual([]);
+    expect(ctx.stub.calls.requestPayout).toBe(0);
+  });
+
   test("a work order must be accepted; merge routes and the merge watcher cannot bypass submission", async () => {
     const ctx = await setup(JOB_DEMO_TERMS);
     await expect(ctx.rt.covenant.submitJob(ctx.id, submission(), builder)).rejects.toThrow();

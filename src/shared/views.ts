@@ -5,8 +5,9 @@ import type { Deliverable, Terms } from "./terms";
 import type { JobSubmissionView } from "./jobs";
 
 
-export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved" | "dropped";
-export type JudgmentOutcome = "pending" | "approved" | "rejected" | "dropped" | "nothing";
+export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved" | "disputed" | "dropped";
+export type JudgmentOutcome = "pending" | "approved" | "rejected" | "dropped" | "nothing" | "disputed";
+export type PayoutResolution = "arrived" | "reowe" | "rejected" | "disputed";
 export type SetupStage =
   | "needs_signatures"
   | "needs_setup"
@@ -48,7 +49,7 @@ export interface PayoutView {
   clause: Clause | null;
   approval: { approval_id: string; expires_at: string | null } | null;
   vote: "approve" | "reject" | null;
-  resolution: "arrived" | "reowe" | "rejected" | null;
+  resolution: PayoutResolution | null;
   judge: { kind: string; model: string | null; decision: string; summary: string } | null;
   prs: { key: string; title: string; url: string; flags: string[] }[];
   tx_hash: string | null;

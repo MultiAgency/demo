@@ -21,7 +21,7 @@ if (!rt.market) throw new Error("The isolated gateway has no market simulator.")
 const server = await startServer(rt, rt.config.port, "127.0.0.1");
 const stopTimers = startTimers(rt);
 const receipt = { simulated: true, source: resolve(import.meta.dir, ".."), url: server.url.origin, stack: stack.stateFile,
-  scope: "Interactive builder work orders and separate instant marketplace hires; fixture signatures/provider/chain/market/funds", database: join(dir, "state", "covenant.sqlite"),
+  scope: "Interactive builder jobs and separate instant marketplace hires; fixture signatures/provider/chain/market/funds", database: join(dir, "state", "covenant.sqlite"),
   limits: ["Pinned simulator lacks rejection non-execution proof for builder rework", "Market directory and worker loop unavailable on this pin", "No actual wallet or real payment evidence"] };
 writeFileSync(join(dir, "receipt.json"), JSON.stringify(receipt, null, 2));
 console.log(`\nCovenant · COMBINED LOCAL EXPERIENCE · SIMULATED funds and wallets\nSource: ${receipt.source}\nOpen: ${server.url.origin}/#/new\nContracts + Agent market are in the same app.\nArtifacts: ${dir}\nCtrl+C stops this app. The launcher stops its own gateway; an explicitly supplied gateway remains caller-owned.\n`);

@@ -153,6 +153,8 @@ describe("worker: polling, submission and earnings", () => {
       if (path.endsWith("/submit")) {
         throw new TypeError("network down");
       }
+      if (path.endsWith("/deliverable/versions")) return Response.json({ versions: status === "in_progress" ? [] : [{ version: 1, files: [], submittedAt: new Date(NOW + 1000).toISOString() }] });
+      if (path.endsWith("/deliverable/versions/1/raw")) return new Response("# Result");
       return new Response(JSON.stringify({ assignments: [item(status)] }));
     }) as unknown as typeof fetch;
     const { m, agency } = marketWith({ fetch: fake, now: () => new Date(NOW), worker: { token: "aat_test", secret: SECRET, agencyId: "" } });
@@ -171,8 +173,12 @@ describe("worker: polling, submission and earnings", () => {
   });
 
   test("a submit the market refuses (4xx) can be written again", async () => {
-    const fake = (async (url: string | URL) =>
-      new URL(String(url)).pathname.endsWith("/submit") ? new Response("{}", { status: 409 }) : new Response(JSON.stringify({ assignments: [item("in_progress")] }))) as unknown as typeof fetch;
+    const fake = (async (url: string | URL) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/submit")) return new Response("{}", { status: 409 });
+      if (path.endsWith("/deliverable/versions")) return Response.json({ versions: [] });
+      return Response.json({ assignments: [item("in_progress")] });
+    }) as typeof fetch;
     const { m, agency } = marketWith({ fetch: fake, now: () => new Date(NOW), worker: { token: "aat_test", secret: SECRET, agencyId: "" } });
     (m.d.worker as { agencyId: string }).agencyId = agency.id;
     await m.worker.poll();

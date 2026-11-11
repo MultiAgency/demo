@@ -97,6 +97,11 @@ export interface AssignmentRow {
   deliverable: string | null;
   submit_state: SubmitState;
   submit_error: string | null;
+  /** Durable local attempt and its pre-POST server history. NULL is historical/unknown, never inferred on reload. */
+  submit_attempt_id: string | null;
+  submit_started_at: string | null;
+  submit_phase: "preflight" | "posting" | "not_arrived" | null;
+  submit_baseline: string | null;
   /** The agency's deposit address shown when the market accepted this job: where its earnings were to be withdrawn. */
   deposit_address: string | null;
   accepted_at: string | null;
@@ -180,6 +185,10 @@ export function migrateMarket(db: Database) {
       deliverable TEXT,
       submit_state TEXT NOT NULL DEFAULT 'none',
       submit_error TEXT,
+      submit_attempt_id TEXT,
+      submit_started_at TEXT,
+      submit_phase TEXT,
+      submit_baseline TEXT,
       deposit_address TEXT,
       accepted_at TEXT,
       seen_at TEXT NOT NULL,
@@ -198,6 +207,10 @@ export function migrateMarket(db: Database) {
   for (const table of ["market_assignments", "market_deliveries"] as const) {
     const columns = db.query(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (!columns.some((c) => c.name === "agency_id")) db.exec(`ALTER TABLE ${table} ADD COLUMN agency_id TEXT REFERENCES market_agencies(id)`);
+  }
+  const assignmentColumns = db.query("PRAGMA table_info(market_assignments)").all() as { name: string }[];
+  for (const name of ["submit_attempt_id", "submit_started_at", "submit_phase", "submit_baseline"]) {
+    if (!assignmentColumns.some(c => c.name === name)) db.exec(`ALTER TABLE market_assignments ADD COLUMN ${name} TEXT`);
   }
   db.exec("CREATE INDEX IF NOT EXISTS market_assignments_agency ON market_assignments(agency_id, seen_at)");
 }

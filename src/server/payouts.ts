@@ -6,7 +6,7 @@
 // - Only a recorded refusal or a resolved failure allows a new requestId. Every other case re-asks the same id.
 // - The judgment is the open unit: every seq of one run belongs to it, and it closes once.
 import type { Fail, PayoutAnswer } from "./platform/port";
-import type { AttemptState } from "../shared/views";
+import type { AttemptState, PayoutResolution } from "../shared/views";
 import { minBig, toAtomic } from "../shared/money";
 import { type Terms, USDC_DECIMALS } from "../shared/terms";
 
@@ -16,7 +16,7 @@ export interface AttemptLike {
   seq: number;
   attempt: number;
   state: AttemptState;
-  resolution: "arrived" | "reowe" | "rejected" | null;
+  resolution: PayoutResolution | null;
   amount_atomic: string;
   code: string | null;
   auto_retry: number;
@@ -42,7 +42,7 @@ export const OPEN_STATES: readonly AttemptState[] = ["pending", "blocked", "wait
 /** States that hold the contract's one open payout slot (mirrors the `one_open_payout` index). */
 export function isOpen(a: Pick<AttemptLike, "kind" | "state" | "resolution">): boolean {
   if (a.kind !== "payout") return false;
-  if (a.state === "failed") return a.resolution === null;
+  if (a.state === "failed") return a.resolution === null || a.resolution === "disputed";
   return OPEN_STATES.includes(a.state);
 }
 

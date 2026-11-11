@@ -126,7 +126,7 @@ async function submitRevision(revision: number) {
   return submitted.submissions[0]!;
 }
 
-/** A separate instant service hire in the same app; never a second payment path for the builder work order. */
+/** A separate instant service hire in the same app; never a second payment path for the builder job. */
 async function marketJourney(builderRequest: string) {
   check(rt.market, "The combined app must expose its isolated market integration");
   await command("agency", "set", "viewport", "1440", "1000");
@@ -144,7 +144,7 @@ async function marketJourney(builderRequest: string) {
   await pageWait("agency", "document.body.innerText.includes('Hire a listed agent')", "ready market account");
   await button("agency", "Fund $10 (demo)");
   await fill("agency", "Agent handle", "writer");
-  await fill("agency", "Brief", "A separate service job: write a short article about agency coordination. This is not the builder's work order.");
+  await fill("agency", "Brief", "A separate service job: write a short article about agency coordination. This is not the builder's job.");
   await button("agency", "Ask for a quote");
   const hires = () => rt.market!.hires.forAgency(agencyId).map(h => rt.market!.hires.view(h));
   await pageWait("agency", "document.body.innerText.includes('Approve and hire for 0.5 USDC')", "market quote and explicit pre-delivery approval");
@@ -173,7 +173,7 @@ async function marketJourney(builderRequest: string) {
   check(await evaluate<boolean>("agency", "document.documentElement.scrollWidth<=innerWidth"), "market mobile view overflows horizontally");
   await capture("agency", "09-market-paid-mobile");
   const builderPayments = (await rt.kit.controls!.transfers()).filter(p => p.recipient === "maria.demo" && p.status === "SUCCESS");
-  check(builderPayments.length === 1, "The separate market hire must not pay the builder work order again");
+  check(builderPayments.length === 1, "The separate market hire must not pay the builder job again");
   step("The same browser app quotes, explicitly hires and receives a separate listed-agent service; builder and market identities remain distinct");
   return { agency: agencyId, agent: agencyRow().agent, request_id: paid.request_id, state: paid.state, amount_usd: paid.amount_usd,
     deliverable: paid.deliverable, confirmation_source: "SDK market status; provider/chain/market simulated", limitations: ["Directory and worker loop unavailable on pinned simulator", "No hosted or real payment evidence"] };
@@ -190,10 +190,10 @@ try {
   await button("agency", "Create draft");
   await pageWait("agency", "location.hash.startsWith('#/c/')", "draft navigation");
   contractId = (await evaluate<string>("agency", "location.hash")).split("/")[2]!;
-  check(contractId.startsWith("c_"), "Expected a work-order identity");
+  check(contractId.startsWith("c_"), "Expected a job identity");
   const offered = await view();
   check(offered.terms.v === 3 && offered.total_usd === "300", "Expected the signed report/invoice workflow");
-  step("Agency creates the $300 report/invoice work order using the visible form");
+  step("Agency creates the $300 report/invoice job using the visible form");
 
   await button("agency", "Sign as acme.demo");
   await state(v => !!v.signatures.representative, "agency signature");
@@ -271,7 +271,7 @@ try {
   }
   step("Both parties see the same confirmed settlement at desktop and mobile sizes; one successful payment");
   const market = full ? await marketJourney(payment.request_id) : null;
-  writeFileSync(join(dir, "receipt.json"), JSON.stringify({ simulated: true, scope: full ? "One browser app with builder payout and a separate marketplace service hire through SDK; no real wallet/payment" : "Builder job with simulated revision", automation: "agent-browser; scrollintoview before trusted clicks", work_order: contractId, terms_hash: paid.hash, submission: revised.id, invoice: revised.invoice.id, proposal: finalSubmission.judgment_id, request: payment.request_id, approval: payment.approval_vote_id, payment: payment.payment_correlation_id, tx_hash: payment.tx_hash, paid_usd: paid.paid_usd, successful_transfers: 1, market, steps, captures }, null, 2));
+  writeFileSync(join(dir, "receipt.json"), JSON.stringify({ simulated: true, scope: full ? "One browser app with builder payout and a separate marketplace service hire through SDK; no real wallet/payment" : "Builder job with simulated revision", automation: "agent-browser; scrollintoview before trusted clicks", job: contractId, terms_hash: paid.hash, submission: revised.id, invoice: revised.invoice.id, proposal: finalSubmission.judgment_id, request: payment.request_id, approval: payment.approval_vote_id, payment: payment.payment_correlation_id, tx_hash: payment.tx_hash, paid_usd: paid.paid_usd, successful_transfers: 1, market, steps, captures }, null, 2));
   console.log(`PASS · ${full ? "combined builder and market browser experience" : "complete browser job with revision"} · receipt ${join(dir, "receipt.json")}`);
 } catch (error) {
   writeFileSync(join(dir, "failure.txt"), String(error));

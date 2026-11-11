@@ -2,7 +2,7 @@
 
 The selected payment path is Covenant → `@multiagency/sdk` → the platform's held payout. This job is not also paid through Agent Market. See [the market boundary](market-boundary.md) for the routes that would change the workflow.
 
-The v3 work order signs scope, acceptance criteria, budget, deadline, payee and explicit payment terms. The builder's report, evidence references and invoice form an immutable submission revision. An agent proposes compensation within the signed scope and invoice cap. The agency signs a separate approval; only the platform's settlement outcome counts as confirmed payment.
+The v3 job signs scope, acceptance criteria, budget, deadline, payee and explicit payment terms. The builder's report, evidence references and invoice form an immutable submission revision. An agent proposes compensation within the signed scope and invoice cap. The agency signs a separate approval; only the platform's settlement outcome counts as confirmed payment.
 
 ## Run the complete demonstration
 
@@ -14,7 +14,7 @@ bun run demo:job
 
 The recipe uses Covenant's application code and the existing in-process `FakePlatform`. Signatures, provider behavior, balances and settlement are simulated. The rule-based proposer treats an attached evidence reference as completion; it does not fetch the reference or verify work quality. The agency's review remains necessary. No credentials, network requests or real funds are used.
 
-The transcript includes the offer, acceptance, submission, compensation proposal, agency approval and confirmed simulated payment. Its final JSON receipt links the work order and terms hash to the builder, submission, invoice, judgment, approval, payout request, platform payment correlation and simulated transaction.
+The transcript includes the offer, acceptance, submission, compensation proposal, agency approval and confirmed simulated payment. Its final JSON receipt links the job and terms hash to the builder, submission, invoice, judgment, approval, payout request, platform payment correlation and simulated transaction.
 
 Run the requested-changes and lost-response variations on the same job workflow:
 

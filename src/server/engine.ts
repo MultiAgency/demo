@@ -5,7 +5,7 @@ import { fromAtomic, toAtomic } from "../shared/money";
 import { jobSubmissionSchema, type JobSubmissionView } from "../shared/jobs";
 import { expectations, largestAtomic, policyDifferences, policyProblem, totalAtomic } from "../shared/policy-request";
 import { endInstant, parseTerms, scopeTotal, startInstant, type Terms, TERMS_RECIPIENT, termsHash, termsSigningMessage, USDC_DECIMALS } from "../shared/terms";
-import type { AttemptState, ContractView, EventView, JudgmentOutcome, NextStep, PayoutView, ScopeRow, SetupStage, VerifyView } from "../shared/views";
+import type { AttemptState, ContractView, EventView, JudgmentOutcome, NextStep, PayoutView, PayoutResolution, ScopeRow, SetupStage, VerifyView } from "../shared/views";
 import type { Config } from "./config";
 import type { AttemptRow, ContractRow, EventRow, JudgmentRow, LineRow, OwnerStepRow, PlatformAgentRow, SignatureRecord, JobRow, JobInvoiceRow } from "./db";
 import { judgeJob } from "./job-judge";
@@ -155,7 +155,7 @@ export class Covenant {
 
   /** Contracts with a live payout or attack to follow on the status timer. */
   followUpIds(): string[] {
-    const rows = this.d.db.query("SELECT DISTINCT contract_id FROM payout_attempts WHERE state IN (" + OPEN_STATES.map((s) => `'${s}'`).join(",") + ") UNION SELECT contract_id FROM judgments WHERE outcome = 'pending'").all() as { contract_id: string }[];
+    const rows = this.d.db.query("SELECT DISTINCT contract_id FROM payout_attempts WHERE state IN (" + OPEN_STATES.map((s) => `'${s}'`).join(",") + ") OR (state = 'failed' AND (resolution IS NULL OR resolution = 'disputed')) UNION SELECT contract_id FROM judgments WHERE outcome = 'pending'").all() as { contract_id: string }[];
     return rows.map((r) => r.contract_id);
   }
 
@@ -255,10 +255,10 @@ export class Covenant {
         if (prior.content_hash !== hash) throw new UserError("This submission identity already has different content. Retry the original body.", 409);
         return this.jobView(prior);
       }
-      if (!row.rep_sig || !row.contractor_sig) throw new UserError("Both parties must accept the work order before submission.", 409);
+      if (!row.rep_sig || !row.contractor_sig) throw new UserError("Both parties must accept the job before submission.", 409);
       this.requireActive(row, terms);
       const latest = this.jobRows(id)[0];
-      if (latest && ["submitted", "proposed", "changes_pending"].includes(latest.state)) throw new UserError("The previous submission is still open. Wait for confirmed cancellation or settlement before filing another.", 409);
+      if (latest && ["submitted", "proposed", "changes_pending", "disputed"].includes(latest.state)) throw new UserError("The previous submission has an open or disputed payment. Wait for authoritative evidence before filing another.", 409);
       if (this.attempts(id).some(isOpen)) throw new UserError("A payment outcome is still unresolved; a new submission cannot replace it.", 409);
       if (body.evidence.some((e) => !terms.scope.some((d) => d.id === e.deliverable_id))) throw new UserError("Evidence must reference a deliverable in the accepted scope.");
       if (this.d.db.query("SELECT 1 FROM job_invoices WHERE contract_id = ? AND number = ?").get(id, body.invoice.number)) throw new UserError("That invoice number is already filed. Retry its original submission identity.", 409);
@@ -459,7 +459,7 @@ export class Covenant {
     await this.refreshFrozen(id);
     const row = this.row(id);
     const terms = this.terms(row);
-    if (terms.v === 3) throw new UserError("This work order requires a builder report and invoice. Propose compensation from its submission.", 409);
+    if (terms.v === 3) throw new UserError("This job requires a builder report and invoice. Propose compensation from its submission.", 409);
     this.requireActive(row, terms);
     await this.followUpLocked(id);
     const open = this.openJudgment(id);
@@ -468,6 +468,11 @@ export class Covenant {
       const said = this.d.db.query("SELECT 1 FROM events WHERE contract_id = ? AND kind = 'deferred' AND text LIKE ?").get(id, `%(${open.id})%`);
       if (!said) this.event(id, "deferred", `Agent run deferred: the previous judgment (${open.id}) is still open (waiting on its payout). Nothing was judged or requested; later runs wait quietly until it closes.`);
       return { outcome: "deferred", judgment: null, open_judgment: this.openJudgmentView(id, terms), payouts: [] };
+    }
+    if (this.attempts(id).some(isOpen) || this.d.db.query("SELECT 1 FROM judgments WHERE contract_id = ? AND outcome = 'disputed' LIMIT 1").get(id)) {
+      // A business review may be closed as disputed while its original money outcome still holds the slot.
+      // Partial late settlement does not authorize the merge watcher to open a new judgment for the remainder.
+      return { outcome: "deferred", judgment: null, open_judgment: null, payouts: [] };
     }
 
     const window = this.window(terms);
@@ -541,22 +546,33 @@ export class Covenant {
   }
 
   /** Rep: resolve a failed payout after checking the evidence. */
-  async resolve(requestId: string, outcome: "arrived" | "reowe" | "rejected") {
+  async resolve(requestId: string, outcome: PayoutResolution, reason?: string) {
     const att = this.attempt(requestId);
     return this.mutex.run(att.contract_id, async () => {
       const a = this.attempt(requestId);
-      if (a.kind !== "payout" || a.state !== "failed" || a.resolution !== null) throw new UserError("Only an unresolved failed payout can be resolved.", 409);
-      if (this.terms(this.row(a.contract_id)).v === 3 && outcome !== "arrived" &&
+      if (a.kind !== "payout" || a.state !== "failed" || (a.resolution !== null && a.resolution !== "disputed")) throw new UserError("Only an unresolved or disputed failed payout can be reviewed.", 409);
+      if (outcome === "disputed" && a.resolution === "disputed") return this.view(a.contract_id);
+      if (this.terms(this.row(a.contract_id)).v === 3 && outcome !== "arrived" && outcome !== "disputed" &&
           (a.never_executed !== 1 || !!a.tx_hash || !!a.refund_tx_hash)) {
         throw new UserError("This job's failed payment remains committed until the platform proves it never executed. Manual review cannot authorize a replacement or release its budget.", 409);
       }
-      this.setAttempt(requestId, { resolution: outcome });
-      const text = { arrived: "the money arrived; it stays paid", reowe: "nothing arrived; it is owed again", rejected: "it was rejected; its work is excluded" }[outcome];
-      this.event(a.contract_id, "resolve", `The representative resolved the failed payout ${requestId}: ${text}.`);
-      if (outcome === "rejected" && a.run_id) {
-        const j = this.judgmentRow(a.run_id);
-        if (j?.outcome === "pending") this.closeJudgment(j, "rejected");
-      }
+      this.d.db.transaction(() => {
+        this.setAttempt(requestId, { resolution: outcome });
+        const text = { arrived: "the money arrived; it stays paid", reowe: "nothing arrived; it is owed again", rejected: "it was rejected; its work is excluded",
+          disputed: "review closed as disputed, awaiting evidence; the amount stays committed, is not counted as paid, and no replacement is authorized" }[outcome];
+        this.event(a.contract_id, "resolve", `The representative reviewed failed payout ${requestId}: ${text}.${reason ? ` ${reason}` : ""}`);
+        if (a.run_id) {
+          const j = this.judgmentRow(a.run_id);
+          if (j && outcome === "disputed") this.finalizeJudgmentRecords(j, "disputed");
+          else if (j && outcome === "rejected" && (j.outcome === "pending" || j.outcome === "disputed")) this.finalizeJudgmentRecords(j, "rejected");
+          else if (j?.outcome === "disputed") {
+            // A later explicit resolution resumes the same judgment and invoice, never an invented replacement job.
+            this.d.db.query("UPDATE judgments SET outcome = 'pending', closed_at = NULL WHERE id = ? AND outcome = 'disputed'").run(j.id);
+            const job = this.jobForJudgment(j.id);
+            if (job) this.d.db.query("UPDATE job_submissions SET state = 'proposed' WHERE id = ?").run(job.id);
+          }
+        }
+      })();
       await this.advanceJudgment(a.contract_id);
       return this.view(a.contract_id);
     });
@@ -581,7 +597,11 @@ export class Covenant {
       const terms = this.terms(row);
       const a = this.onboarding.agentRow(row.organization)!;
       const action = { type: "approval_vote" as const, approvalId: att.approval_id, verdict, correlationId: att.correlation_id };
-      const prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
+      // A platform confirmation can be signed outside this app. Reconcile its original owner intent before deciding
+      // whether a preparation is still signable, submitted, or positively expired without submission.
+      let prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
+      for (const step of prior) if (step.confirm_url && ["prepared", "submitted", "unknown"].includes(step.state)) await this.onboarding.pollStep(step.correlation_id);
+      prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
       if (prior.some((s) => s.state === "submitted" || s.state === "unknown"))
         throw new UserError("A vote for this payout is already submitted or uncertain. Follow its original identity before preparing another.", 409);
       const pending = prior.filter((s) => s.state === "prepared");
@@ -713,7 +733,9 @@ export class Covenant {
           const consistent = !ps.ok || ps.value.status === "FAILED";
           const proof = cur.never_executed === 1 && consistent && !txHash && !refundTxHash && !ev?.refundedAmount;
           if (!proof) patch.never_executed = 0;
-          patch.state = classifyFailed(cur.vote, txHash, proof);
+          // A disputed closure keeps its monetary hold until the agency explicitly reviews newly arrived
+          // non-execution evidence. A later successful payment is handled above under the same original identity.
+          patch.state = cur.resolution === "disputed" ? "failed" : classifyFailed(cur.vote, txHash, proof);
         }
       }
       this.setAttempt(cur.request_id, patch);
@@ -754,7 +776,7 @@ export class Covenant {
   /** Follow every live attempt of a contract, then move its open judgment along. Caller holds the mutex. */
   private async followUpLocked(id: string) {
     for (const att of this.attempts(id)) {
-      if (OPEN_STATES.includes(att.state) || (att.state === "failed" && att.resolution === null)) {
+      if (OPEN_STATES.includes(att.state) || (att.state === "failed" && (att.resolution === null || att.resolution === "disputed"))) {
         try {
           await this.followAttempt(att);
         } catch (err) {
@@ -763,6 +785,7 @@ export class Covenant {
       }
     }
     await this.advanceJudgment(id);
+    this.reconcileDisputedJudgments(id);
   }
 
   private async followAttempt(att: AttemptRow) {
@@ -863,21 +886,21 @@ export class Covenant {
     return true;
   }
 
-  private closeJudgment(j: JudgmentRow, outcome: "approved" | "rejected" | "dropped" | "nothing") {
+  private closeJudgment(j: JudgmentRow, outcome: "approved" | "rejected" | "dropped" | "nothing" | "disputed") {
     // The judgment, submission state and event are one durable outcome. A crash or failed write must leave
     // the pending judgment available to the recovery timer, even if its payout is already terminal.
     this.d.db.transaction(() => this.finalizeJudgmentRecords(j, outcome))();
   }
 
-  private finalizeJudgmentRecords(j: JudgmentRow, outcome: "approved" | "rejected" | "dropped" | "nothing") {
+  private finalizeJudgmentRecords(j: JudgmentRow, outcome: "approved" | "rejected" | "dropped" | "nothing" | "disputed") {
     const now = this.nowIso();
-    this.d.db.query("UPDATE judgments SET outcome = ?, closed_at = ? WHERE id = ? AND outcome = 'pending'").run(outcome, now, j.id);
+    this.d.db.query("UPDATE judgments SET outcome = ?, closed_at = ? WHERE id = ? AND outcome IN ('pending', 'disputed')").run(outcome, now, j.id);
     const job = this.jobForJudgment(j.id);
     if (job) {
       const mine = this.attempts(j.contract_id).filter((a) => a.run_id === j.id);
       const confirmed = mine.some((a) => a.state === "paid") && mine.filter(isCommitted).every((a) => a.state === "paid");
       const cancelled = !!job.changes && mine.every((a) => !isCommitted(a));
-      const state = cancelled ? "changes_requested" : outcome === "approved" && confirmed ? "settled" : "closed";
+      const state = outcome === "disputed" ? "disputed" : cancelled ? "changes_requested" : outcome === "approved" && confirmed ? "settled" : "closed";
       this.d.db.query("UPDATE job_submissions SET state = ? WHERE id = ?").run(state, job.id);
       this.event(j.contract_id, "submission", `Submission ${job.id}: ${state}. ${cancelled ? "No live payout remains; the builder can submit a new immutable revision." : "Approval and payment evidence remain linked through the judgment and request IDs."}`);
       return;
@@ -897,6 +920,24 @@ export class Covenant {
       this.event(j.contract_id, "judgment", `Judgment rejected. ${excluded.length ? `Excluded from future runs: ${excluded.join(", ")}.` : "No new pull requests to exclude."} Money already paid stays paid.`);
     } else if (outcome === "dropped") {
       this.event(j.contract_id, "judgment", "Judgment dropped by the representative. Its pull requests will be judged again on the next run.");
+    }
+  }
+
+  /** A disputed business review stays closed while its original money identity is observed. Late evidence cannot
+   * authorize another sequence: only confirmed payment of the whole proposal can mark the job settled. */
+  private reconcileDisputedJudgments(id: string) {
+    const rows = this.d.db.query("SELECT * FROM judgments WHERE contract_id = ? AND outcome = 'disputed'").all(id) as JudgmentRow[];
+    for (const j of rows) {
+      const mine = this.attempts(id).filter(a => a.kind === "payout" && a.run_id === j.id);
+      if (!mine.some(a => a.state === "paid") || mine.filter(isCommitted).some(a => a.state !== "paid")) continue;
+      const job = this.jobForJudgment(j.id);
+      const confirmed = mine.filter(a => a.state === "paid").reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
+      const complete = job ? confirmed >= BigInt(job.proposed_atomic) : this.owedTotal(id, this.terms(this.row(id)), j) === 0n;
+      if (!complete) continue;
+      this.d.db.transaction(() => {
+        this.finalizeJudgmentRecords(j, "approved");
+        this.event(id, "resolve", `Late platform evidence confirmed the full disputed proposal ${j.id} under its original payment identities. No replacement payment was requested.`);
+      })();
     }
   }
 
@@ -1087,7 +1128,7 @@ export class Covenant {
       p.kind === "attack" && p.scenario === "injected"
         ? [{ ...pick(injectedPullRequest(terms.repos[0]!, terms.contractor.github, p.created_at)), flags: ["possible_prompt_injection"] }]
         : (j?.prs ?? []).filter((x) => x.eligible && ((x.deliverable && ids.has(x.deliverable)) || x.flags.length > 0)).map((x) => ({ key: x.key, title: x.title, url: x.url, flags: x.flags }));
-    const state: AttemptState = p.state === "failed" && p.resolution !== null ? "resolved" : p.state;
+    const state: AttemptState = p.state === "failed" && p.resolution === "disputed" ? "disputed" : p.state === "failed" && p.resolution !== null ? "resolved" : p.state;
     return {
       request_id: p.request_id,
       payment_correlation_id: p.correlation_id,

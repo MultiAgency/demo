@@ -1,6 +1,6 @@
 import { appClient, consentMessage, setupMessage } from "@multiagency/sdk";
 import { toFail } from "../platform/client";
-import type { DaoRequest, DaoState, HireAnswer, HireTerms, MarketAccount, MarketAgent, MarketOwnerAction, MarketPlatform, MemberTransaction, OwnerPrepared, Res, Signed413 } from "./port";
+import type { DaoHireInput, DaoRequest, DaoState, FiledDaoHire, HireAnswer, HireTerms, MarketAccount, MarketAgent, MarketOwnerAction, MarketPlatform, MemberTransaction, OwnerPrepared, Res, Signed413 } from "./port";
 
 /**
  * `MarketPlatform` over `@multiagency/sdk` `appClient` (0.5.6): the `market` area, the `market` consent scope, and the
@@ -36,6 +36,15 @@ const hireAnswer = (v: any): HireAnswer => ({
   taskState: v.taskState ?? null,
   deliverable: v.deliverable ?? null,
 });
+
+// Platform 0.5.7 (#76) returns a matching retained request before checking this deadline. 0.5.6, and a 0.5.7 host
+// with no reusable request, refuse the expired deadline before filing. A future deadline could create another vote
+// after an unsigned vote lapsed; this read-like call must never do that. No SDK/host version is assumed.
+const RECOVERY_DEADLINE = "1970-01-01T00:00:00.000Z";
+const sameTerms = (a: Record<string, unknown>, b: HireTerms) => {
+  const keys = Object.keys(b) as (keyof HireTerms)[];
+  return Object.keys(a).length === keys.length && keys.every((key) => a[key] === b[key]);
+};
 
 export class SdkMarket implements MarketPlatform {
   readonly host: string;
@@ -81,6 +90,23 @@ export class SdkMarket implements MarketPlatform {
   readonly daoHire = {
     file: async (i: { organization: string; agent: string; requestId: string; brief: string; approved: HireTerms; validUntil: string }) =>
       map((await this.app.daoHires.file(i)) as AnyResult, (v) => ({ ...daoRequest(v), validUntil: v.request.validUntil as string })),
+    recover: async (i: DaoHireInput & { owner: string; agentId: string }): Promise<Res<FiledDaoHire>> => {
+      const { organization, agent, requestId, brief, approved } = i;
+      const result = await this.app.daoHires.file({ organization, agent, requestId, brief, approved, validUntil: RECOVERY_DEADLINE });
+      if (!result.ok) {
+        if (result.kind === "refused" && result.code === "expires_too_soon")
+          return { ok: false, kind: "refused", code: "dao_filing_recovery_unavailable" };
+        return toFail(result);
+      }
+      const { request, transactions } = result.value;
+      if (request.organization !== organization || request.agent !== agent || request.requestId !== requestId ||
+        request.dao !== i.owner || request.agentId !== i.agentId || !sameTerms(request.approved, approved) ||
+        !/^[a-f0-9]{64}$/.test(request.id) || request.hash !== request.id ||
+        !Number.isFinite(request.votingUntil) || !Number.isFinite(Date.parse(request.validUntil)) ||
+        transactions.proposal !== null || transactions.proposalAndVote !== null)
+        return { ok: false, kind: "unavailable", detail: "The retained DAO approval did not match the original job identity and terms." };
+      return { ok: true, value: { ...daoRequest(result.value), validUntil: request.validUntil } };
+    },
     state: async (id: string) => daoState((await this.app.daoHires.state(id)) as AnyResult, (v) => (v.state === "relayed" ? { hireState: String(v.hireState) } : null)),
   };
 

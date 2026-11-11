@@ -54,12 +54,12 @@ async function observe(checkState: (view: Awaited<ReturnType<typeof c.getContrac
   }
   throw new Error(`Timed out observing ${label}; no replacement payment was sent.`);
 }
-step("01", "Agency offers the work order");
+step("01", "Agency offers the job");
 show(`${terms.company} → ${terms.contractor.name}; ${scopeTotal(terms)} USDC, deadline ${terms.end} (UTC)`);
 show(`${terms.scope[0]!.title}: ${terms.scope[0]!.criteria}`);
 show("Payment terms: scope completion less committed amounts, capped by invoice; explicit agency approval; USDC on NEAR through the platform.");
 const offered = await c.viewContract(id);
-show(`work order ${id}; accepted-terms hash ${offered.hash}`);
+show(`job ${id}; accepted-terms hash ${offered.hash}`);
 for (const role of ["representative", "contractor"] as const) {
   const request = c.signingRequest(id, role);
   const signed = await sign(request);
@@ -155,7 +155,7 @@ check(history.find((s) => s.id === submitted.id)?.state === "settled", "Both par
 show(`${confirmed.amount_usd} USDC → ${confirmed.recipient}; ${confirmed.tx_hash ? `transaction ${confirmed.tx_hash}` : "platform confirms SUCCESS; this stack supplies no transaction hash"}`);
 console.log("\nLinked receipt (simulation):");
 console.log(JSON.stringify({
-  work_order: id,
+  job: id,
   terms_hash: paid.hash,
   builder: terms.contractor.near_account,
   submission: submitted.id,

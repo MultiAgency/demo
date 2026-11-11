@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createHmac } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Hono } from "hono";
 import type { DaoPolicy } from "@multiagency/sdk";
 import type { SessionInfo } from "../src/server/auth";
@@ -73,7 +76,8 @@ describe("worker historical ownership", () => {
       INSERT INTO market_deliveries VALUES ('legacy-delivery', 'hire.created', '2026-11-10');`);
     migrateMarket(db);
     migrateMarket(db);
-    expect(db.query("SELECT * FROM market_assignments").get()).toEqual({ assignment_id: "legacy-assignment", seen_at: "2026-11-10", deliverable: "already sent", submit_state: "unknown", agency_id: null });
+    expect(db.query("SELECT * FROM market_assignments").get()).toEqual({ assignment_id: "legacy-assignment", seen_at: "2026-11-10", deliverable: "already sent", submit_state: "unknown", agency_id: null,
+      submit_attempt_id: null, submit_started_at: null, submit_phase: null, submit_baseline: null });
     expect(db.query("SELECT * FROM market_deliveries").get()).toEqual({ delivery_id: "legacy-delivery", event: "hire.created", received_at: "2026-11-10", agency_id: null });
     db.close();
   });
@@ -119,371 +123,311 @@ describe("worker historical ownership", () => {
     const before = ctx.db.query("SELECT * FROM market_assignments").get();
     expect((await ctx.m.worker.view()).assignments).toEqual([]);
     await expect(ctx.m.worker.submit("assignment-original", "Do not replay a legacy submission")).rejects.toThrow(/no verified agency ownership/);
-    await expect(ctx.m.worker.poll()).rejects.toThrow(/no verified agency ownership/);
+    await ctx.m.worker.poll();
     const raw = created();
     await expect(ctx.m.worker.receive(signed(raw), raw)).rejects.toThrow(/ownership differs or is unproven/);
     expect(posts).toBe(0);
     expect(ctx.db.query("SELECT * FROM market_assignments").get()).toEqual(before);
     expect(ctx.db.query("SELECT agency_id FROM market_deliveries").get()).toEqual({ agency_id: null });
   });
+
+  for (const legacyFirst of [true, false]) {
+    test(`a quarantined historical assignment ${legacyFirst ? "before" : "after"} a healthy assignment cannot stop its poll`, async () => {
+      let status = "in_progress";
+      const ctx = context((async (_url: string | URL | Request, _init?: RequestInit) => {
+        const list = [item("legacy", "accepted"), item("healthy", status)];
+        return Response.json({ assignments: legacyFirst ? list : list.reverse() });
+      }) as typeof fetch);
+      await observe(ctx, "legacy", "legacy-delivery");
+      ctx.db.query("UPDATE market_assignments SET agency_id = NULL WHERE assignment_id = ?").run("legacy");
+      const original = ctx.db.query("SELECT * FROM market_assignments WHERE assignment_id = ?").get("legacy");
+      await ctx.m.worker.poll();
+      expect(ctx.m.worker.row("healthy").status).toBe("in_progress");
+      status = "accepted";
+      await ctx.m.worker.poll();
+      expect(ctx.m.worker.row("healthy").status).toBe("accepted");
+      const view = await ctx.m.worker.view();
+      expect(view.assignments.map(a => a.assignment_id)).toEqual(["healthy"]);
+      expect(view.last_poll?.error).toBeNull();
+      expect(ctx.db.query("SELECT * FROM market_assignments WHERE assignment_id = ?").get("legacy")).toEqual(original);
+      await expect(ctx.m.worker.submit("legacy", "Do not adopt this work")).rejects.toThrow(/no verified agency ownership/);
+    });
+  }
 });
 
 describe("worker submit outcome", () => {
-  for (const pendingState of ["unknown", "submitting"] as const) for (const confirmedState of ["submitted", "accepted"] as const) {
-    test(`stale ${pendingState} becomes unknown when versions cannot be read; ${confirmedState} confirms assignment arrival`, async () => {
-      let now = NOW;
-      let status = "in_progress";
-      let posts = 0;
-      const ctx = context((async (url, init) => {
-        if (init?.method === "POST") { posts++; throw new TypeError("Lost response after the original submission may have executed"); }
-        if (isVersions(url)) return new Response("{}", { status: 503 });
-        return Response.json({ assignments: [item("a1", status)] });
-      }) as typeof fetch, () => new Date(now));
-      await ctx.m.worker.poll();
-      await ctx.m.worker.submit("a1", "Original deliverable retained across uncertainty");
-      if (pendingState === "submitting") {
-        // Simulate the durable row left by a process stopping after its write-ahead record, before reply handling.
-        ctx.db.query("UPDATE market_assignments SET submit_state = 'submitting' WHERE assignment_id = ?").run("a1");
-      }
-      await ctx.m.agencies.deposit(ctx.agency.id);
-      now += 3 * 60 * 60_000; // Time and in-progress status alone do not replace the versions read.
-      const reloaded = new Market({ ...ctx.m.d });
-      for (let poll = 0; poll < 2; poll++) {
-        await expect(reloaded.worker.poll()).rejects.toThrow(/503/);
-        expect(reloaded.worker.row("a1")).toMatchObject({ agency_id: ctx.agency.id, assignment_id: "a1", job_id: "job-a1", status: "in_progress", submit_state: "unknown", deliverable: "Original deliverable retained across uncertainty" });
-        await expect(reloaded.worker.submit("a1", "Replacement must not be sent")).rejects.toThrow(/waiting for the market/);
-      }
-      expect(posts).toBe(1);
-      status = confirmedState;
-      await reloaded.worker.poll();
-      const confirmed = reloaded.worker.row("a1");
-      expect(confirmed).toMatchObject({ agency_id: ctx.agency.id, assignment_id: "a1", job_id: "job-a1", status: confirmedState, submit_state: "submitted", deliverable: "Original deliverable retained across uncertainty" });
-      expect(confirmed.accepted_at).toBe(confirmedState === "accepted" ? new Date(now).toISOString() : null);
-      expect(confirmed.deposit_address).toBe(confirmedState === "accepted" ? "deposit.near" : null);
-      expect(posts).toBe(1);
-    });
-  }
-
-  for (const body of ["not json", "null", "{}", '{"status":"in_progress"}', '{"status":"submitted","assignmentId":"different-job"}']) {
-    test(`a malformed successful reply ${body} stays unknown without another POST`, async () => {
-      let status = "in_progress";
-      let posts = 0;
-      const ctx = context((async (url, init) => {
-        if (init?.method === "POST") { posts++; return new Response(body, { status: 200 }); }
-        if (isVersions(url)) return new Response("{}", { status: 503 });
-        return Response.json({ assignments: [item("a1", status)] });
-      }) as typeof fetch);
-      await ctx.m.worker.poll();
-      const submitted = await ctx.m.worker.submit("a1", "The original report");
-      expect(submitted).toMatchObject({ assignment_id: "a1", agency_id: ctx.agency.id, deliverable: "The original report", status: "in_progress", submit_state: "unknown" });
-      await expect(ctx.m.worker.submit("a1", "A replacement report")).rejects.toThrow(/waiting for the market/);
-      await expect(ctx.m.worker.poll()).rejects.toThrow(/503/);
-      expect(ctx.m.worker.row("a1").submit_state).toBe("unknown");
-      status = "submitted";
-      await ctx.m.worker.poll();
-      expect(ctx.m.worker.row("a1")).toMatchObject({ assignment_id: "a1", deliverable: "The original report", submit_state: "submitted", status: "submitted", accepted_at: null, deposit_address: null });
-      expect(posts).toBe(1);
-    });
-  }
-
-  test("empty versions enables a later explicit resend under the same encoded assignment; polling sends nothing", async () => {
-    const id = "original/assignment ?#";
-    const calls: { path: string; method: string; auth: string | null; body: unknown }[] = [];
-    let posts = 0;
+  const version = (n: number, at = NOW + n * 1000) => ({ version: n, files: [], submittedAt: new Date(at).toISOString() });
+  function workflow(initial = [] as ReturnType<typeof version>[], now = () => new Date(NOW)) {
+    const state = {
+      history: initial, status: "in_progress", raw: new Map<number, string>(), posts: [] as string[],
+      reads: 0, rawReads: [] as number[],
+      rawRequests: [] as { path: string; authorization: string | null; accept: string | null }[],
+      list: null as null | (() => Promise<Response>),
+      post: async (_text: string): Promise<Response> => { throw new TypeError("submission response lost"); },
+      rawFailure: false,
+    };
     const ctx = context((async (url, init) => {
       const path = new URL(String(url)).pathname;
-      const method = init?.method ?? "GET";
-      calls.push({ path, method, auth: new Headers(init?.headers).get("authorization"), body: init?.body ? JSON.parse(String(init.body)) : null });
-      if (method === "POST") {
-        posts++;
-        if (posts === 1) throw new TypeError("response lost");
-        return Response.json({ assignmentId: id, status: "submitted" });
-      }
-      return Response.json(isVersions(url) ? { versions: [] } : { assignments: [item(id)] });
-    }) as typeof fetch);
-    await ctx.m.worker.poll();
-    await ctx.m.worker.submit(id, "Original report");
-    expect(ctx.m.worker.row(id).submit_state).toBe("unknown");
-    await ctx.m.worker.poll();
-    expect(ctx.m.worker.row(id)).toMatchObject({ assignment_id: id, agency_id: ctx.agency.id, job_id: `job-${id}`, status: "in_progress", submit_state: "none", deliverable: "Original report", accepted_at: null, deposit_address: null });
-    expect(posts).toBe(1);
-    expect(calls.filter(c => c.path.endsWith("/deliverable/versions"))).toEqual([{ path: `/v1/assignments/${encodeURIComponent(id)}/deliverable/versions`, method: "GET", auth: "Bearer aat_test", body: null }]);
-    const resent = await ctx.m.worker.submit(id, "The builder explicitly resends this report");
-    expect(resent).toMatchObject({ assignment_id: id, agency_id: ctx.agency.id, status: "submitted", submit_state: "submitted", deliverable: "The builder explicitly resends this report" });
-    expect(posts).toBe(2);
-    expect(calls.filter(c => c.method === "POST").map(c => ({ path: c.path, auth: c.auth, body: c.body }))).toEqual([
-      { path: `/v1/assignments/${encodeURIComponent(id)}/submit`, auth: "Bearer aat_test", body: { deliverableMarkdown: "Original report" } },
-      { path: `/v1/assignments/${encodeURIComponent(id)}/submit`, auth: "Bearer aat_test", body: { deliverableMarkdown: "The builder explicitly resends this report" } },
-    ]);
-    expect(ctx.db.query("SELECT assignment_id FROM market_assignments").all()).toEqual([{ assignment_id: id }]);
-  });
-
-  test("any recorded version proves assignment-level arrival while in-progress status still permits explicit rework", async () => {
-    let posts = 0;
-    let versionReads = 0;
-    const ctx = context((async (url, init) => {
       if (init?.method === "POST") {
-        posts++;
-        if (posts === 1) throw new TypeError("latest report response lost");
-        return Response.json({ assignmentId: "a1", status: "submitted" });
+        const text = JSON.parse(String(init.body)).deliverableMarkdown as string;
+        state.posts.push(text);
+        return state.post(text);
       }
-      if (isVersions(url)) {
-        versionReads++;
-        // The selected rule deliberately treats an older version as arrival evidence for the assignment. It does
-        // not identify the locally pending report as that version and does not infer acceptance or settlement.
-        return Response.json({ versions: [{ ...versions[0], submittedAt: new Date(NOW - 86_400_000).toISOString() }] });
+      if (isVersions(url)) { state.reads++; return state.list ? state.list() : Response.json({ versions: state.history }); }
+      const raw = path.match(/\/deliverable\/versions\/(\d+)\/raw$/);
+      if (raw) {
+        const n = Number(raw[1]); state.rawReads.push(n);
+        const headers = new Headers(init?.headers);
+        state.rawRequests.push({ path, authorization: headers.get("authorization"), accept: headers.get("accept") });
+        return state.rawFailure ? new Response("", { status: 503 }) : new Response(state.raw.get(n) ?? "different report");
       }
-      return Response.json({ assignments: [item("a1")] });
-    }) as typeof fetch);
+      return Response.json({ assignments: [item("a1", state.status)] });
+    }) as typeof fetch, now);
+    return { ...ctx, state };
+  }
+
+  test("baseline and attempt identity are durable before POST; unchanged history permits only an explicit original-payload retry", async () => {
+    const ctx = workflow([version(1, NOW - 1000)]);
     await ctx.m.worker.poll();
-    await ctx.m.worker.submit("a1", "Locally retained report, not matched to a remote version");
-    await ctx.m.worker.poll();
-    expect(ctx.m.worker.row("a1")).toMatchObject({ assignment_id: "a1", agency_id: ctx.agency.id, status: "in_progress", submit_state: "submitted", deliverable: "Locally retained report, not matched to a remote version", accepted_at: null, deposit_address: null });
-    expect(posts).toBe(1);
-    expect(versionReads).toBe(1);
-    const view = await ctx.m.worker.view();
-    expect(view.assignments[0]?.status).toBe("in_progress");
-    expect(view.assignments[0]?.accepted_at).toBeNull();
-    expect(ctx.stub.calls.filter(([call]) => call === "hire")).toEqual([]);
-    await ctx.m.worker.submit("a1", "Explicit revision after the version check");
-    expect(posts).toBe(2);
+    ctx.state.post = async () => {
+      expect(ctx.m.worker.row("a1")).toMatchObject({ submit_phase: "posting", submit_state: "submitting", submit_started_at: new Date(NOW).toISOString() });
+      expect(JSON.parse(ctx.m.worker.row("a1").submit_baseline!)).toEqual([{ version: 1, submittedAt: version(1, NOW - 1000).submittedAt }]);
+      throw new TypeError("lost report response");
+    };
+    await ctx.m.worker.submit("a1", "New rework report");
+    const original = ctx.m.worker.row("a1");
+    expect(original.submit_attempt_id).toEqual(expect.any(String));
+    const reloaded = new Market({ ...ctx.m.d });
+    await reloaded.worker.poll();
+    expect(reloaded.worker.row("a1")).toMatchObject({ submit_state: "none", submit_phase: "not_arrived", submit_attempt_id: original.submit_attempt_id, deliverable: "New rework report" });
+    expect(ctx.state.rawReads).toEqual([]); // The old version cannot confirm the new attempt.
+    await expect(reloaded.worker.submit("a1", "Changed payload cannot replace an uncertain attempt")).rejects.toThrow(/original saved Markdown/);
+    ctx.state.post = async () => Response.json({ assignmentId: "a1", status: "submitted" });
+    await reloaded.worker.submit("a1", "New rework report");
+    expect(reloaded.worker.row("a1")).toMatchObject({ submit_state: "submitted", submit_attempt_id: original.submit_attempt_id, submit_started_at: original.submit_started_at });
+    expect(ctx.state.posts).toEqual(["New rework report", "New rework report"]);
   });
 
-  for (const failure of ["transport", "403", "404", "500", "not-json", "null", "missing-list", "null-list", "bad-entry", "bad-version", "missing-files", "missing-date"] as const) {
-    test(`version read ${failure} leaves the original submission unknown and retry disabled`, async () => {
-      let posts = 0;
-      let reads = 0;
-      const ctx = context((async (url, init) => {
-        if (init?.method === "POST") { posts++; throw new TypeError("submission response lost"); }
-        if (!isVersions(url)) return Response.json({ assignments: [item("a1")] });
-        reads++;
-        if (failure === "transport") throw new TypeError("versions unavailable");
-        if (failure === "403" || failure === "404" || failure === "500") return new Response("{}", { status: Number(failure) });
-        if (failure === "not-json") return new Response("not JSON", { status: 200 });
-        const body = {
-          "null": null, "missing-list": {}, "null-list": { versions: null }, "bad-entry": { versions: [null] },
-          "bad-version": { versions: [{ ...versions[0], version: "1" }] },
-          "missing-files": { versions: [{ version: 1, submittedAt: new Date(NOW).toISOString() }] },
-          "missing-date": { versions: [{ version: 1, files: [] }] },
-        }[failure];
-        return Response.json(body);
-      }) as typeof fetch);
-      await ctx.m.worker.poll();
-      await ctx.m.worker.submit("a1", "Original pending report");
+  test("a matching newer server version confirms rework after reload, preserving actual in-progress status and local clock independence", async () => {
+    const ctx = workflow([version(1, NOW - 1000)], () => new Date(NOW + 86_400_000));
+    await ctx.m.worker.poll();
+    await ctx.m.worker.submit("a1", "New rework report");
+    const attempt = ctx.m.worker.row("a1");
+    ctx.state.history.push(version(2)); ctx.state.raw.set(2, "New rework report");
+    const reloaded = new Market({ ...ctx.m.d });
+    await reloaded.worker.poll();
+    expect(reloaded.worker.row("a1")).toMatchObject({ submit_state: "submitted", status: "in_progress", submit_attempt_id: attempt.submit_attempt_id, accepted_at: null, deposit_address: null });
+    expect(ctx.state.rawReads).toEqual([2]);
+    expect(ctx.state.rawRequests).toEqual([{ path: "/v1/assignments/a1/deliverable/versions/2/raw", authorization: "Bearer aat_test", accept: "text/markdown" }]);
+    expect(ctx.state.posts).toEqual(["New rework report"]);
+    ctx.state.post = async () => Response.json({ status: "submitted" });
+    await reloaded.worker.submit("a1", "A later explicit revision");
+    expect(reloaded.worker.row("a1").submit_attempt_id).not.toBe(attempt.submit_attempt_id);
+  });
+
+  test("attempt start and baseline survive a physical database reopen without inventing a replacement", async () => {
+    const ctx = workflow([version(1, NOW - 1000)]); await ctx.m.worker.poll();
+    await ctx.m.worker.submit("a1", "Persisted rework report");
+    const original = ctx.m.worker.row("a1");
+    const dir = mkdtempSync(join(tmpdir(), "covenant-worker-reopen-"));
+    const path = join(dir, "worker.sqlite");
+    let disk: Database | undefined;
+    try {
+      ctx.db.query("VACUUM INTO ?").run(path);
+      disk = new Database(path);
+      const reopened = new Market({ ...ctx.m.d, db: disk });
+      expect(reopened.worker.row("a1")).toEqual(original);
+      ctx.state.history.push(version(2)); ctx.state.raw.set(2, "Persisted rework report");
+      await reopened.worker.poll();
+      expect(reopened.worker.row("a1")).toMatchObject({ submit_state: "submitted", submit_attempt_id: original.submit_attempt_id,
+        submit_started_at: original.submit_started_at, submit_baseline: original.submit_baseline });
+      expect(ctx.state.posts).toEqual(["Persisted rework report"]);
+    } finally { disk?.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  for (const evidence of ["different Markdown", "older timestamp", "history missing", "raw failure"] as const) {
+    test(`${evidence} cannot confirm or release the pending rework attempt`, async () => {
+      const ctx = workflow([version(1, NOW - 1000)]);
+      await ctx.m.worker.poll(); await ctx.m.worker.submit("a1", "Original pending rework");
+      const original = ctx.m.worker.row("a1");
+      ctx.state.history = evidence === "history missing" ? [version(2)] : [version(1, NOW - 1000), version(2, evidence === "older timestamp" ? NOW - 2000 : NOW + 1000)];
+      ctx.state.raw.set(2, evidence === "different Markdown" ? "Another report" : "Original pending rework");
+      ctx.state.rawFailure = evidence === "raw failure";
       await expect(ctx.m.worker.poll()).rejects.toThrow();
-      expect(ctx.m.worker.row("a1")).toMatchObject({ assignment_id: "a1", agency_id: ctx.agency.id, submit_state: "unknown", status: "in_progress", deliverable: "Original pending report" });
-      expect(ctx.m.worker.row("a1").submit_error).toBeTruthy();
-      expect((await ctx.m.worker.view()).last_poll?.error).toBeTruthy();
-      await expect(ctx.m.worker.submit("a1", "Must not replace pending report")).rejects.toThrow(/waiting for the market/);
-      expect(posts).toBe(1);
-      expect(reads).toBe(1);
+      expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "unknown", submit_attempt_id: original.submit_attempt_id, submit_baseline: original.submit_baseline, deliverable: "Original pending rework" });
+      await expect(ctx.m.worker.submit("a1", "Replacement")).rejects.toThrow(/waiting/);
+      expect(ctx.state.posts).toHaveLength(1);
     });
   }
 
-  test("an active POST skips version recovery and remains non-retryable until its own response resolves", async () => {
-    const reply = deferred<Response>();
-    const started = deferred<void>();
-    let posts = 0;
-    let versionReads = 0;
-    const ctx = context((async (url, init) => {
-      if (init?.method === "POST") { posts++; started.resolve(); return reply.promise; }
-      if (isVersions(url)) { versionReads++; return Response.json({ versions: [] }); }
-      return Response.json({ assignments: [item("a1")] });
-    }) as typeof fetch);
-    await ctx.m.worker.poll();
-    const posting = ctx.m.worker.submit("a1", "Still in flight");
-    try {
-      await started.promise;
-      await ctx.m.worker.poll();
-      expect(ctx.m.worker.row("a1")).toMatchObject({ status: "in_progress", submit_state: "submitting", deliverable: "Still in flight" });
-      expect(versionReads).toBe(0);
-      await expect(ctx.m.worker.submit("a1", "Do not race the active POST")).rejects.toThrow(/waiting for the market/);
-      expect(posts).toBe(1);
-    } finally { reply.resolve(Response.json({ assignmentId: "a1", status: "submitted" })); await posting; }
-    expect(ctx.m.worker.row("a1").submit_state).toBe("submitted");
-  });
-
-  test("submitted then in-progress observations cannot admit rework while the original POST is still active", async () => {
-    const replies = [deferred<Response>(), deferred<Response>()];
-    const started = [deferred<void>(), deferred<void>()];
-    let status = "in_progress";
-    let posts = 0;
-    let versionReads = 0;
-    const ctx = context((async (url, init) => {
-      if (init?.method === "POST") {
-        const index = posts++;
-        started[index]!.resolve();
-        return replies[index]!.promise;
-      }
-      if (isVersions(url)) { versionReads++; return Response.json({ versions: [] }); }
-      return Response.json({ assignments: [item("a1", status)] });
-    }) as typeof fetch);
-    await ctx.m.worker.poll();
-    const first = ctx.m.worker.submit("a1", "First delivery is still in flight");
-    let second: ReturnType<typeof ctx.m.worker.submit> | undefined;
-    try {
-      await started[0]!.promise;
-      status = "submitted";
-      await ctx.m.worker.poll();
-      status = "in_progress";
-      await ctx.m.worker.poll();
-      expect(ctx.m.worker.row("a1")).toMatchObject({ status: "in_progress", submit_state: "submitted" });
-      await expect(ctx.m.worker.submit("a1", "Premature revision")).rejects.toThrow(/waiting for the market/);
-      expect(posts).toBe(1);
-      replies[0]!.resolve(Response.json({ status: "submitted" }));
-      await first;
-      // A late successful POST must not replace the newer in-progress rework status with its old submitted answer.
-      expect(ctx.m.worker.row("a1")).toMatchObject({ status: "in_progress", submit_state: "submitted" });
-      second = ctx.m.worker.submit("a1", "Explicit rework after first call finishes");
-      await started[1]!.promise;
-      await ctx.m.worker.poll();
-      expect(ctx.m.worker.row("a1")).toMatchObject({ status: "in_progress", submit_state: "submitting", deliverable: "Explicit rework after first call finishes" });
-      await expect(ctx.m.worker.submit("a1", "Do not overlap the new revision either")).rejects.toThrow(/waiting for the market/);
-      expect(posts).toBe(2);
-      expect(versionReads).toBe(0);
-    } finally {
-      replies[0]!.resolve(Response.json({ status: "submitted" }));
-      replies[1]!.resolve(Response.json({ status: "submitted" }));
-      await first;
-      await second;
-    }
-  });
-
-  test("concurrent polls share one version read and release their lock after a failed read", async () => {
-    const reply = deferred<Response>();
-    const started = deferred<void>();
-    let reads = 0;
-    let posts = 0;
-    const ctx = context((async (url, init) => {
-      if (init?.method === "POST") { posts++; throw new TypeError("response lost"); }
-      if (isVersions(url)) {
-        reads++;
-        if (reads === 1) { started.resolve(); return reply.promise; }
-        return Response.json({ versions: [] });
-      }
-      return Response.json({ assignments: [item("a1")] });
-    }) as typeof fetch);
-    await ctx.m.worker.poll();
+  test("retry notices a matching arrival since its empty read and never sends the POST again", async () => {
+    const ctx = workflow(); await ctx.m.worker.poll();
     await ctx.m.worker.submit("a1", "Original report");
-    const first = ctx.m.worker.poll();
-    const second = ctx.m.worker.poll();
-    const results = Promise.allSettled([first, second]);
-    expect(first).toBe(second);
-    try {
-      await started.promise;
-      expect(reads).toBe(1);
-    } finally { reply.resolve(new Response("{}", { status: 503 })); }
-    expect((await results).map(r => r.status)).toEqual(["rejected", "rejected"]);
-    expect(ctx.m.worker.row("a1").submit_state).toBe("unknown");
+    const id = ctx.m.worker.row("a1").submit_attempt_id;
     await ctx.m.worker.poll();
-    expect(reads).toBe(2);
-    expect(ctx.m.worker.row("a1").submit_state).toBe("none");
-    expect((await ctx.m.worker.view()).last_poll?.error).toBeNull();
-    expect(posts).toBe(1);
+    expect(ctx.m.worker.row("a1").submit_phase).toBe("not_arrived");
+    ctx.state.history.push(version(1)); ctx.state.raw.set(1, "Original report");
+    await ctx.m.worker.submit("a1", "Original report");
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "submitted", submit_attempt_id: id });
+    expect(ctx.state.posts).toEqual(["Original report"]);
   });
 
-  for (const replyKind of ["submitted", "refused"] as const) {
-    test(`a queued assignment whose POST becomes ${replyKind} while another version read waits is not recovered from a stale snapshot`, async () => {
-      const firstVersions = deferred<Response>();
-      const firstReadStarted = deferred<void>();
-      const secondPost = deferred<Response>();
-      const secondPostStarted = deferred<void>();
-      let statusB = "in_progress";
-      let postsA = 0;
-      let postsB = 0;
-      let readsA = 0;
-      let readsB = 0;
-      const ctx = context((async (url, init) => {
-        const path = new URL(String(url)).pathname;
-        if (init?.method === "POST") {
-          if (path.endsWith("/a/submit")) { postsA++; throw new TypeError("A's response was lost"); }
-          postsB++;
-          if (postsB === 1) { secondPostStarted.resolve(); return secondPost.promise; }
-          return Response.json({ assignmentId: "b", status: "submitted" });
-        }
-        if (isVersions(url)) {
-          if (path.endsWith("/a/deliverable/versions")) {
-            readsA++;
-            firstReadStarted.resolve();
-            return firstVersions.promise;
-          }
-          readsB++;
-          // A realistic failing read, not a contradictory empty list after B's successful submission.
-          return new Response("{}", { status: 503 });
-        }
-        return Response.json({ assignments: [item("a"), item("b", statusB)] });
-      }) as typeof fetch);
+  for (const body of ["not json", "null", "{}", '{"status":"in_progress"}', '{"status":"submitted","assignmentId":"different-job"}']) {
+    test(`malformed POST success ${body} remains unknown until a matching new version is read`, async () => {
+      const ctx = workflow(); await ctx.m.worker.poll();
+      ctx.state.post = async () => new Response(body, { status: 200 });
+      await ctx.m.worker.submit("a1", "Original report");
+      const attempt = ctx.m.worker.row("a1");
+      expect(attempt.submit_state).toBe("unknown");
+      await expect(ctx.m.worker.submit("a1", "Replacement")).rejects.toThrow(/waiting/);
+      ctx.state.list = async () => new Response("{}", { status: 503 });
+      await expect(ctx.m.worker.poll()).rejects.toThrow(/503/);
+      ctx.state.list = null; ctx.state.history.push(version(1)); ctx.state.raw.set(1, "Original report");
       await ctx.m.worker.poll();
-      await ctx.m.worker.submit("a", "Original A report");
-      const posting = ctx.m.worker.submit("b", "Original B report");
-      await secondPostStarted.promise;
-      const polling = ctx.m.worker.poll();
-      const pollResult = polling.then(() => null, (error: unknown) => error);
-      try {
-        // The original query contains both A (unknown) and B (submitting); only A is being read yet.
-        await firstReadStarted.promise;
-        statusB = replyKind === "submitted" ? "submitted" : "in_progress";
-        secondPost.resolve(replyKind === "submitted"
-          ? Response.json({ assignmentId: "b", status: "submitted" })
-          : new Response("{}", { status: 409 }));
-        await posting;
-        const before = ctx.m.worker.row("b");
-        expect(before.submit_state).toBe(replyKind === "submitted" ? "submitted" : "none");
-        firstVersions.resolve(Response.json({ versions: [] }));
-        expect(await pollResult).toBeNull();
-        expect(ctx.m.worker.row("b")).toEqual(before);
-        expect(readsA).toBe(1);
-        expect(readsB).toBe(0);
-        expect(postsA).toBe(1);
-        expect(postsB).toBe(1);
-        expect(ctx.m.worker.row("a")).toMatchObject({ submit_state: "none", deliverable: "Original A report" });
-        expect((await ctx.m.worker.view()).last_poll?.error).toBeNull();
-
-        // A successful B can move to buyer-requested rework; a refused B was already eligible for manual retry.
-        statusB = "in_progress";
-        await ctx.m.worker.poll();
-        await ctx.m.worker.submit("b", "Explicit B revision or retry");
-        expect(ctx.m.worker.row("b")).toMatchObject({ submit_state: "submitted", status: "submitted", deliverable: "Explicit B revision or retry" });
-        expect(postsB).toBe(2);
-        expect(readsB).toBe(0);
-      } finally {
-        firstVersions.resolve(Response.json({ versions: [] }));
-        secondPost.resolve(Response.json({ assignmentId: "b", status: "submitted" }));
-        await posting;
-        await pollResult;
-      }
+      expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "submitted", submit_attempt_id: attempt.submit_attempt_id, deliverable: "Original report" });
+      expect(ctx.state.posts).toEqual(["Original report"]);
     });
   }
 
-  for (const replyKind of ["success", "lost"] as const) {
-    test(`a late POST ${replyKind} cannot undo a concurrent poll's accepted assignment`, async () => {
-      let status = "in_progress";
-      let posts = 0;
-      let versionReads = 0;
-      const reply = deferred<Response>();
-      const started = deferred<void>();
-      const ctx = context((async (url, init) => {
-        if (init?.method === "POST") { posts++; started.resolve(); return reply.promise; }
-        if (isVersions(url)) { versionReads++; return Response.json({ versions: [] }); }
-        return Response.json({ assignments: [item("a1", status)] });
-      }) as typeof fetch);
-      await ctx.m.worker.poll();
-      const posting = ctx.m.worker.submit("a1", "The original delivery");
-      try {
-        await started.promise;
-        status = "accepted";
-        await ctx.m.worker.poll();
-        expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "submitted", status: "accepted", accepted_at: new Date(NOW).toISOString() });
-      } finally {
-        if (replyKind === "success") reply.resolve(Response.json({ status: "submitted" }));
-        else reply.reject(new TypeError("late response lost"));
-        await posting;
-      }
-      expect(ctx.m.worker.row("a1")).toMatchObject({ assignment_id: "a1", submit_state: "submitted", status: "accepted", deliverable: "The original delivery", submit_error: null });
-      expect(posts).toBe(1);
-      expect(versionReads).toBe(0);
+  for (const failure of ["transport", "403", "404", "500", "not-json", "null", "missing-list", "null-list", "bad-entry", "missing-files", "missing-date", "bad-date", "bad-version", "duplicate-version"] as const) {
+    test(`failed/malformed ${failure} version read retains uncertainty after POST and reload`, async () => {
+      const ctx = workflow(); await ctx.m.worker.poll();
+      await ctx.m.worker.submit("a1", "Original report");
+      const original = ctx.m.worker.row("a1");
+      ctx.state.list = async () => {
+        if (failure === "transport") throw new TypeError("version read failed");
+        if (["403", "404", "500"].includes(failure)) return new Response("{}", { status: Number(failure) });
+        if (failure === "not-json") return new Response("bad json");
+        const malformed: Record<string, unknown> = {
+          "null": null, "missing-list": {}, "null-list": { versions: null }, "bad-entry": { versions: [null] },
+          "missing-files": { versions: [{ version: 1, submittedAt: version(1).submittedAt }] },
+          "missing-date": { versions: [{ version: 1, files: [] }] },
+          "bad-date": { versions: [{ ...version(1), submittedAt: "not a date" }] },
+          "bad-version": { versions: [{ ...version(1), version: "1" }] },
+          "duplicate-version": { versions: [version(1), version(1)] },
+        };
+        return Response.json(malformed[failure]);
+      };
+      const reloaded = new Market({ ...ctx.m.d });
+      await expect(reloaded.worker.poll()).rejects.toThrow();
+      expect(reloaded.worker.row("a1")).toMatchObject({ submit_state: "unknown", submit_attempt_id: original.submit_attempt_id, deliverable: "Original report" });
+      await expect(reloaded.worker.submit("a1", "Replacement")).rejects.toThrow(/waiting/);
+      expect(ctx.state.posts).toHaveLength(1);
     });
   }
+
+  test("preflight failure sends no POST and can be retried; two clicks serialize before the baseline await", async () => {
+    const ctx = workflow(); await ctx.m.worker.poll();
+    const read = deferred<Response>(), started = deferred<void>();
+    ctx.state.list = async () => { started.resolve(); return read.promise; };
+    const sending = ctx.m.worker.submit("a1", "Saved report");
+    await started.promise;
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "submitting", submit_phase: "preflight", submit_baseline: null });
+    await expect(ctx.m.worker.submit("a1", "Second click")).rejects.toThrow(/waiting/);
+    read.resolve(new Response("{}", { status: 503 })); await sending;
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "none", submit_phase: "preflight", submit_baseline: null, submit_error: expect.stringContaining("no submission POST was started") });
+    expect(ctx.state.posts).toEqual([]);
+    ctx.state.list = null; ctx.state.post = async () => Response.json({ status: "submitted" });
+    await ctx.m.worker.submit("a1", "Saved report");
+    expect(ctx.state.posts).toEqual(["Saved report"]);
+  });
+
+  test("legacy pending NULL metadata is not backfilled or confirmed by historical versions or assignment status", async () => {
+    const ctx = workflow([version(1)]); await ctx.m.worker.poll();
+    ctx.db.query("UPDATE market_assignments SET submit_state='unknown', deliverable='Historical report' WHERE assignment_id='a1'").run();
+    ctx.state.raw.set(1, "Historical report"); ctx.state.status = "submitted";
+    const reloaded = new Market({ ...ctx.m.d });
+    await expect(reloaded.worker.poll()).rejects.toThrow(/no proven attempt baseline/);
+    expect(reloaded.worker.row("a1")).toMatchObject({ submit_state: "unknown", submit_attempt_id: null, submit_started_at: null, submit_baseline: null, deliverable: "Historical report" });
+    ctx.state.status = "in_progress";
+    await expect(reloaded.worker.poll()).rejects.toThrow(/no proven attempt baseline/);
+    await expect(reloaded.worker.submit("a1", "Do not replace unproven historical work")).rejects.toThrow(/waiting/);
+    expect(ctx.state.reads).toBe(0); expect(ctx.state.rawReads).toEqual([]); expect(ctx.state.posts).toEqual([]);
+  });
+
+  test("a saved preflight interrupted before a baseline cannot be confused with a posted historical attempt", async () => {
+    const ctx = workflow(); await ctx.m.worker.poll();
+    const attemptId = crypto.randomUUID();
+    ctx.db.query(`UPDATE market_assignments SET submit_state='submitting', deliverable='Saved preflight report',
+      submit_attempt_id=?, submit_started_at=?, submit_phase='preflight', submit_baseline=NULL WHERE assignment_id='a1'`)
+      .run(attemptId, new Date(NOW).toISOString());
+    const reloaded = new Market({ ...ctx.m.d }); await reloaded.worker.poll();
+    expect(reloaded.worker.row("a1")).toMatchObject({ submit_state: "none", submit_attempt_id: attemptId, submit_baseline: null,
+      submit_error: expect.stringContaining("no submission POST was started") });
+    expect(ctx.state.reads).toBe(0); expect(ctx.state.posts).toEqual([]);
+  });
+
+  test("an active POST skips recovery while its own success remains proof, and newer assignment rework status survives", async () => {
+    const ctx = workflow([version(1, NOW - 1000)]); await ctx.m.worker.poll();
+    const reply = deferred<Response>(), started = deferred<void>();
+    ctx.state.post = async () => { started.resolve(); return reply.promise; };
+    const sending = ctx.m.worker.submit("a1", "New rework report"); await started.promise;
+    ctx.state.status = "submitted"; await ctx.m.worker.poll();
+    ctx.state.status = "in_progress"; await ctx.m.worker.poll();
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "submitting", status: "in_progress" });
+    expect(ctx.state.reads).toBe(1);
+    await expect(ctx.m.worker.submit("a1", "Overlapping rework")).rejects.toThrow(/waiting/);
+    reply.resolve(Response.json({ status: "submitted" })); await sending;
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "submitted", status: "in_progress", deliverable: "New rework report" });
+  });
+
+  test("a bare accepted status cannot confirm an unanswered attempt; a matching version can", async () => {
+    const ctx = workflow([version(1, NOW - 1000)]); await ctx.m.worker.poll();
+    await ctx.m.worker.submit("a1", "New report");
+    ctx.state.status = "accepted"; ctx.state.list = async () => new Response("{}", { status: 503 });
+    await expect(ctx.m.worker.poll()).rejects.toThrow(/503/);
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "unknown", status: "accepted" });
+    ctx.state.list = null; ctx.state.history.push(version(2)); ctx.state.raw.set(2, "New report");
+    await ctx.m.worker.poll();
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "submitted", status: "accepted" });
+    expect(ctx.state.posts).toEqual(["New report"]);
+  });
+
+  test("concurrent polls share one recovery read and release their lock after failure", async () => {
+    const ctx = workflow(); await ctx.m.worker.poll(); await ctx.m.worker.submit("a1", "Original report");
+    const reply = deferred<Response>(), started = deferred<void>();
+    ctx.state.list = async () => { started.resolve(); return reply.promise; };
+    const first = ctx.m.worker.poll(), second = ctx.m.worker.poll();
+    const results = Promise.allSettled([first, second]);
+    expect(first).toBe(second); await started.promise;
+    reply.resolve(new Response("{}", { status: 503 }));
+    expect((await results).map(r => r.status)).toEqual(["rejected", "rejected"]);
+    ctx.state.list = null; await ctx.m.worker.poll();
+    expect(ctx.m.worker.row("a1")).toMatchObject({ submit_state: "none", submit_phase: "not_arrived" });
+    expect(ctx.state.posts).toHaveLength(1); expect(ctx.state.reads).toBe(3);
+  });
+
+  for (const replyKind of ["submitted", "refused"] as const) test(`a queued B ${replyKind} reply while A versions waits is not downgraded by a stale recovery snapshot`, async () => {
+    const aRead = deferred<Response>(), aStarted = deferred<void>(), bReply = deferred<Response>(), bStarted = deferred<void>();
+    let readsA = 0, readsB = 0, statusB = "in_progress";
+    const ctx = context((async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (init?.method === "POST") {
+        if (path.endsWith("/a/submit")) throw new TypeError("A response lost");
+        bStarted.resolve(); return bReply.promise;
+      }
+      if (isVersions(url)) {
+        if (path.endsWith("/a/deliverable/versions")) {
+          if (++readsA === 1) return Response.json({ versions: [] });
+          aStarted.resolve(); return aRead.promise;
+        }
+        if (++readsB === 1) return Response.json({ versions: [] });
+        return new Response("{}", { status: 503 });
+      }
+      return Response.json({ assignments: [item("a"), item("b", statusB)] });
+    }) as typeof fetch);
+    await ctx.m.worker.poll(); await ctx.m.worker.submit("a", "Original A");
+    const postingB = ctx.m.worker.submit("b", "Original B"); await bStarted.promise;
+    const polling = ctx.m.worker.poll(); const result = polling.then(() => null, (error: unknown) => error);
+    await aStarted.promise;
+    statusB = replyKind === "submitted" ? "submitted" : "in_progress";
+    bReply.resolve(replyKind === "submitted" ? Response.json({ status: "submitted" }) : new Response("{}", { status: 409 }));
+    await postingB;
+    const confirmed = ctx.m.worker.row("b");
+    aRead.resolve(Response.json({ versions: [] })); expect(await result).toBeNull();
+    expect(ctx.m.worker.row("b")).toEqual(confirmed); expect(readsB).toBe(1);
+    expect(ctx.m.worker.row("a")).toMatchObject({ submit_state: "none", submit_phase: "not_arrived" });
+  });
 });
 
 describe("market HTTP authorization and webhook bounds", () => {

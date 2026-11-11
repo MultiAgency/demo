@@ -279,7 +279,7 @@ export class Onboarding {
 
   /**
    * Submit the wallet's NEP-413 signature. A lost reply leaves the step `unknown` and is answered by reading the
-   * status, never by signing again. Votes are not followed through owner/status (the payout is followed instead).
+   * status, never by signing again. Confirmation links also need their owner-intent status; money follows payout status.
    */
   async submitStep(correlationId: string, sig: { publicKey: string; signature: string }): Promise<OwnerStepRow> {
     const s = this.step(correlationId);
@@ -307,7 +307,14 @@ export class Onboarding {
         this.setStep(correlationId, { state: "unknown" });
         return this.step(correlationId);
       }
-      this.setStep(correlationId, { state: "failed", failure_code: failCode(res) });
+      this.d.db.transaction(() => {
+        this.setStep(correlationId, { state: "failed", failure_code: failCode(res) });
+        // The durable claim guards an uncertain submission. A definite refusal did not record the owner's decision;
+        // retain the failed owner-step identity but remove only this attempt's tentative decision/link.
+        if (s.kind === "approval_vote" && s.request_id)
+          this.d.db.query("UPDATE payout_attempts SET vote = NULL, vote_correlation_id = NULL, updated_at = ? WHERE request_id = ? AND vote_correlation_id = ?")
+            .run(this.iso(), s.request_id, correlationId);
+      })();
       throw failError(res, s.kind);
     }
     const status = res.value.status;
@@ -328,12 +335,31 @@ export class Onboarding {
   async pollStep(correlationId: string): Promise<OwnerStepRow> {
     const s = this.step(correlationId);
     const live = s.state === "submitted" || s.state === "unknown" || (s.state === "prepared" && !!s.confirm_url);
-    if (!live || s.kind === "approval_vote") return s;
+    if (!live || (s.kind === "approval_vote" && !s.confirm_url)) return s;
     const a = this.agentRow(s.organization);
     if (!a) return s;
     const res = await this.handle(a).ownerStatus(correlationId);
     if (!res.ok) return s;
     const { stage, status, failureCode } = res.value;
+    if (s.kind === "approval_vote") {
+      // A local link deadline is not proof: the owner may have signed elsewhere. Read the original platform intent.
+      // Its authoritative expired phase is available in SDK 0.5.6; legacy explicit unsubmitted expiry is also safe.
+      const submitted = res.value.phase === "submitted" || res.value.phase === "settled" || stage === "submitted" || stage === "submitting" || status === "SUCCESS";
+      const expired = !submitted && (res.value.phase === "expired" || (!res.value.phase && (stage === "expired" || (stage === "prepared" && status === "EXPIRED"))));
+      this.d.db.transaction(() => {
+        if (expired) {
+          this.setStep(correlationId, { state: "expired", failure_code: "unsubmitted_expired" });
+          if (s.request_id) this.d.db.query("UPDATE payout_attempts SET vote = NULL, vote_correlation_id = NULL, updated_at = ? WHERE request_id = ? AND vote_correlation_id = ?")
+            .run(this.iso(), s.request_id, correlationId);
+        } else if (submitted || stage === "failed" || status === "FAILED" || status === "REFUNDED") {
+          this.setStep(correlationId, { state: submitted ? "submitted" : "unknown", failure_code: failureCode });
+          if (s.request_id && (s.verdict === "approve" || s.verdict === "reject"))
+            this.d.db.query("UPDATE payout_attempts SET vote = ?, vote_correlation_id = ?, updated_at = ? WHERE request_id = ?")
+              .run(s.verdict, correlationId, this.iso(), s.request_id);
+        }
+      })();
+      return this.step(correlationId);
+    }
     if (status === "SUCCESS") {
       this.setStep(correlationId, { state: "success" });
       await this.applySuccess(this.step(correlationId));

@@ -1,6 +1,6 @@
 import { JOB_PAYMENT_TERMS, type TermsInput, USDC_NEAR } from "./terms";
 
-/** The demo work order. Fake account names so nobody mistakes them for real accounts. */
+/** The demo job. Fake account names so nobody mistakes them for real accounts. */
 export const DEMO_TERMS: TermsInput = {
   v: 2,
   company: "Acme Labs",

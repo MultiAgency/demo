@@ -15,6 +15,7 @@ const STATES: Record<JobSubmissionView["state"], { label: string; tone: Tone }> 
   changes_requested: { label: "Changes requested", tone: "info" },
   settled: { label: "Payment complete", tone: "success" },
   closed: { label: "Review closed", tone: "neutral" },
+  disputed: { label: "Disputed · awaiting evidence", tone: "warning" },
 };
 
 function ProposalMethod({ config }: { config: AppConfig }) {
@@ -54,6 +55,7 @@ function PaymentOutcome({ p }: { p: PayoutView }) {
     {p.state === "processing" ? <p className="small muted">Agency approval is recorded. Settlement is still pending.</p> : null}
     {p.state === "paid" && !p.tx_hash ? <p className="small muted">Platform confirmed payment; transaction hash is unavailable.</p> : null}
     {p.state === "unknown" || p.state === "pending" ? <p className="small muted">The outcome is being checked under this payment identity. No replacement payment is created.</p> : null}
+    {p.state === "disputed" ? <p className="small muted">Review is closed as disputed. This amount stays committed, is not counted as paid, and the original payment is still checked for evidence.</p> : null}
     {p.tx_hash ? <div className="kv-line"><span>Transaction</span><Mono copy={p.tx_hash}>{p.tx_hash}</Mono></div> : null}
     <Disclosure label="Payment identities">
       <div className="kv-line"><span>Payment request</span><Mono copy={p.request_id}>{p.request_id}</Mono></div>
@@ -83,7 +85,7 @@ export function AgencyJobWorkflow({ c, config, act }: { c: ContractView; config:
   const [reasons, setReasons] = useState<Record<string, string>>({});
   return <div className="stack">
     <Card>
-      <CardHeader title="Submission and review" sub="Accepted work order → builder report and invoice → proposal → agency approval → settlement" />
+      <CardHeader title="Submission and review" sub="Accepted job → builder report and invoice → proposal → agency approval → settlement" />
       <ProposalMethod config={config} />
       {!c.submissions.length ? <p className="job-empty">Waiting for the builder's report, invoice and supporting evidence. Open the builder's private link to submit.</p> : null}
     </Card>
@@ -102,7 +104,7 @@ export function AgencyJobWorkflow({ c, config, act }: { c: ContractView; config:
           </form> : null}
           {payouts.map((p) => <div className="stack" key={p.request_id}>
             <PaymentOutcome p={p} />
-            {["failed", "blocked", "refused"].includes(p.state) ? <StateNote p={p} act={act} /> : null}
+            {["failed", "disputed", "blocked", "refused"].includes(p.state) ? <StateNote p={p} act={act} /> : null}
             {p.state === "refused" && c.open_judgment?.outcome === "pending" ? <Button variant="secondary" onClick={() => act(() => api("POST", `/contracts/${c.id}/retry`, {}))}>Retry after fixing refusal</Button> : null}
             {p.state === "held" ? s.state === "changes_pending" ? <CancelHeld p={p} config={config} act={act} /> : <ApprovalCard p={p} config={config} act={act} /> : null}
           </div>)}
@@ -203,7 +205,7 @@ export function BuilderJobWorkflow({ c, token, config, reload }: { c: ContractVi
         </div>)}</fieldset>
         {error ? <Alert tone="danger">{error}</Alert> : null}
         <Button type="submit" icon="send" disabled={busy || !c.signatures.representative || (!config.auth.required && !token)}>{busy ? "Submitting…" : pending ? "Retry saved submission" : latest ? "Submit revised report and invoice" : "Submit report and invoice"}</Button>
-      </form> : <p className="job-empty">{latest?.state === "changes_pending" ? "The agency requested changes. Wait for cancellation of the current payment before submitting a revision." : latest?.state === "settled" ? "Payment is complete. The submission and payment evidence remain below." : "Your submission is under review. The agency can approve compensation or request changes."}</p>}
+      </form> : <p className="job-empty">{latest?.state === "disputed" ? "The agency closed this job as disputed, awaiting payment evidence. The amount stays committed and no replacement submission is allowed." : latest?.state === "changes_pending" ? "The agency requested changes. Wait for cancellation of the current payment before submitting a revision." : latest?.state === "settled" ? "Payment is complete. The submission and payment evidence remain below." : "Your submission is under review. The agency can approve compensation or request changes."}</p>}
     </Card>
     {c.submissions.map((s) => <Card key={s.id}>
       <CardHeader title={`Your submission · revision ${s.revision}`} sub={timeText(s.created_at)} actions={<Badge tone={STATES[s.state].tone}>{STATES[s.state].label}</Badge>} />

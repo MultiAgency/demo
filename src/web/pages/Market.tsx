@@ -522,6 +522,7 @@ function HireItem({ h, config, signer, onChange }: { h: HireView; config: AppCon
         </div>
       </div>
       <p className="small muted">{meta.note}</p>
+      {h.code === "dao_filing_recovery_unavailable" ? <Alert tone="warning">The original DAO approval could not be recovered. Matching retained approvals can be recovered on platform 0.5.7 or later; older gateways keep this job blocked. Checking again cannot create another vote or payment.</Alert> : null}
       {h.state === "quoted" ? (
         <Alert tone="info">
           A market job paid over x402 is accepted the moment the agent delivers: there is no rework and no dispute. {signer === "dao" ? "The DAO's vote on these terms" : "Your approval here"} is the only gate before paying.

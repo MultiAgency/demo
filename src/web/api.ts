@@ -26,7 +26,7 @@ export function canDemoSign(config: AppConfig): boolean {
 /** The demo signer and the session's wallet signer both preserve the server-issued payload. */
 export async function signMessage(config: AppConfig, req: SignRequest, walletSigner?: WorkflowSigner): Promise<Signed> {
   if (!canDemoSign(config)) {
-    if (!walletSigner) throw new ApiError("Sign in with NEAR before signing this work order.");
+    if (!walletSigner) throw new ApiError("Sign in with NEAR before signing this job.");
     return walletSigner(req);
   }
   return api<Signed>("POST", "/sim/sign", { account_id: req.account_id, message: req.message, nonce: req.nonce, recipient: req.recipient });

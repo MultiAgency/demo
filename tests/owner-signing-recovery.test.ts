@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createRuntime, type Runtime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import { JOB_DEMO_TERMS } from "../src/shared/demo";
+import { SdkPlatform } from "../src/server/platform/client";
 import { activate, play, setup, signTerms, START, type Ctx } from "./support/harness";
 
 const dbOf = (rt: Runtime) => (rt.covenant as unknown as { d: { db: Database } }).d.db;
@@ -96,7 +97,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
         return result.ok ? { ok: true, value: { ...result.value, intent: undefined,
           confirm: { url: "https://platform.invalid/confirm/fixture", expiresAt: result.value.expiresAt },
         } } : result;
-      } };
+      }, ownerStatus: async () => ({ ok: true, value: { stage: "unknown", phase: "open", status: null, failureCode: null } }) };
     };
     const confirmation = await c.vote(payout.request_id, "approve");
     expect(confirmation.sign).toBeNull();
@@ -107,6 +108,106 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
     expect(c.attempt(payout.request_id).vote).toBeNull();
     expect(c.attempt(payout.request_id).state).toBe("held");
     expect(prepares).toBe(1);
+  });
+
+  for (const terminalStage of ["expired", "failed"] as const) test(`authoritative unsubmitted expiry (${terminalStage}) renews only the original payout's owner intent`, async () => {
+    const ctx = await activate("300", JOB_DEMO_TERMS);
+    const { payout } = await held(ctx);
+    const c = ctx.rt.covenant;
+    const original = ctx.stub.agent.bind(ctx.stub);
+    const reads: string[] = [];
+    let prepares = 0;
+    let expired = false;
+    ctx.stub.agent = (org, agent) => {
+      const handle = original(org, agent);
+      return { ...handle, ownerPrepare: async action => {
+        prepares++;
+        const result = await handle.ownerPrepare(action);
+        return result.ok ? { ok: true, value: { ...result.value, intent: undefined,
+          confirm: { url: `https://platform.invalid/confirm/${result.value.correlationId}`, expiresAt: result.value.expiresAt },
+        } } : result;
+      }, ownerStatus: async cid => {
+        reads.push(cid);
+        return { ok: true, value: { stage: expired ? terminalStage : "unknown", phase: expired ? "expired" as const : "open" as const, status: expired && terminalStage === "failed" ? "FAILED" : null, failureCode: null } };
+      } };
+    };
+    const first = await c.vote(payout.request_id, "approve");
+    ctx.rt.clock.advance(16 * 60_000);
+    await expect(c.vote(payout.request_id, "approve")).rejects.toThrow();
+    expect(prepares).toBe(1); // A clock or stale link alone cannot prove an external signature was not submitted.
+    expired = true;
+    const renewed = await c.vote(payout.request_id, "approve");
+    expect(reads).toContain(first.correlation_id);
+    expect(c.onboarding.step(first.correlation_id).state).toBe("expired");
+    expect(renewed.correlation_id).not.toBe(first.correlation_id);
+    expect(c.attempt(payout.request_id).request_id).toBe(payout.request_id);
+    expect(ctx.stub.calls.requestPayout).toBe(1);
+    expect(ctx.stub.transfers).toEqual([]);
+  });
+
+  test("SDK owner status preserves the phase proving a failed intent was never submitted", async () => {
+    const calls: string[] = [];
+    const sdk = new SdkPlatform({ url: "https://platform.invalid", credential: "fixture-only", deployment: "fixture", fetch: (async (url, init) => {
+      calls.push(new URL(String(url)).pathname);
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fixture-only");
+      return Response.json({ json: { stage: "failed", phase: "expired", status: "FAILED", failureCode: "intent_expired" } });
+    }) as typeof fetch });
+    expect(await sdk.agent("job-fixture", "agent-fixture").ownerStatus("original-owner-correlation")).toEqual({ ok: true, value: { stage: "failed", phase: "expired", status: "FAILED", failureCode: "intent_expired" } });
+    expect(calls).toEqual(["/apps/v1/o/job-fixture/a/agent-fixture/rpc/owner/status"]);
+  });
+
+  test("an externally submitted confirmation is followed and never replaced by another owner decision", async () => {
+    const ctx = await activate("300", JOB_DEMO_TERMS);
+    const { submission, payout } = await held(ctx);
+    const c = ctx.rt.covenant;
+    const original = ctx.stub.agent.bind(ctx.stub);
+    let submitted = false;
+    let prepares = 0;
+    ctx.stub.agent = (org, agent) => {
+      const handle = original(org, agent);
+      return { ...handle, ownerPrepare: async action => {
+        prepares++;
+        const result = await handle.ownerPrepare(action);
+        return result.ok ? { ok: true, value: { ...result.value, intent: undefined,
+          confirm: { url: `https://platform.invalid/confirm/${result.value.correlationId}`, expiresAt: result.value.expiresAt },
+        } } : result;
+      }, ownerStatus: async () => ({ ok: true, value: { stage: submitted ? "submitting" : "unknown", phase: submitted ? "submitted" as const : "open" as const, status: null, failureCode: null } }) };
+    };
+    const confirmation = await c.vote(payout.request_id, "approve");
+    submitted = true;
+    expect((await c.getOwnerStep(confirmation.correlation_id)).state).toBe("submitted");
+    expect(c.attempt(payout.request_id).vote).toBe("approve");
+    for (const verdict of ["approve", "reject"] as const) await expect(c.vote(payout.request_id, verdict)).rejects.toThrow(/submitted|uncertain/);
+    await expect(c.requestJobChanges(submission.id, "Cannot cancel an externally submitted approval.")).rejects.toThrow("may have moved");
+    expect(prepares).toBe(1);
+    expect(ctx.stub.calls.requestPayout).toBe(1);
+    expect((await c.viewContract(ctx.id)).committed_usd).toBe("300");
+    expect(ctx.stub.transfers).toEqual([]);
+  });
+
+  test("a failed confirmation without unsubmitted proof cannot be replaced after its local deadline", async () => {
+    const ctx = await activate("300", JOB_DEMO_TERMS);
+    const { payout } = await held(ctx);
+    const c = ctx.rt.covenant;
+    const original = ctx.stub.agent.bind(ctx.stub);
+    let prepares = 0;
+    ctx.stub.agent = (org, agent) => {
+      const handle = original(org, agent);
+      return { ...handle, ownerPrepare: async action => {
+        prepares++;
+        const result = await handle.ownerPrepare(action);
+        return result.ok ? { ok: true, value: { ...result.value, intent: undefined,
+          confirm: { url: `https://platform.invalid/confirm/${result.value.correlationId}`, expiresAt: result.value.expiresAt },
+        } } : result;
+      }, ownerStatus: async () => ({ ok: true, value: { stage: "failed", status: "FAILED", failureCode: "outcome_unknown" } }) };
+    };
+    const first = await c.vote(payout.request_id, "approve");
+    ctx.rt.clock.advance(16 * 60_000);
+    for (const verdict of ["approve", "reject"] as const) await expect(c.vote(payout.request_id, verdict)).rejects.toThrow();
+    expect(c.onboarding.step(first.correlation_id).state).toBe("unknown");
+    expect(prepares).toBe(1);
+    expect(ctx.stub.calls.requestPayout).toBe(1);
+    expect(ctx.stub.transfers).toEqual([]);
   });
 
   test("a thrown submit records the original vote before I/O and blocks duplicate or opposite preparation", async () => {
@@ -136,7 +237,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
     expect(ctx.stub.transfers).toEqual([]);
   });
 
-  test("a definite owner-submit refusal retains a conservative decision marker without claiming approval or replaying", async () => {
+  test("a definite owner-submit refusal clears its tentative decision and permits agency changes without replaying", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { submission, payout } = await held(ctx);
     const c = ctx.rt.covenant;
@@ -152,16 +253,20 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
     };
     await expect(c.submitOwnerStep(vote.correlation_id, ctx.stub.sign(vote.sign!))).rejects.toThrow("signature_invalid");
     expect(c.onboarding.step(vote.correlation_id).state).toBe("failed");
-    expect(c.attempt(payout.request_id).vote).toBe("approve"); // Attempted decision; not a confirmed approval.
+    expect(c.attempt(payout.request_id).vote).toBeNull();
+    expect(c.attempt(payout.request_id).vote_correlation_id).toBeNull();
     const view = await c.viewContract(ctx.id);
     expect(view.payouts[0]!.state).toBe("held");
     expect(view.paid_usd).toBe("0");
     expect(view.committed_usd).toBe("300");
     expect(view.events.some((e) => e.kind === "vote")).toBe(false);
     await expect(c.submitOwnerStep(vote.correlation_id, ctx.stub.sign(vote.sign!))).rejects.toThrow("already failed");
-    await expect(c.requestJobChanges(submission.id, "Revise after the signature refusal.")).rejects.toThrow("may have moved");
     const retry = await c.vote(payout.request_id, "approve");
     expect(retry.correlation_id).not.toBe(vote.correlation_id);
+    const changed = await c.requestJobChanges(submission.id, "Revise after the signature refusal.");
+    expect(changed.submissions[0]!.state).toBe("changes_pending");
+    await expect(c.submitOwnerStep(retry.correlation_id, ctx.stub.sign(retry.sign!))).rejects.toThrow("Changes were requested");
+    expect((await c.vote(payout.request_id, "reject")).correlation_id).not.toBe(vote.correlation_id);
     expect(submits).toBe(1);
     expect(ctx.stub.calls.requestPayout).toBe(1);
   });

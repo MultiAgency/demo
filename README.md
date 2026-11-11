@@ -2,9 +2,9 @@
 
 **The contract is the spending limit.**
 
-Covenant is MultiAgency's payroll app for signed builder work orders. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Covenant uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.6: an agent for this contract, a fixed payee, bounded payments and explicit agency approval.
+Covenant is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Covenant uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.6: an agent for this contract, a fixed payee, bounded payments and explicit agency approval.
 
-The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. Existing signed v2 pay-on-merge contracts keep their original behavior; new v3 work orders explicitly sign the report/invoice and payment clauses.
+The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. Existing signed v2 pay-on-merge contracts keep their original behavior; new v3 jobs explicitly sign the report/invoice and payment clauses.
 
 For **Contracts and Agent Market in one local app**, run `bun run demo:full` and open the URL it prints (default port **3002**). This starts a fresh SDK gateway and market simulator, keeping other checkouts untouched. See the [combined manual walkthrough](docs/full-demo.md) and [integration evidence](docs/full-integration-evidence.md); `bun run demo:full:check` checks both paths through the browser. All signatures and funds are simulated. The pinned simulator's worker/directory and recovery limits remain explicit.
 
@@ -183,7 +183,7 @@ docs/                how-it-works, evidence, platform-gaps
 
 See [.env.example](.env.example), and [docs/deploy.md](docs/deploy.md) for Railway (not deployed yet). The defaults run the stand-in with no keys. `PLATFORM=remote` needs `PLATFORM_URL` and the app credential (`PLATFORM_CREDENTIAL_FILE`). The credential stays in server memory: never in `/api/config`, events, logs or URLs.
 
-Optional AI report assessment has a **30-second** deadline covering the request and response body. `JOB_ASSESSMENT_TIMEOUT_MS` changes that deadline in milliseconds. A timeout records no proposal or payout request and releases the work order for agency review; late model responses cannot create a proposal.
+Optional AI report assessment has a **30-second** deadline covering the request and response body. `JOB_ASSESSMENT_TIMEOUT_MS` changes that deadline in milliseconds. A timeout records no proposal or payout request and releases the job for agency review; late model responses cannot create a proposal.
 
 ## Built with
 

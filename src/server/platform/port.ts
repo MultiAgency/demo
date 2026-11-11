@@ -61,6 +61,8 @@ export interface OwnerPrepared {
 }
 export interface OwnerStatus {
   stage: string;
+  /** Authoritative owner-intent lifecycle. Expired means the signing window closed before submission. */
+  phase?: "open" | "submitted" | "settled" | "expired";
   status: string | null;
   failureCode: string | null;
 }

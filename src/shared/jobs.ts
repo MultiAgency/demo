@@ -8,7 +8,7 @@ export const jobSubmissionSchema = z.object({
     deliverable_id: z.string(),
     label: z.string().trim().min(3).max(200),
     // References are data. The server never fetches a supplied URL.
-    url: z.string().url().max(2000).refine((url) => new URL(url).protocol === "https:", "Use an HTTPS evidence URL"),
+    url: z.string().url().max(2000).refine((url) => URL.canParse(url) && new URL(url).protocol === "https:", "Use an HTTPS evidence URL"),
   }).strict()).min(1).max(30),
   invoice: z.object({
     number: z.string().trim().min(1).max(100),
@@ -19,7 +19,7 @@ export const jobSubmissionSchema = z.object({
 
 export type JobSubmissionInput = z.input<typeof jobSubmissionSchema>;
 export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
-export type JobSubmissionState = "submitted" | "proposed" | "changes_pending" | "changes_requested" | "settled" | "closed";
+export type JobSubmissionState = "submitted" | "proposed" | "changes_pending" | "changes_requested" | "settled" | "closed" | "disputed";
 
 export interface JobSubmissionView {
   id: string;
