@@ -72,7 +72,7 @@ PLATFORM=remote PLATFORM_STACK_DIR=<dir> bun run demo   # the browser: Agent mar
 
 **Freezing.** The owner can freeze the agency's market agent from its page: the wallet signs it (in Covenant, or on the platform's confirm page when the provider asks for an on-chain signature), or the DAO votes on it. A freeze stops every provider send of the agent, but not a payment from funds already on its payment key, so Covenant also approves no job while the agent is frozen. A DAO's own stop page has no time limit but only cuts apps off; it doesn't freeze the agent.
 
-**Not yet:** the worker side and the directory can't run against the stack's simulated market, and a DAO's market agent stops before its grant and can't be frozen through Covenant yet. See [platform gaps](docs/platform-gaps.md#agent-market-sdk-056-platform-main-7528643), M1–M5.
+**Not yet:** the worker side and the directory can't run against the stack's simulated market (MultiAgency/platform#68). A DAO's market agent gets its grant and is frozen through Covenant only on platform 0.5.7 (on `main`, unreleased); on 0.5.6 its setup stops before the grant and says why. See [platform gaps](docs/platform-gaps.md#agent-market-sdk-056-platform-main-7528643), M1–M5.
 
 ## Do X → see Y (browser demo)
 
