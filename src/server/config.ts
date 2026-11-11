@@ -31,6 +31,8 @@ export interface Config {
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
+  // A production image never falls back to the keyless stand-in (and its demo controls) because a variable is missing.
+  if (env.NODE_ENV === "production" && !env.PLATFORM) throw new Error("Set PLATFORM (remote, or fake for the keyless stand-in) when NODE_ENV=production.");
   const platform = (env.PLATFORM ?? "fake") as Config["platform"];
   if (platform !== "fake" && platform !== "remote") throw new Error(`PLATFORM must be fake or remote, got ${platform}`);
   const stackDir = env.PLATFORM_STACK_DIR || null;
@@ -79,7 +81,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     cfg.market.worker = { token: env.MARKET_AGENT_TOKEN!, secret: env.MARKET_WEBHOOK_SECRET!, agencyId: env.MARKET_WORKER_AGENCY! };
   }
 
+  const mount = volumeProblem(env);
+  if (mount) throw new Error(mount);
   if (production) {
+    if (!/^https:\/\//.test(cfg.auth.publicUrl)) throw new Error("PLATFORM=remote needs PUBLIC_URL, the app's https origin: sign-in and its cookies name it.");
     if (!cfg.platformUrl) throw new Error("PLATFORM=remote needs PLATFORM_URL.");
     if (!cfg.credential) throw new Error("PLATFORM=remote needs PLATFORM_CREDENTIAL_FILE (preferred) or PLATFORM_CREDENTIAL.");
     if (cfg.dbPath === ":memory:") throw new Error("PLATFORM=remote needs a DB_PATH on disk.");
@@ -89,4 +94,21 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!Number.isFinite(cfg.consentGraceDays) || cfg.consentGraceDays < 0) throw new Error("CONSENT_GRACE_DAYS must be a number of days");
   if (!Number.isFinite(cfg.statusPollMs) || cfg.statusPollMs <= 0) throw new Error("STATUS_POLL_MS must be a positive number of ms");
   return cfg;
+}
+
+/**
+ * Why the server mustn't start on this host's disk, or null. With `REQUIRED_MOUNT` set (on Railway, `/data`), the
+ * database lives on the volume mounted there, and Railway names the mounted volume's path in
+ * `RAILWAY_VOLUME_MOUNT_PATH`. Without that volume it would land on the container's own disk: a fresh database, lost on
+ * the next deploy, with every saved requestId and vote with it. Railway's `requiredMountPath` can't be set from
+ * `.railway/railway.ts` (as for Treasury's service), so the server checks.
+ */
+export function volumeProblem(env: Record<string, string | undefined>): string | null {
+  const required = env.REQUIRED_MOUNT;
+  if (!required) return null;
+  if (!required.startsWith("/")) return `REQUIRED_MOUNT must be an absolute path, not ${required}`;
+  const mounted = env.RAILWAY_VOLUME_MOUNT_PATH;
+  if (mounted !== required) return `No volume is mounted at ${required}${mounted ? ` (Railway mounted one at ${mounted})` : ""}: attach the service's volume there before it starts.`;
+  if (env.DB_PATH && !env.DB_PATH.startsWith(`${required.replace(/\/+$/, "")}/`)) return `DB_PATH must be on the volume at ${required}, not ${env.DB_PATH}.`;
+  return null;
 }

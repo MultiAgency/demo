@@ -162,7 +162,7 @@ docs/                how-it-works, evidence, platform-gaps
 
 ## Configuration
 
-See [.env.example](.env.example). The defaults run the stand-in with no keys. `PLATFORM=remote` needs `PLATFORM_URL` and the app credential (`PLATFORM_CREDENTIAL_FILE`). The credential stays in server memory: never in `/api/config`, events, logs or URLs.
+See [.env.example](.env.example), and [docs/deploy.md](docs/deploy.md) for Railway (not deployed yet). The defaults run the stand-in with no keys. `PLATFORM=remote` needs `PLATFORM_URL` and the app credential (`PLATFORM_CREDENTIAL_FILE`). The credential stays in server memory: never in `/api/config`, events, logs or URLs.
 
 ## Built with
 

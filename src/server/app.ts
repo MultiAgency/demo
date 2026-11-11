@@ -126,6 +126,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     return c.json({ error: e.message }, e.status as 400);
   });
 
+  // Railway's health check. The server answers only once its configuration was checked at startup (loadConfig).
+  app.get("/health", (c) => c.json({ ok: true }));
   app.on(["GET", "POST"], "/auth/*", (c) => auth.handler(c.req.raw));
   app.use("*", async (c, next) => {
     c.set("session", c.req.path.startsWith("/api/auth/") ? null : await sessionFrom(auth, c.req.raw.headers));
