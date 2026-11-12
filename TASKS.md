@@ -18,9 +18,9 @@ Selected 2026-11-11 for the local milestone covering both Report and invoice and
 - [x] Implement that reviewed correction transaction in memory against disposable fixtures; preserve prior records/evidence and test refusal without source mutation, exact replay and stale/conflicting observations.
 - [x] Add a restoration-only private export command with durable completion, verified completed-bundle reuse and disposable process-interruption/lost-result tests. [Usage and handoff limits](docs/recovery-acceptance.md#export-a-restoration-bundle).
 - [x] Rehearse whole-database blocker inventory and supervised handoff on disposable exports: both-version stand-in full/partial/unknown cases and v3 SDK processing/restart/original full settlement. The mixed-history copy remains blocked. [Scope and evidence](docs/recovery-acceptance.md#whole-database-recovery-rehearsal).
-- [ ] Complete the acceptance matrix, including missing v2 browser, clean SDK happy-path and independent process-restart branches.
+- [x] Complete the required base v2/v3 local acceptance matrix: full v2 browser and independent v2 merge-judgment SIGKILL/restart now pass, alongside final-gateway full-scope SDK completion. Provider-response-loss continuation and historical installation remain separately unsupported/unverified; see docs/v2-acceptance.json.
 
-The proof/startup guard, collector/preview, restoration/export and scoped disposable handoff rehearsal are verified. Real historical provenance and unsupported recovery cases remain unresolved; the remaining acceptance branches stay open. Implement the approved privacy boundary below before the final browser acceptance work. Existing Hermes work remains recorded below.
+The proof/startup guard, collector/preview, restoration/export and scoped disposable handoff rehearsal are verified. Real historical provenance and unsupported recovery cases remain unresolved; the remaining acceptance branches stay open. The approved privacy boundary and its browser matrix are implemented. The remaining v2 payment browser and independent v2 process-restart cases now pass; fresh receipts are in docs/v2-acceptance.json. Existing Hermes work remains recorded below.
 
 ## Hermes report-review assistant
 
@@ -40,10 +40,10 @@ Offline implementation and the hosted connection have separate evidence. See [He
 ## Next: private jobs and limited public verification
 
 - [x] Approve private full details for new and existing v2 jobs, with limited public verification; [access contract](docs/recovery-acceptance.md#v2-privacy--approved).
-- [ ] Enforce named-party full-job/detailed-verification reads and own-role signing requests. Authorize protected reads before SDK work, remove owner-only fields from builder views and use generic refusals/no-cache responses.
-- [ ] Add the minimal public verification projection without raw identity/financial/consent data, and render it without an unauthorized full-job read in `src/web/pages/Verify.tsx`.
-- [ ] Correct the claim that the funded total caps the job.
-- [ ] Check new/existing v2 and v3 jobs with anonymous, unrelated and named accounts, including original invitations, account switches, refresh errors and a focused browser run.
+- [x] Enforce named-party full-job/detailed-verification reads and own-role signing requests. Authorize protected reads before SDK work, remove owner-only fields from builder views and use generic refusals/no-cache responses.
+- [x] Add the minimal public verification projection without raw identity/financial/consent data, and render it without an unauthorized full-job read in `src/web/pages/Verify.tsx`.
+- [x] Correct the claim that the funded total caps the job.
+- [x] Complete the privacy browser matrix for new/existing v2 and v3: named/unrelated/anonymous reads, own-role signing requests, original legacy recipient/signature/invitation preservation, refused-refresh clearing and public-only desktop/mobile Verify. Run `bun run demo:privacy:browser`; receipts identify exact unchanged pins. Full payment/SDK/restart acceptance branches remain separately open.
 
 Done when the public view exposes only the approved fields, party/representative access follows the matrix, existing signatures/invitations remain valid, and the funding explanation matches the accounting boundary. The current defects are recorded in [PROGRESS.md](PROGRESS.md).
 
@@ -66,4 +66,14 @@ The local implementation now supports v3 DAO-owned builder jobs. Terms signature
 
 These are candidates, not agreed priorities. Additional source/application and platform dependencies remain in PROGRESS. Split a candidate into executable steps when it is selected.
 
-Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent filing with saved text can create a new gateway request hash. Saved-body reuse is not recovery of that unknown request; only known IDs are polled. The paired release review records quota/unsigned-request impact, with no demonstrated duplicate payout. Fresh committed platform/SDK release artifacts and Paperwork Linux/container packaging remain separate release gates.
+Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent filing with saved text can create a new gateway request hash. Saved-body reuse is not recovery of that unknown request; only known IDs are polled. The paired release review records quota/unsigned-request impact, with no demonstrated duplicate payout. The final combined committed platform/SDK artifacts were adopted and revalidated offline on 2026-11-12; current pins and receipts are recorded in PROGRESS.md. Publication/hosted acceptance and Paperwork Linux/container packaging remain separate gates.
+
+
+## Local packaging and CI checkpoint
+
+- [x] Review complete combined diff; fix production frontend asset restart failure and exclude inactive vendor artifacts from image/context.
+- [x] Build/smoke Linux arm64 and amd64 images with networking disabled; preserve full production frontend and image artifacts.
+- [x] Add read-only offline CI and validate with actionlint; local equivalent checks pass. Remote execution awaits an authorized push.
+- [x] Prepare explicit reviewed commit file set without staging or committing; exclude four inactive `0018f553` artifacts.
+
+The two remaining local v2 acceptance branches now pass; see docs/v2-acceptance.json. Owner review/commit, remote CI and hosted operational gates remain separate. This checkpoint is not publication/deployment clearance.

@@ -83,7 +83,7 @@ test("an anonymous contract read sends nothing when sign-in is required", async 
   (ctx.rt.config as any).auth.required = true;
   const before = ctx.controls.requests().length;
   const res = await ctx.rt.app.request(`/api/contracts/${ctx.id}`);
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(401);
   expect(ctx.controls.requests().length).toBe(before);
   await ctx.rt.engine.getContract(ctx.id); // the representative's read still moves it along
   expect(ctx.controls.requests().length).toBe(before + 1);

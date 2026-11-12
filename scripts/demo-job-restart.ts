@@ -10,7 +10,7 @@ import { Database } from "bun:sqlite";
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { JOB_DEMO_TERMS } from "../src/shared/demo";
+import { DEMO_TERMS, JOB_DEMO_TERMS } from "../src/shared/demo";
 import { parseTerms, scopeTotal, USDC_DECIMALS } from "../src/shared/terms";
 import { toAtomic } from "../src/shared/money";
 import type { ContractView, NextStep, SignRequest } from "../src/shared/views";
@@ -18,9 +18,12 @@ import type { JobSubmissionInput, JobSubmissionView } from "../src/shared/jobs";
 import { readStack, StackControls } from "../src/server/platform/stack";
 
 const root = resolve(import.meta.dir, "..");
+const mergeWorkflow = process.env.PAPERWORK_RESTART_WORKFLOW === "v2";
+if (process.env.PAPERWORK_RESTART_WORKFLOW && !["v2", "v3"].includes(process.env.PAPERWORK_RESTART_WORKFLOW)) throw new Error("Unknown restart workflow");
 const collect = process.env.PAPERWORK_RESTART_COLLECT === "1";
 const recovery = process.env.PAPERWORK_RECOVERY_REHEARSAL === "1";
 const dropWithdrawResponse = process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1";
+if (mergeWorkflow && (collect || recovery || dropWithdrawResponse)) throw new Error("The v2 restart proof is separate from collector/recovery/provider-loss modes");
 if (recovery && (collect || dropWithdrawResponse || process.argv.some(value => value === "--full" || value === "--full-check")))
   throw new Error("Recovery rehearsal cannot be combined with collector, full-demo or provider-response-drop modes.");
 if (collect && (dropWithdrawResponse || process.argv.some(value => value === "--full" || value === "--full-check")))
@@ -239,6 +242,7 @@ function report(message: string) {
 }
 const platformSnapshotFile = join(resolve(stackDir, "../../../.."), "SNAPSHOT.json");
 const receipt: Record<string, unknown> = {
+  workflow_version: mergeWorkflow ? 2 : 3,
   scope: "True app process kill/restart with durable SQLite and independent SDK gateway; simulated provider/chain/signatures/settlement only",
   fault_boundary: dropWithdrawResponse ? "Provider accepts withdrawal and its response is dropped by existing stack control; app HTTP proposal response also suppressed" : "Completed proposal app HTTP response suppressed by local proxy; not a lost gateway/provider response",
   provider_response_drop: dropWithdrawResponse,
@@ -361,7 +365,7 @@ try {
   active = await startApp(1);
   const firstPid = active.pid;
   const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
-  const terms = parseTerms({ ...JOB_DEMO_TERMS,
+  const terms = parseTerms({ ...(mergeWorkflow ? { ...DEMO_TERMS, scope: JOB_DEMO_TERMS.scope } : JOB_DEMO_TERMS),
     company: "Acme Restart Demo",
     representative: { near_account: stack.owner },
     contractor: { ...JOB_DEMO_TERMS.contractor, near_account: stack.payees[0]! },
@@ -397,9 +401,9 @@ try {
     evidence: [{ deliverable_id: "d1", label: "CSV export and tests", url: "https://github.com/acme/app/pull/101" }],
     invoice: { number: "INV-RESTART-001", amount_usd: "300" },
   };
-  const submitted = await request<JobSubmissionView>("POST", `/contracts/${id}/submissions`, { ...submission, contractor_token: created.contractor_token });
-  Object.assign(receipt, { submission: submitted.id, invoice: submitted.invoice.id });
-  report(`02. Accepted and submitted ${submitted.id}; invoice ${submitted.invoice.id}`);
+  const submitted = mergeWorkflow ? null : await request<JobSubmissionView>("POST", `/contracts/${id}/submissions`, { ...submission, contractor_token: created.contractor_token });
+  Object.assign(receipt, { workflow_version: mergeWorkflow ? 2 : 3, submission: submitted?.id ?? null, invoice: submitted?.invoice.id ?? null });
+  report(mergeWorkflow ? "02. Accepted v2 merge terms; one eligible merged CSV deliverable, no report/invoice record" : `02. Accepted and submitted ${submitted!.id}; invoice ${submitted!.invoice.id}`);
   if (dropWithdrawResponse) {
     await new StackControls(stackDir!).command("dropWithdrawResponse", {});
     report("02a. Armed the existing isolated provider dropWithdrawResponse control; no new simulator was introduced.");
@@ -411,9 +415,10 @@ try {
   const origin = active.origin;
   proxy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
     try {
-      const response = await fetch(`${origin}api/submissions/${submitted.id}/propose`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
-      const view = await response.json() as ContractView & { error?: string };
-      if (!response.ok) throw new Error(`Proposal failed before suppression: ${response.status} ${view.error ?? "refused"}`);
+      const response = await fetch(mergeWorkflow ? `${origin}api/contracts/${id}/run` : `${origin}api/submissions/${submitted!.id}/propose`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) });
+      const result = await response.json() as ContractView & { error?: string };
+      if (!response.ok) throw new Error(`Proposal failed before suppression: ${response.status} ${result.error ?? "refused"}`);
+      const view = mergeWorkflow ? await request<ContractView>("GET", `/contracts/${id}`) : result;
       executionResolve(view);
       // No response headers or body reach the client. Release this handler after the client aborts, with a bounded fallback.
       await Promise.race([new Promise<void>((resolve) => req.signal.addEventListener("abort", () => resolve(), { once: true })), pause(5000)]);
@@ -430,30 +435,39 @@ try {
   check(before.length === 1 && (before[0]!.state === "held" || (dropWithdrawResponse && before[0]!.state === "unknown")), "Expected one held or uncertain original proposal, with no payment yet.");
   const requestId = before[0]!.request_id;
   const beforeIdentity = paymentIdentity(requestId, !dropWithdrawResponse);
-  const originalSubmission = completed.submissions.find((s) => s.id === submitted.id)!;
-  Object.assign(receipt, { judgment: originalSubmission.judgment_id, payout_request: requestId, payment_correlation: beforeIdentity.correlation_id, retained_identities_before: beforeIdentity, initial_payout_state: before[0]!.state });
+  const originalSubmission = submitted ? completed.submissions.find((s) => s.id === submitted!.id)! : null;
+  const originalJudgmentId = mergeWorkflow ? completed.open_judgment?.id : originalSubmission!.judgment_id;
+  check(originalJudgmentId && originalJudgmentId === beforeIdentity.run_id, "Original judgment is not bound to the durable payment");
+  Object.assign(receipt, { judgment: originalJudgmentId, payout_request: requestId, payment_correlation: beforeIdentity.correlation_id, retained_identities_before: beforeIdentity, initial_payout_state: before[0]!.state });
   abort.abort();
   check(await client === "lost_response", "Expected the client to lose the app proposal response.");
   proxy.stop(true);
   proxy = null;
-  report(`03. App HTTP response suppressed after durable proposal ${originalSubmission.judgment_id}; request ${requestId}`);
+  report(`03. App HTTP response suppressed after durable proposal ${originalJudgmentId}; request ${requestId}`);
   await stopApp(active, "SIGKILL");
   active = null;
   report(`04. Killed app process ${firstPid}; independent gateway remains alive`);
   active = await startApp(2);
   check(active.pid !== firstPid, "Restart must start a distinct OS process.");
   const recovered = await observe(id, (v) => v.payouts.some((p) => p.request_id === requestId && p.state === "held"), "original held payout after restart");
-  const recoveredSubmission = recovered.submissions.find((s) => s.id === submitted.id)!;
+  const recoveredSubmission = submitted ? recovered.submissions.find((s) => s.id === submitted!.id)! : null;
   const afterIdentity = paymentIdentity(requestId);
   check(recovered.hash === offered.hash, "Accepted terms changed across restart.");
   check(recovered.payouts.length === 1 && recovered.paid_usd === "0", "Recovery must preserve the one held, unpaid proposal.");
-  check(recoveredSubmission.id === originalSubmission.id && recoveredSubmission.invoice.id === originalSubmission.invoice.id && recoveredSubmission.judgment_id === originalSubmission.judgment_id, "Submission, invoice or judgment identity changed.");
+  if (mergeWorkflow) {
+    check(recovered.terms.v === 2 && recovered.submissions.length === 0 && recovered.open_judgment?.id === originalJudgmentId, "V2 judgment identity changed or report records were invented");
+    const repeated = await request<{ outcome: string; payouts: unknown[] }>("POST", `/contracts/${id}/run`, {});
+    check(repeated.outcome === "deferred" && repeated.payouts.length === 0, "Repeated v2 run replaced the open payment");
+  } else {
+    check(recoveredSubmission!.id === originalSubmission!.id && recoveredSubmission!.invoice.id === originalSubmission!.invoice.id && recoveredSubmission!.judgment_id === originalSubmission!.judgment_id, "Submission, invoice or judgment identity changed.");
+    const sameSubmission = await request<JobSubmissionView>("POST", `/contracts/${id}/submissions`, { ...submission, contractor_token: created.contractor_token });
+    check(sameSubmission.id === submitted!.id && sameSubmission.invoice.id === submitted!.invoice.id, "Original submission retry must remain idempotent.");
+  }
   check(afterIdentity.request_id === beforeIdentity.request_id && afterIdentity.run_id === beforeIdentity.run_id && (beforeIdentity.correlation_id === null || afterIdentity.correlation_id === beforeIdentity.correlation_id), "A known payment identity changed across app restart.");
-  const sameSubmission = await request<JobSubmissionView>("POST", `/contracts/${id}/submissions`, { ...submission, contractor_token: created.contractor_token });
-  check(sameSubmission.id === submitted.id && sameSubmission.invoice.id === submitted.invoice.id, "Original submission retry must remain idempotent.");
+  check((["contract_id", "recipient", "amount_atomic", "seq", "attempt", "approval_id", "vote_correlation_id"] as const).every(key => afterIdentity[key] === beforeIdentity[key]), "Recovery changed original payout terms or sequence");
   const observedState = JSON.parse(readFileSync(stack.stateFile, "utf8")) as StackState;
   check(observedState.transfers.length === 1 && observedState.transfers[0]!.correlation === afterIdentity.correlation_id, "Recovery must not create another platform payment.");
-  report(`05. Process ${active.pid} recovered the same submission/invoice/judgment/request/correlation; no replacement payment`);
+  report(`05. Process ${active.pid} recovered the same ${mergeWorkflow ? "v2 judgment/request/correlation" : "submission/invoice/judgment/request/correlation"}; no replacement payment`);
   const vote = await request<{ correlation_id: string; sign: SignRequest | null }>("POST", `/payouts/${requestId}/vote`, { verdict: "approve" });
   check(vote.sign, "Held payout needs the fixture owner's explicit signature.");
   const signed = await sign(vote.sign);
@@ -472,7 +486,7 @@ try {
         PLATFORM_DEPLOYMENT: stack.deployment, PORT: "0", GITHUB: "fake", JUDGE: "rules", AGENT_POLL_MS: "0", STATUS_POLL_MS: "3600000",
         COPILOTKIT_TELEMETRY_DISABLED: "true",
         BETTER_AUTH_SECRET: "paperwork-process-restart-fixture-secret-only-not-for-hosting" },
-      job: id, requestId, correlationId: afterIdentity.correlation_id!, judgmentId: recoveredSubmission.judgment_id!,
+      job: id, requestId, correlationId: afterIdentity.correlation_id!, judgmentId: recoveredSubmission!.judgment_id!,
       appSourceSha256: sourceBefore.sha256, dependenciesSha256: dependenciesCopied.sha256 });
     receipt.recovery = { ...rehearsal.preparation, stage: "exported_and_inventoried", clearance: "none" };
     databasePath = rehearsal.workingDatabasePath;
@@ -481,7 +495,7 @@ try {
     active = await startApp(3, observation);
     resumedBefore = await observe(id, view => view.payouts.some(p => p.request_id === requestId && p.state === "disputed"), "restored hold through fresh SDK observation");
     check(resumedBefore.committed_usd === "300" && resumedBefore.paid_usd === "0" && resumedBefore.open_judgment === null &&
-      resumedBefore.submissions.some(s => s.id === submitted.id && s.invoice.id === submitted.invoice.id && s.judgment_id === recoveredSubmission.judgment_id && s.state === "disputed"),
+      resumedBefore.submissions.some(s => s.id === submitted!.id && s.invoice.id === submitted!.invoice.id && s.judgment_id === recoveredSubmission!.judgment_id && s.state === "disputed"),
       "Restoration did not retain the original committed dispute, submission, invoice and judgment.");
     const firstRecoveryReads = assertFreshRecoveryReads(active, requestId, afterIdentity.correlation_id!);
     const firstRecoveryIdentity = paymentIdentity(requestId), firstRecoveryPid = active.pid;
@@ -492,7 +506,7 @@ try {
     check(active.pid !== firstRecoveryPid, "Recovery restart did not replace the OS process.");
     const afterRestart = await observe(id, view => view.payouts.some(p => p.request_id === requestId && p.state === "disputed"), "same working database after recovery restart");
     check(afterRestart.hash === offered.hash && afterRestart.payouts.length === 1 && afterRestart.committed_usd === "300" && afterRestart.paid_usd === "0" &&
-      afterRestart.submissions.some(s => s.id === submitted.id && s.invoice.id === submitted.invoice.id && s.judgment_id === recoveredSubmission.judgment_id) &&
+      afterRestart.submissions.some(s => s.id === submitted!.id && s.invoice.id === submitted!.invoice.id && s.judgment_id === recoveredSubmission!.judgment_id) &&
       JSON.stringify(paymentIdentity(requestId)) === JSON.stringify(firstRecoveryIdentity), "Recovery restart changed the original hold or identities.");
     const restartedRecoveryReads = assertFreshRecoveryReads(active, requestId, afterIdentity.correlation_id!);
     const state = JSON.parse(readFileSync(stack.stateFile, "utf8")) as StackState;
@@ -507,7 +521,7 @@ try {
     report("06b. Inventoried all blockers; mixed-history copy refused before any SDK call. Separate clean copy retained the original dispute across two no-timer app processes.");
   }
   await request("POST", "/sim/settle", { request_id: requestId });
-  const settled = await observe(id, (v) => v.submissions.find((s) => s.id === submitted.id)?.state === "settled", "confirmed platform settlement");
+  const settled = await observe(id, (v) => mergeWorkflow ? v.payouts.find((p) => p.request_id === requestId)?.state === "paid" && v.open_judgment === null : v.submissions.find((s) => s.id === submitted!.id)?.state === "settled", "confirmed platform settlement");
   const paid = settled.payouts.find((p) => p.request_id === requestId)!;
   check(paid.state === "paid" && settled.paid_usd === "300", "The original payment did not settle.");
   await pause(400);
@@ -533,8 +547,8 @@ try {
   }
   Object.assign(receipt, {
     result: "passed", completed_at: new Date().toISOString(), app_pids: recovery ? processes.map(app => app.pid) : [firstPid, active!.pid],
-    job: id, terms_hash: settled.hash, submission: submitted.id, invoice: submitted.invoice.id,
-    judgment: recoveredSubmission.judgment_id, payout_request: requestId, payment_correlation: afterIdentity.correlation_id,
+    job: id, terms_hash: settled.hash, submission: submitted?.id ?? null, invoice: submitted?.invoice.id ?? null,
+    judgment: originalJudgmentId, payout_request: requestId, payment_correlation: afterIdentity.correlation_id,
     approval: vote.correlation_id, settlement: paid.state, paid_usd: settled.paid_usd, tx_hash: paid.tx_hash,
     confirmation_source: "platform payouts/status succeeded; provider and chain simulated",
     platform_payment_count: finalState.transfers.length, successful_payment_count: finalState.transfers.filter((t) => t.status === "SUCCESS").length,
@@ -547,7 +561,7 @@ try {
     check(active, "Collector mode requires the original active app.");
     await stopApp(active, "SIGTERM");
     active = null;
-    await collectProof({ job: id, termsHash: settled.hash, requestId, correlationId: afterIdentity.correlation_id, judgmentId: recoveredSubmission.judgment_id }, finalState);
+    await collectProof({ job: id, termsHash: settled.hash, requestId, correlationId: afterIdentity.correlation_id, judgmentId: recoveredSubmission!.judgment_id }, finalState);
     receipt.completed_at = new Date().toISOString();
   }
   report(`PASS · true process restart, same durable identities, one confirmed simulated payment. Receipt: ${join(artifactDir, "receipt.json")}`);

@@ -184,14 +184,14 @@ Use **both layers** for each workflow: controlled app/stand-in tests for failure
 | V3 revision and lost payout reply | Stand-in, `PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_LOST_REPLY=1 bun --no-env-file run demo:job` | Original attempt recovered; proven cancellation precedes revision; no duplicate transfer |
 | Both-version proof and historical records | Controlled fixtures; `failed-payment-proof.test.ts`, `failed-payment-observation.test.ts`, `engine.test.ts`, `job-finalization.test.ts`, `db-rejection-compat.test.ts`, `sdk-payout-proof.test.ts` | Implemented engine/authenticated HTTP refusals without writes/sends, valid proof, retained counterevidence, unchanged unsafe-ledger refusal and safe reopen. Independent SDK process recovery remains a separate case below |
 | Recovery tools | Disposable fixtures plus opt-in independent SDK stack | Inventory, restoration/export and separate-copy handoff are verified for the stated stand-in/v3 SDK cases. Real historical provenance, unsupported cases and remaining SDK branches stay unresolved |
-| Both-version access and ownership | Auth-enabled HTTP fixtures | Anonymous/unrelated refusals, party reads and representative-only mutations; no unauthorized platform work. Extend tests to the selected privacy policy |
+| Both-version access and ownership | Auth-enabled HTTP fixtures and `demo:privacy:browser` | Pass: anonymous/unrelated refusals before platform reads, party-safe responses, own-role signing, original legacy signatures/invitations, public-only verification and refused-refresh clearing |
 | V3 desktop/mobile browser journey | Stand-in, `bun --no-env-file run demo:browser` | Both party views, supported rework, held/processing/paid distinction, preserved IDs and no horizontal overflow |
-| V2 desktop/mobile browser journey | Stand-in browser | Missing branch: extend the existing browser runner for Pay on merge, including ineligible/self-merged PR exclusion and rejected-work exclusion |
+| V2 desktop/mobile browser journey | `bun --no-env-file scripts/demo-v2-browser.ts` | Pass: GUI offer/signatures/setup; self-merged/unrelated PR exclusions, explicit approvals and proven rejection, no re-payment of rejected work, $1,000 full-scope settlement, original IDs after both-view reload and 390/1440px checks |
 | V3 complete SDK journey | Fresh loopback stack via `PLATFORM_STACK_DIR`, `bun --no-env-file run demo:job` | Actual SDK/gateway confirms the full simulated obligation under the original IDs |
-| V2 complete SDK journey | Fresh isolated stack; existing `demo:stack` supplies the integration harness | Missing clean happy-path variant. The current fault scenario's 750 paid + 250 disputed is not full-scope completion |
+| V2 complete SDK journey | Fresh isolated final gateway; `bun --no-env-file run demo:stack` | Final candidate now completes the existing negative-case + payment scenario: $1,000/$1,000 paid, four correct transfers, no unresolved dispute. Current receipt: `/tmp/paperwork-local-release/v2-sdk-result.json`. The older $750 + $250 disputed receipt remains historical |
 | V3 lost app reply and process restart | Independent SDK stack, `bun --no-env-file run demo:job:restart` | Two app processes share the same durable records; original IDs survive; exactly one approved simulated settlement |
-| V2 lost app reply and process restart | Independent SDK stack | Missing v2 branch: extend the restart runner to the merge-judgment path. Reusing FakePlatform memory does not establish process recovery |
-| Verification UI | Auth-enabled fixtures plus focused browser checks | Public/private projections follow the chosen privacy contract. Verify must not depend on an unauthorized full-job read |
+| V2 lost app reply and process restart | `bun --no-env-file scripts/demo-job-restart-local.ts --v2` | Pass on final isolated gateway: suppress completed merge-judgment app reply, SIGKILL, recover original judgment/request/correlation/terms/sequence in a different process, defer duplicate run, explicitly approve and settle one full-scope $300 payment |
+| Verification UI | Auth-enabled fixtures plus v2/v3 browser matrix | Pass: allowlisted public status without a private full-job fetch; desktop/mobile; detailed verification remains party-only |
 
 Keyless browser demos establish interaction behavior, not real sign-in or role enforcement. SDK fixtures establish integration, not mainnet settlement or actual wallet interaction. No Market hire, hosted model request or live payment is required for this local milestone.
 
@@ -209,7 +209,7 @@ The receipt's `collector.integration_read_pass` establishes read transport and s
 
 ### Known platform faults
 
-- **G13:** the recorded SDK simulator lacks rejection non-execution proof. Correct behavior retains commitment and blocks revision. Stand-in revision success cannot count as SDK rework success.
+- **G13 (historical snapshot):** the older recorded simulator lacked rejection non-execution proof and correctly blocked revision. Final candidate `822346ac…` now passes DAO SDK rework and the v2 SDK rejection/full-scope continuation; that fresh gateway evidence supersedes the old continuation gap only for these exact pins. Stand-in success alone remains insufficient.
 - **G14:** dropped provider-response recovery remains unresolved in its recorded restart run. The safe halt preserves IDs and sends no replacement; that does not establish successful recovery. App-HTTP response loss is a different, required restart case. Current fault command: `PAPERWORK_RESTART_DROP_WITHDRAW=1 bun --no-env-file run demo:job:restart`.
 
 These faults have separate safety and continuation results. Named fail-safe blocks may be recorded as safe behavior while SDK rework/provider-response recovery remain explicitly blocked. They must never be reported as successful continuation. See [platform gaps](platform-gaps.md).
@@ -222,11 +222,11 @@ Each receipt identifies app/SDK/platform source, environment, workflow, terms ha
 
 ## V2 privacy — approved
 
-**Approved 2026-11-11:** full details of both new and existing v2 jobs are to be readable only by their named representative/builder, matching v3's intended private-job boundary. Limited verification remains public. This is the implementation target; the current routes still have the disclosures below. Preserve signed terms, recipients, original URLs and invitation hashes. Opening an old link prompts sign-in; possession of the link alone grants no detailed access.
+**Approved 2026-11-11:** full details of both new and existing v2 jobs are to be readable only by their named representative/builder, matching v3's intended private-job boundary. Limited verification remains public. This boundary is now enforced by the application routes; fresh local checks and remaining hosted limits are recorded in PROGRESS.md. Preserve signed terms, recipients, original URLs and invitation hashes. Opening an old link prompts sign-in; possession of the link alone grants no detailed access.
 
 Public verification uses a small projection: terms hash, workflow version, `overall: green | red | incomplete`, a fixed allowlist of check IDs mapped to booleans, and check timestamp. Omit current check labels/details and raw `expected`, `observed` and `consents` fields. This is an app-relayed status, not an independent cryptographic policy proof. Detailed policy/identity/financial evidence stays with the named parties.
 
-The current public Verify API is broader: it exposes payees, caps/totals, signer accounts, raw agent balance/policy, grants and consent metadata. Reducing only the v2 full-job route would leave those disclosures intact.
+The detailed Verify API (`/api/contracts/:id/verify`) requires a named party. Public `/api/contracts/:id/verify/public` returns only `terms_hash`, `workflow_version`, `overall`, an allowlisted ID-to-boolean `checks` map, and `checked_at`. The public page never fetches the full job.
 
 | Surface | Public / unrelated | Named builder | Named representative |
 | --- | --- | --- | --- |
@@ -238,7 +238,7 @@ The current public Verify API is broader: it exposes payees, caps/totals, signer
 | Owner preparations/status, deposit instructions, approvals/retry/resolve/run | Deny | Deny | Supported actions |
 | Hermes review | Deny | Deny | Supported actions |
 
-The implementation must authorize protected requests before platform reads, remove owner preparations/deposit data from builder views, use generic unauthorized errors and prevent private-response caching. A public status handler may use whitelisted read-only observations, but never reconciliation-capable `getContract()` or other send-capable paths. Public signing-request and raw Verify routes need the same review as full-job reads. Test new/existing v2 and v3 jobs with anonymous, unrelated and named accounts, preserving original invitations and signature bytes. Implementation and verification remain pending.
+The implementation must authorize protected requests before platform reads, remove owner preparations/deposit data from builder views, use generic unauthorized errors and prevent private-response caching. A public status handler may use whitelisted read-only observations, but never reconciliation-capable `getContract()` or other send-capable paths. Public signing-request and raw Verify routes need the same review as full-job reads. Test new/existing v2 and v3 jobs with anonymous, unrelated and named accounts, preserving original invitations and signature bytes. The application enforces this boundary for existing and new terms without changing signed bytes or invitation hashes. Hosted verification remains pending.
 
 ## Dated recovery evidence
 

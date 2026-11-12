@@ -47,3 +47,10 @@ The final check passed with Bun 1.4.2, agent-browser 0.26.0 and Chrome for Testi
 
 
 > **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).
+
+
+## Full v2 Pay on merge branch
+
+Run `bun --no-env-file scripts/demo-v2-browser.ts`. It drives the real browser form, selects Pay on merge, has the representative and builder sign through separate fixture browser sessions, completes setup/funding, checks visible ineligible/self-merged PR exclusions, explicitly approves payouts and rejects flagged work. A fresh completed-run event proves a repeated check does not recreate the rejected obligation. Legitimate later merges finish the $1,000 scope in four successful simulated transfers. Both views reload the same accepted terms/payment IDs and pass desktop/mobile bounds. Screenshots and receipt are retained in the printed directory; `PAPERWORK_DEMO_ARTIFACTS` selects its parent for CI.
+
+This is keyless browser/simulated provider evidence, not real wallet authentication or hosted financial acceptance. Authenticated v2/v3 role enforcement remains separately covered by the privacy browser matrix and HTTP fixtures. The CI workflow runs this browser branch; exact-gateway process restart remains a separately recorded offline consumer gate.

@@ -7,3 +7,4 @@ data/
 !.env.example
 dist/
 .DS_Store
+web-dist/

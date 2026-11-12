@@ -336,7 +336,7 @@ describe("one builder job — simulated platform", () => {
       expect(body).not.toContain(submission().report);
       expect(body).not.toContain(reason);
       expect((await app.request(`/api/contracts/${ctx.id}/submissions`)).status).toBe(code);
-      expect((await app.request(`/api/contracts/${ctx.id}/verify`)).status).toBe(200);
+      expect((await app.request(`/api/contracts/${ctx.id}/verify/public`)).status).toBe(200);
     }
     for (const account of [agency, builder]) {
       const response = await appAs(ctx.rt, account).request(`/api/contracts/${ctx.id}`);

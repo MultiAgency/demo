@@ -5,9 +5,16 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
-const pinnedDigest = "36a66cb4212faef9d651a342baead7203238eb19d866acf9a8b2ec6ef1e76518";
-const pinnedSource = "f7caad4537e982190094e2654a064b25e7725f8a";
-const pinnedDependencies = "eb9728c521ebb5d31d352941e3d3e20eaa33d9d08e8c3cb4567e4ce08f05c9eb";
+const gatewayPin = JSON.parse(readFileSync(join(root, "vendor/multiagency-sdk/gateway-pin.json"), "utf8")) as {
+  runDigest: string; sourceHead: string; dependencyTree: string; snapshot: string; sdkTarballSha256: string;
+};
+const pinnedDigest = gatewayPin.runDigest;
+const pinnedSource = gatewayPin.sourceHead;
+const pinnedDependencies = gatewayPin.dependencyTree;
+const sdkArtifact = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies: Record<string, string> }).dependencies["@multiagency/sdk"]!;
+if (!sdkArtifact.startsWith("./vendor/multiagency-sdk/") || sdkArtifact.includes("..")) throw new Error("Expected a repository-local SDK artifact");
+if (sha(readFileSync(join(root, sdkArtifact))) !== gatewayPin.sdkTarballSha256) throw new Error("SDK and gateway pins do not match");
+const mergeWorkflow = process.argv.includes("--v2");
 const preflight = process.argv.includes("--preflight");
 const bootstrapOnly = process.argv.includes("--bootstrap-only");
 const fullCheck = process.argv.includes("--full-check");
@@ -18,6 +25,7 @@ if (recovery && (full || collect || process.env.PAPERWORK_RESTART_DROP_WITHDRAW 
   throw new Error("Recovery rehearsal cannot be combined with collector, full-demo or provider-response-drop modes.");
 if (collect && (full || process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1"))
   throw new Error("Collector proof cannot be combined with full-demo or provider-response-drop modes.");
+if (mergeWorkflow && (full || collect || recovery || process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1")) throw new Error("Use --v2 only for the independent v2 restart check");
 const artifactDir = mkdtempSync(join(tmpdir(), full ? "paperwork-full-launch-" : "paperwork-restart-launch-"));
 const jobArtifacts = join(artifactDir, "jobs");
 mkdirSync(jobArtifacts);
@@ -178,7 +186,7 @@ async function nodeExecutable(version: string) {
   throw new Error(`The pinned snapshot requires ${version}; no matching installed Node executable was found. Nothing was installed or started.`);
 }
 async function preparePlatform() {
-  const candidates = [join(root, "..", "sdk", ".test-artifacts", "stack-snapshots", pinnedDigest), "/tmp/covenant-job-stack-nUaut7"];
+  const candidates = [gatewayPin.snapshot, join(root, "..", "sdk", ".test-artifacts", "stack-snapshots", pinnedDigest)];
   const source = candidates.find((path) => existsSync(join(path, "SNAPSHOT.json")));
   check(source, `Verified platform snapshot ${pinnedDigest} is missing. This launcher does not install dependencies or use a hosted gateway.`);
   const snapshot = JSON.parse(readFileSync(join(source, "SNAPSHOT.json"), "utf8")) as Snapshot;
@@ -243,6 +251,7 @@ try {
       ...(full && { PAPERWORK_DEMO_ARTIFACTS: jobArtifacts, PAPERWORK_DEMO_PORT: process.env.PAPERWORK_DEMO_PORT ?? "3002" }),
       ...(fullCheck && { PAPERWORK_BROWSER_FULL: "1" }),
       ...(!full && process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1" && { PAPERWORK_RESTART_DROP_WITHDRAW: "1" }),
+      ...(mergeWorkflow && { PAPERWORK_RESTART_WORKFLOW: "v2" }),
       ...(collect && { PAPERWORK_RESTART_COLLECT: "1" }),
       ...(recovery && { PAPERWORK_RECOVERY_REHEARSAL: "1" }),
     });

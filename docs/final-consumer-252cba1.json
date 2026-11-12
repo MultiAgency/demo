@@ -1,0 +1,43 @@
+{
+  "scope": "Offline-only final consumer validation; not deployment or live financial clearance",
+  "paperwork_base_commit": "80afa29264af9b037a5a93fb3aceb025710e23e4",
+  "paperwork_dirty_source": "Preserved privacy work plus paired final pin/launcher/docs changes; exact manifest in verification receipt",
+  "platform_commit": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
+  "gateway_candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+  "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+  "sdk_provenance_sha256": "9feb6034ccddf90c6cc16c81247c10d265094eef6d457e17cbe3f3ce5de8dd3c",
+  "gateway_manifest_sha256": "8043058f5e55bf176597d70d3b83ebfebbef33eff436bb5739a602176d19b17a",
+  "gateway_source_sha256": "e72bebf6e1a42b57c048f16b8d021d3efe3d2706b2d996acf8859bbac75cd074",
+  "gateway_image": {
+    "imageId": "sha256:9daf951d59ba40eb944d53a595ed214180254534b2e5c8cff93b448ad95dd195",
+    "platform": "linux/arm64",
+    "tag": "multiagency-platform-check:90634",
+    "archive": "/private/tmp/pr86-final-release-20261112/.test-artifacts/releases/822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40/platform-image.tar",
+    "archiveSha256": "6e891b6502f574d34482a3e508b9acd95b146955ecdf387ff6beb4c3cd745f4e",
+    "scope": "Local image checked offline; no registry publication or deployed-host claim"
+  },
+  "checks": {
+    "typecheck": "passed",
+    "tests": {
+      "pass": 1546,
+      "fail": 0,
+      "assertions": 10369
+    },
+    "security_e2e": "passed, simulated",
+    "dao_rework": "passed on copied final gateway: reject, revision, approve, settlement",
+    "dao_recovery": "passed clean DB handoff to second process; not SIGKILL",
+    "wallet_job": "passed on copied final gateway",
+    "wallet_restart": "passed documented launcher: SIGKILL after suppressed app HTTP response, original IDs, one simulated settlement",
+    "browser": "passed v3 stand-in revision/payment desktop/mobile",
+    "privacy": "passed v2/v3 new/signed, original covenant recipient, parties/roles, public-only desktop/mobile, refused-refresh clearing",
+    "frontend": "standalone Bun build passed; distinct from browser-served bundles"
+  },
+  "receipt": "/tmp/paperwork-final-252cba1/verification.json",
+  "limitations": [
+    "No real wallet/quorum/mainnet receipt proof",
+    "No gateway/provider lost-response proof in this run",
+    "No fresh Paperwork container build",
+    "Market-route and operational gates in authoritative final handoff remain"
+  ],
+  "live_actions_performed": false
+}

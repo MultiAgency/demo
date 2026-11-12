@@ -301,6 +301,17 @@ try {
     check(await evaluate<boolean>(actor, `document.body.innerText.includes(${JSON.stringify(payment.request_id)})`), `${actor} must display the same payment identity`);
   }
   step("Both parties see the same confirmed settlement at desktop and mobile sizes; one successful payment");
+  // A fresh document excludes resource timing entries from the prior private job page.
+  await open("builder", `${base}/?public-verification=1#/c/${contractId}/verify`);
+  await pageWait("builder", "document.querySelector('h1')?.textContent==='Verification status'", "minimal public verification");
+  check(await evaluate<boolean>("builder", `!document.body.innerText.includes(${JSON.stringify(paid.terms.payee.address)}) && !document.body.innerText.includes('The funded total is what caps the job')`), "Public verification exposed private details or claimed a funding cap");
+  check(await evaluate<boolean>("builder", `!performance.getEntriesByType('resource').some(r => new URL(r.name).pathname === ${JSON.stringify(`/api/contracts/${contractId}`)})`), "Public verification fetched a private full-job response");
+  await command("builder", "set", "viewport", "390", "844");
+  check(await evaluate<boolean>("builder", "document.documentElement.scrollWidth<=innerWidth"), "Public verification overflows mobile viewport");
+  await capture("builder", "06-public-verification-mobile");
+  await command("builder", "set", "viewport", "1440", "1000");
+  await capture("builder", "06-public-verification-desktop");
+  step("Public Verify shows only app-relayed checks, without a private full-job read");
   await open("builder", `${base}/`);
   await pageWait("builder", "document.querySelector('h1')?.textContent==='Assigned to me' && !!document.querySelector('#my-jobs-completed') && document.body.innerText.includes('Full scope payment confirmed')", "personal queue completion from confirmed settlement");
   check((await rt.kit.controls!.transfers()).filter(p => p.status === "SUCCESS").length === 1, "Opening the personal queue must not create another transfer");

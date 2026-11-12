@@ -118,3 +118,24 @@ Nothing was deployed, and no credential was issued.
 
 
 > **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).
+
+
+## Local production packaging gate (2026-11-12)
+
+The image now builds an immutable frontend once with `scripts/build-web.ts`. `PAPERWORK_WEB_DIST=/app/web-dist` selects manifest-verified static routes; assets are available immediately after startup, even before the HTML route is requested. Previously, runtime HTML bundling failed the asset-before-HTML restart check. Local development keeps Bun's HTML bundler when this variable is absent. Preserve the complete built frontend directory/manifest and previous release images/assets; do not delete old hashed assets during a future rollout. The local restart proof does not qualify cross-version backend rollback or automatic old-asset hosting across different images.
+
+The Docker build context is allowlisted, and the image copies only the active `multiagency-sdk-0.5.9-252cba1.tgz`. Inactive vendor artifacts and local state never enter the image. The SDK's verified vendored pin remains unchanged after npm publication.
+
+Local checks (no hosted access):
+
+```sh
+bun --no-env-file scripts/check-sdk-pin.ts
+bun --no-env-file run typecheck
+bun --no-env-file test
+docker build -t paperwork-local:check .
+bun --no-env-file scripts/check-container.ts paperwork-local:check /tmp/paperwork-container-check-unique
+```
+
+Use a fresh receipt directory per run. The container check uses `--network none`, fixture credentials and a generated disposable volume. It checks Linux/SDK identity, startup refusals, auth/private/public responses, no demo endpoints, no credential disclosure, real production assets and original synthetic SQLite job identity across a local container restart. It starts no real wallet/provider/payment flow. Image IDs, build input hashes and receipts for arm64/amd64 are in `/tmp/paperwork-local-release/verification.json`. Full Linux amd64 checks here run under Docker Desktop emulation; GitHub's native amd64 execution remains pending an authorized push.
+
+`.github/workflows/verify.yml` runs locked install, SDK binding, typecheck, tests, simulated job/security/browser/privacy checks and local container build/smoke with read-only repository permission. It has no deploy, registry login, image push or payment step. `actionlint` validates the workflow locally; it has not yet run on GitHub. Frozen-gateway DAO/restart receipts remain separate because that external snapshot is not shipped in this checkout.

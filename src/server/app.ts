@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { toAtomic } from "../shared/money";
 import { scopeTotal, type Terms, USDC_DECIMALS } from "../shared/terms";
-import type { ConfigView } from "../shared/views";
+import type { ConfigView, ContractView } from "../shared/views";
 import { type Auth, createAuth, type SessionInfo, sessionFrom } from "./auth";
 import type { Config } from "./config";
 import { bindAppDeployment, openDb } from "./db";
@@ -147,6 +147,11 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   const { engine, auth, kit, clock, config, evidence, market, boardApi, openings } = rt;
   const app = new Hono<{ Variables: { session: SessionInfo | null } }>().basePath("/api");
 
+  app.use("*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    await next();
+  });
+
   app.onError((err, c) => {
     const e = err instanceof z.ZodError ? new UserError(err.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ")) : toUserError(err);
     return c.json({ error: e.message }, e.status as 400);
@@ -175,9 +180,10 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
 
   const requireAccount = (session: SessionInfo | null, account: string, role: string) => {
     if (!config.auth.required) return;
-    if (!session) throw new UserError(`Sign in with NEAR as ${account} to act as the ${role}.`, 401);
-    if (session.accountId !== account) throw new UserError(`You're signed in as ${session.accountId}. Only ${account} can act as the ${role}.`, 403);
+    if (!session) throw new UserError("Sign in with NEAR to access this action.", 401);
+    if (session.accountId !== account) throw new UserError("This action is not available to this account.", 403);
   };
+  const builderView = (view: ContractView): ContractView => ({ ...view, next_step: null, platform: { ...view.platform, deposit: null, consents: null } });
   const asRepresentative = (session: SessionInfo | null, contractId: string) => requireAccount(session, engine.parties(contractId).representative, "representative");
   const asParty = (session: SessionInfo | null, id: string) => {
     if (!config.auth.required) return;
@@ -256,7 +262,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   app.get("/contracts/:id", async (c) => {
     const id = c.req.param("id");
     // Authorize private records before any platform read or reconciliation work.
-    if (engine.contractRequiresParty(id)) asParty(c.get("session"), id);
+    asParty(c.get("session"), id);
     // Only the representative's reads move payouts along; anyone else gets the view (the status timer still follows up).
     let representative = true;
     try {
@@ -265,13 +271,16 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
       representative = false;
     }
     const view = representative ? await engine.getContract(id) : await engine.viewContract(id);
-    return c.json(view);
+    c.header("Cache-Control", "no-store");
+    return c.json(representative ? view : builderView(view));
   });
 
   app.get("/contracts/:id/signing-request", (c) => {
     const role = c.req.query("role") as Role;
     if (role !== "representative" && role !== "contractor") throw new UserError("role must be representative or contractor");
-    return c.json(engine.signingRequest(c.req.param("id"), role));
+    const id = c.req.param("id");
+    requireAccount(c.get("session"), engine.parties(id)[role], role);
+    return c.json(engine.signingRequest(id, role));
   });
 
   app.post("/contracts/:id/signatures", async (c) => {
@@ -280,7 +289,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     const role = body.role as Role;
     if (role !== "representative" && role !== "contractor") throw new UserError("role must be representative or contractor");
     requireAccount(c.get("session"), engine.parties(id)[role], role);
-    return c.json(await engine.addSignature(id, role, signedBody.parse(body.signed), body.contractor_token));
+    const view = await engine.addSignature(id, role, signedBody.parse(body.signed), body.contractor_token);
+    return c.json(config.auth.required && role === "contractor" && c.get("session")?.accountId !== engine.parties(id).representative ? builderView(view) : view);
   });
 
   // ---------- onboarding (setup → create → consents → grant → policy) and owner steps
@@ -376,8 +386,13 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     return c.json(await engine.resolve(rid, body.outcome, body.reason));
   });
 
-  // Public: anyone with the link can verify a job's platform policy.
-  app.get("/contracts/:id/verify", async (c) => c.json(await engine.verify(c.req.param("id"))));
+  // Public verification relays only fixed check IDs and booleans. No reconciliation-capable reads.
+  app.get("/contracts/:id/verify/public", async (c) => c.json(await engine.publicVerification(c.req.param("id"))));
+  app.get("/contracts/:id/verify", async (c) => {
+    const id = c.req.param("id");
+    asParty(c.get("session"), id);
+    return c.json(await engine.verify(id));
+  });
 
   app.post("/contracts/:id/attacks/:scenario", async (c) => {
     const id = c.req.param("id");

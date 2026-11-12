@@ -26,7 +26,7 @@ describe("access rules when sign-in is required", () => {
     const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", REQUIRE_AUTH: "true" }));
     const res = await rt.app.request("/api/contracts", json(DEMO_TERMS));
     expect(res.status).toBe(401);
-    expect((await res.json()).error).toContain("Sign in with NEAR as acme.demo");
+    expect((await res.json()).error).toContain("Sign in with NEAR");
   });
 
   test("company actions on a contract need the representative", async () => {
@@ -46,7 +46,7 @@ describe("access rules when sign-in is required", () => {
     const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", REQUIRE_AUTH: "true" }));
     const { id } = rt.engine.createContract(DEMO_TERMS);
     expect(await (await rt.app.request("/api/contracts")).json()).toEqual([]);
-    expect((await rt.app.request(`/api/contracts/${id}/verify`)).status).toBe(200);
+    expect((await rt.app.request(`/api/contracts/${id}/verify/public`)).status).toBe(200);
   });
 
   test("the keyless demo stays open when sign-in is not required", async () => {

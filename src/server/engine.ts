@@ -1,3 +1,4 @@
+import { PUBLIC_VERIFICATION_CHECKS, type PublicVerificationView } from "../shared/views";
 import type { Database } from "bun:sqlite";
 import { clauseFor } from "../shared/clauses";
 import { canonicalJson, sha256Hex } from "../shared/canonical";
@@ -138,10 +139,6 @@ export class Engine {
   parties(id: string): { representative: string; contractor: string } {
     const t = this.terms(this.row(id));
     return { representative: t.representative.near_account, contractor: t.contractor.near_account };
-  }
-
-  contractRequiresParty(id: string): boolean {
-    return this.terms(this.row(id)).v === 3;
   }
 
   requireContractorToken(id: string, token: unknown) {
@@ -1023,6 +1020,17 @@ export class Engine {
   }
 
   // ================================================================ contractor verification
+
+  async publicVerification(id: string): Promise<PublicVerificationView> {
+    const row = this.row(id);
+    const result = await this.verify(id);
+    const checks: PublicVerificationView["checks"] = {};
+    for (const key of PUBLIC_VERIFICATION_CHECKS) {
+      const check = result.checks.find((item) => item.id === key);
+      if (check) checks[key] = check.ok;
+    }
+    return { terms_hash: row.hash, workflow_version: this.terms(row).v, overall: result.overall, checks, checked_at: this.d.now().toISOString() };
+  }
 
   async verify(id: string): Promise<VerifyView> {
     const row = this.row(id);

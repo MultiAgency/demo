@@ -110,14 +110,13 @@ The optional signed `agency_owner: {type: "dao", account_id: "<dao>"}` separates
 
 The New job form exposes an optional DAO owner for Report and invoice. Paperwork displays the platform-returned proposal transactions for a member to file and vote through their DAO wallet, then offers a status check. The application does not automatically submit those transactions. Provider-verified payment terms are still compared with the immutable job before a proposal is shown. A passed approval vote remains separate from settlement.
 
-The repository-relative SDK tarball and provenance are under `vendor/multiagency-sdk`; `gateway-pin.json` identifies the matching frozen local gateway. This is an unpublished local candidate, not a hosted capability claim. The pinned snapshot uses Node 24.22.3. Verify it and launch its existing offline stack with the Paperwork namespace:
+The repository-relative SDK tarball and provenance are under `vendor/multiagency-sdk`; `gateway-pin.json` now identifies final combined commit `252cba1d1e6642a5ea9f42ea4927f982423ed8e1` and candidate `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40`. SDK 0.5.9 is published with bytes identical to this retained pin; the matching gateway remains an offline candidate, not a hosted capability claim. Node 24.22.3 is required. The old `dao-payout-freeze` launcher targets the superseded overlay and must not supply final-candidate evidence. Verify/copy the current clean snapshot first:
 
 ```sh
-/Users/jlwaugh/.nvm/versions/node/v24.22.3/bin/node ../sdk/.test-artifacts/dao-payout-freeze/verify.mjs
-/Users/jlwaugh/.nvm/versions/node/v24.22.3/bin/node ../sdk/.test-artifacts/dao-payout-freeze/start-stack.mjs --app multiagency-paperwork --dao-treasury --no-browser
+bun --no-env-file scripts/demo-job-restart-local.ts --preflight
 ```
 
-In another terminal, set `PLATFORM_STACK_DIR` to the actual printed stack directory. Run one independent fixture at a time:
+Start the verified copy’s documented `test/e2e/stack.mjs` fixture with `--app multiagency-paperwork --dao-treasury --no-browser`, using its `offlineEnvironment()` and offline-network preload. Keep runtime artifacts under the owned copy (or give temporary runtime children access only to that copy’s dependency tree); never write runtime state into the frozen snapshot. Then set `PLATFORM_STACK_DIR` to the actual printed stack directory. Use a fresh stack for each independent fixture:
 
 ```sh
 PAPERWORK_JOB_DAO=1 PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_FIXTURE_NAME=dao-rework-check bun --no-env-file scripts/demo-job.ts

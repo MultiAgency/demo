@@ -134,3 +134,19 @@ The user independently reported a passing `bun run demo:browser` run and supplie
 
 
 > **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).
+
+
+## Final combined candidate pin (2026-11-12)
+
+The local restart launcher now reads `vendor/multiagency-sdk/gateway-pin.json`, verifies the repository-local SDK artifact checksum, and requires the matching clean snapshot/source/dependency fingerprint before copying it. It no longer silently selects the old SDK 0.5.7 snapshot. The current pair is platform commit `252cba1d1e6642a5ea9f42ea4927f982423ed8e1`, snapshot `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40`, SDK SHA-256 `4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a`. Run `bun --no-env-file scripts/demo-job-restart-local.ts --preflight` to verify/copy it without a job. A supplied stack remains explicitly caller-owned and must be fresh and loopback-only; its actual provenance must be recorded separately. Older receipts above remain historical and do not validate these pins. This handoff authorizes offline consumer checks only.
+
+
+## V2 merge-judgment restart (2026-11-12)
+
+```sh
+bun --no-env-file scripts/demo-job-restart-local.ts --v2
+```
+
+Uses the same unchanged pinned final gateway, clean source/dependency copy and two real app processes as the v3 default. The fixture signs a v2 job containing one $300 CSV deliverable, judges its eligible independently merged PR, suppresses the completed `/contracts/:id/run` app HTTP reply and kills the first process with SIGKILL. The second process must recover the original judgment/request/correlation and exact recipient, amount, approval, sequence and attempt fields. A repeated run must defer with no replacement request. Explicit approval remains unpaid until the same simulated payment settles; one successful provider record must equal the full signed scope. V2 has no report/invoice records, and its receipt records those fields as null rather than inventing them.
+
+The default v3 proof retains its submission/invoice identity and same-body idempotence assertions; it was rerun successfully after the shared harness change. V2 cannot be combined with collector, restoration, full-demo or provider-response-loss modes. Unknown workflows refuse before any stack/job starts. Both modes prove app-HTTP response loss and process restart only; they do not establish recovery from a lost gateway/provider response. Gateway transaction hashes remain absent. Current receipts are indexed in `/tmp/paperwork-v2-acceptance/verification.json`.

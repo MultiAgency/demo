@@ -133,7 +133,7 @@ Real `payouts/request` calls with Paperwork's own checks skipped (stand-in and l
 
 ## Verify
 
-The contractor's Verify page reads, through Paperwork, the platform's overview of the job's agent and the app's consents, and compares them with what the signed terms call for: policy applied and in force; actions = withdraw; assets = USDC; withdrawals = the payee; per-payment cap = largest deliverable; owner approval on; not frozen; a live payout grant; the payout consent expiring by the job end. As information: paid + balance ≤ total, and the daily and monthly limits (which are not what caps the job). Paperwork relays the platform's read; a payee-scoped proof from the platform is filed as a gap.
+The public Verify page shows only the terms hash, workflow version, overall status, allowlisted check booleans and check time. It relays Paperwork’s checks; it is not independent cryptographic proof or payment confirmation. Named parties can read detailed verification through the authenticated job view. Funding alone is not a provider-enforced lifetime job cap; the owner can deposit more, while daily and monthly limits reset.
 
 ## The stand-in and the stack
 

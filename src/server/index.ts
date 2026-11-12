@@ -1,4 +1,5 @@
 import index from "../web/index.html";
+import { frontendRoutes } from "./frontend";
 import { loadConfig } from "./config";
 import { createRuntime, type Runtime } from "./app";
 import { UserError } from "./engine";
@@ -10,6 +11,7 @@ export async function startServer(rt: Runtime, port: number, hostname?: string) 
     development: process.env.NODE_ENV !== "production" && !process.env.CI,
     routes: {
       "/": index,
+      ...(process.env.PAPERWORK_WEB_DIST ? frontendRoutes(process.env.PAPERWORK_WEB_DIST) : {}),
       "/api/*": (req) => rt.app.fetch(req),
     },
     fetch: () => new Response("Not found", { status: 404 }),

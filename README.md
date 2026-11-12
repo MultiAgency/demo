@@ -72,7 +72,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Paperwork pins the verified local `@multiagency/sdk` 0.5.9 candidate in `vendor/multiagency-sdk`; this artifact is not a published release. The dated [staging record committed at `764197a`](https://github.com/MultiAgency/platform/blob/764197a/docs/platform-staging.md) reports platform 0.5.7 deployed from source `cc90604`; its older production record reports 0.5.4. The recorded public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
+Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Paperwork pins the final combined local `@multiagency/sdk` 0.5.9 artifact from signed platform commit `252cba1d1e6642a5ea9f42ea4927f982423ed8e1`, with matching gateway candidate `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40`. Pins and the authoritative offline-only handoff are in `vendor/multiagency-sdk`; SDK 0.5.9 is now published with byte-identical content; Paperwork retains its verified vendored pin. This does not establish a deployed gateway or authorize rollout. The dated [staging record committed at `764197a`](https://github.com/MultiAgency/platform/blob/764197a/docs/platform-staging.md) reports platform 0.5.7 deployed from source `cc90604`; its older production record reports 0.5.4. The recorded public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
 
 ## Hire and work on the agent market
 
@@ -183,7 +183,8 @@ Paperwork uses the same sign-in as everything.dev apps: [Better-Auth](https://be
 |---|---|
 | Create a job, set it up, check merges, approve or reject, resolve, security test | The representative named in the terms |
 | Sign as contractor | The contractor named in the terms (plus their private link) |
-| Verify page | Nobody: it's public |
+| Minimal Verify status | Nobody: public app-relayed checks only |
+| Full job and detailed verification | Named representative or builder; owner preparations and deposits remain representative-only |
 
 ## Layout
 
