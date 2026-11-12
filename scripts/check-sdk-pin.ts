@@ -15,4 +15,10 @@ if (!sidecar.equals(installed)) throw new Error("Installed SDK provenance differ
 const provenance = JSON.parse(installed.toString());
 if (provenance.sourceHead !== pin.sourceHead || provenance.snapshot.runDigest !== pin.runDigest || provenance.dirtyPaths.length !== 0)
   throw new Error("SDK/gateway source bindings differ");
+// Keep active release guidance bound to the actual retained artifact, including in CI.
+const release = JSON.parse(read("docs/release-status.json").toString());
+if (release.pins.sdk_version !== JSON.parse(read("node_modules/@multiagency/sdk/package.json").toString()).version)
+  throw new Error("Release status SDK version differs from installed SDK");
+if (release.pins.sdk_sha256 !== pin.sdkTarballSha256 || release.pins.platform_source !== pin.sourceHead || release.pins.gateway_candidate !== pin.runDigest)
+  throw new Error("Release status differs from active SDK/gateway pins");
 console.log(JSON.stringify({ sdk_sha256: pin.sdkTarballSha256, source: pin.sourceHead, gateway: pin.runDigest, provenance_sha256: sha(installed) }, null, 2));

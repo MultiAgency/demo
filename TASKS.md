@@ -1,5 +1,7 @@
 # Tasks
 
+Current pins, completed acceptance and remaining gates: [release-status.json](docs/release-status.json). Dated implementation checkpoints below are historical evidence.
+
 Work on one task at a time, with a concrete result and an appropriate check. Routine implementation choices within an authorized task do not need another approval round; changes to authority or live operations follow [RULES.md](RULES.md).
 
 ## Selected priority: payment and recovery
@@ -20,7 +22,7 @@ Selected 2026-11-11 for the local milestone covering both Report and invoice and
 - [x] Rehearse whole-database blocker inventory and supervised handoff on disposable exports: both-version stand-in full/partial/unknown cases and v3 SDK processing/restart/original full settlement. The mixed-history copy remains blocked. [Scope and evidence](docs/recovery-acceptance.md#whole-database-recovery-rehearsal).
 - [x] Complete the required base v2/v3 local acceptance matrix: full v2 browser and independent v2 merge-judgment SIGKILL/restart now pass, alongside final-gateway full-scope SDK completion. Provider-response-loss continuation and historical installation remain separately unsupported/unverified; see docs/v2-acceptance.json.
 
-The proof/startup guard, collector/preview, restoration/export and scoped disposable handoff rehearsal are verified. Real historical provenance and unsupported recovery cases remain unresolved; the remaining acceptance branches stay open. The approved privacy boundary and its browser matrix are implemented. The remaining v2 payment browser and independent v2 process-restart cases now pass; fresh receipts are in docs/v2-acceptance.json. Existing Hermes work remains recorded below.
+The proof/startup guard, collector/preview, restoration/export and scoped disposable handoff rehearsal are verified. Real historical provenance and unsupported recovery cases remain unresolved; provider-response-loss continuation and real historical installation remain unverified. The approved privacy boundary and its browser matrix are implemented. The remaining v2 payment browser and independent v2 process-restart cases now pass; fresh receipts are in docs/v2-acceptance.json. Existing Hermes work remains recorded below.
 
 ## Hermes report-review assistant
 
@@ -43,7 +45,7 @@ Offline implementation and the hosted connection have separate evidence. See [He
 - [x] Enforce named-party full-job/detailed-verification reads and own-role signing requests. Authorize protected reads before SDK work, remove owner-only fields from builder views and use generic refusals/no-cache responses.
 - [x] Add the minimal public verification projection without raw identity/financial/consent data, and render it without an unauthorized full-job read in `src/web/pages/Verify.tsx`.
 - [x] Correct the claim that the funded total caps the job.
-- [x] Complete the privacy browser matrix for new/existing v2 and v3: named/unrelated/anonymous reads, own-role signing requests, original legacy recipient/signature/invitation preservation, refused-refresh clearing and public-only desktop/mobile Verify. Run `bun run demo:privacy:browser`; receipts identify exact unchanged pins. Full payment/SDK/restart acceptance branches remain separately open.
+- [x] Complete the privacy browser matrix for new/existing v2 and v3: named/unrelated/anonymous reads, own-role signing requests, original legacy recipient/signature/invitation preservation, refused-refresh clearing and public-only desktop/mobile Verify. Run `bun run demo:privacy:browser`; receipts identify exact unchanged pins. The named base payment/SDK/restart branches now pass; hosted and exceptional recovery limits are in docs/release-status.json.
 
 Done when the public view exposes only the approved fields, party/representative access follows the matrix, existing signatures/invitations remain valid, and the funding explanation matches the accounting boundary. The current defects are recorded in [PROGRESS.md](PROGRESS.md).
 
@@ -51,8 +53,8 @@ Done when the public view exposes only the approved fields, party/representative
 
 User requirement, 2026-11-12: builder jobs must work for wallet owner `multiagentic.near` and DAO owner `agentic.sputnik-dao.near`, with builder/payee `buildr.near` and attacker fixture role `hackr.near`. These are planned account roles, not permission to sign or spend. DAO representative authority remains to be verified from the DAO policy.
 
-- [x] Review the platform-owned DAO payout action contract supplied in the local SDK 0.5.9 handoff. Verified tarball SHA-256 `68a9924c224a3c7969c72243cefeb4e37864e0973f61e9c671bb39bd2759600b`: `payout` is a DAO consent scope; payout-agent creation, payout grants and approval votes are admitted; `read,payout` covers requests while a consent containing `owner` is refused. Earlier 0.5.7/0.5.8 refusals are superseded by this candidate contract, not by a hosted rollout. Do not substitute treasury/Market authority or wallet credentials.
-- [x] Adopt the SDK 0.5.9 candidate reproducibly and obtain an immutable matching gateway snapshot. The verified local/unpublished tarball is pinned under `vendor/multiagency-sdk` with checksum/provenance; the Docker build copies it before dependency installation. Matching snapshot `8f65066e6013f0c9f7fd68717f3bd11103b35d216034c329f002212fb3c6c0a7` is pinned in `gateway-pin.json` and verified with the platform-owned verifier. Extend the payout port/client to retain DAO proposal replies, omit wallet ownership on DAO creation, use the `payout` grant label and never call wallet `owner/submit` for DAO actions. Follow the platform handoff in `sdk/docs/app-access.md`.
+- [x] Review the platform-owned DAO payout action contract supplied in the local SDK 0.5.9 handoff. Initial contract-review tarball SHA-256 `68a9924c224a3c7969c72243cefeb4e37864e0973f61e9c671bb39bd2759600b` (historical, superseded by the current release pin): `payout` is a DAO consent scope; payout-agent creation, payout grants and approval votes are admitted; `read,payout` covers requests while a consent containing `owner` is refused. Earlier 0.5.7/0.5.8 refusals are superseded by this candidate contract, not by a hosted rollout. Do not substitute treasury/Market authority or wallet credentials.
+- [x] Adopt the SDK 0.5.9 candidate reproducibly and obtain an immutable matching gateway snapshot. The byte-verified published tarball is pinned under `vendor/multiagency-sdk` with checksum/provenance; the Docker build copies it before dependency installation. Current matching snapshot `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40` is pinned in `gateway-pin.json` and verified with the platform-owned verifier. Extend the payout port/client to retain DAO proposal replies, omit wallet ownership on DAO creation, use the `payout` grant label and never call wallet `owner/submit` for DAO actions. Follow the platform handoff in `sdk/docs/app-access.md`.
 - [x] Add explicitly signed optional DAO ownership to v3 report/invoice terms, distinct from the human representative; retain existing jobs' original terms, hashes, recipients and wallet ownership without reinterpretation.
 - [x] Route DAO setup, consents, creation, grant, policy and exact payout approval through supported platform proposals. Platform and chain checks retain membership, action permission, quorum, expiry and revocation authority; representative authentication alone cannot authorize spending. The human signs job terms, while each DAO action requires its own passed proposal. Actual hosted membership/quorum and wallet filing remain unverified.
 - [ ] Prove wallet and DAO workflows with simulated funds, including rejected/expired votes, unrelated actors, lost replies, restart and same-payment observation. Keep live budgets, fee limits, signatures and deployment separately authorized.
@@ -66,7 +68,7 @@ The local implementation now supports v3 DAO-owned builder jobs. Terms signature
 
 These are candidates, not agreed priorities. Additional source/application and platform dependencies remain in PROGRESS. Split a candidate into executable steps when it is selected.
 
-Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent filing with saved text can create a new gateway request hash. Saved-body reuse is not recovery of that unknown request; only known IDs are polled. The paired release review records quota/unsigned-request impact, with no demonstrated duplicate payout. The final combined committed platform/SDK artifacts were adopted and revalidated offline on 2026-11-12; current pins and receipts are recorded in PROGRESS.md. Publication/hosted acceptance and Paperwork Linux/container packaging remain separate gates.
+Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent filing with saved text can create a new gateway request hash. Saved-body reuse is not recovery of that unknown request; only known IDs are polled. The paired release review records quota/unsigned-request impact, with no demonstrated duplicate payout. The final combined committed platform/SDK artifacts were adopted and revalidated offline on 2026-11-12; current pins and receipts are recorded in PROGRESS.md. SDK publication and local Linux/container packaging are complete; remote CI and hosted acceptance remain separate gates.
 
 
 ## Local packaging and CI checkpoint
@@ -76,4 +78,4 @@ Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent
 - [x] Add read-only offline CI and validate with actionlint; local equivalent checks pass. Remote execution awaits an authorized push.
 - [x] Prepare explicit reviewed commit file set without staging or committing; exclude four inactive `0018f553` artifacts.
 
-The two remaining local v2 acceptance branches now pass; see docs/v2-acceptance.json. Owner review/commit, remote CI and hosted operational gates remain separate. This checkpoint is not publication/deployment clearance.
+The two remaining local v2 acceptance branches now pass; see docs/v2-acceptance.json. The reviewed code is committed at `049387d`; authorized push, remote CI and hosted operational gates remain separate. This checkpoint is not publication/deployment clearance.

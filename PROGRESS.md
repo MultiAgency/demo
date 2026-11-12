@@ -1,8 +1,10 @@
 # Progress
 
-Updated **2026-11-11** after the offline Hermes/key-setup review. The local milestone covers both Report and invoice (v3) and Pay on merge (v2).
+Current local release status: [release-status.json](docs/release-status.json). Validated code is committed at `049387d`; the named offline acceptance and Linux packaging gates pass. Remote CI and hosted clearance remain pending. The dated checkpoints below preserve their original evidence and then-open limitations.
 
-## Latest checks
+Historical update **2026-11-11** after the offline Hermes/key-setup review. The local milestone covers both Report and invoice (v3) and Pay on merge (v2).
+
+## Historical checkpoint — 2026-11-11
 
 Bun **1.4.2**, TypeScript **7.0.2**, SDK **0.5.7**; base HEAD `1833cb7` plus the reviewed Hermes/key-setup files and documentation updates. The recovery/export/rehearsal work is committed at that HEAD.
 
@@ -41,7 +43,7 @@ Evidence links are supplied references, not fetched or quality-verified artifact
 
 ## Next
 
-Finish final artifact pinning and acceptance against the coordinator-approved platform candidate. The private-job/minimal-public-verification boundary is implemented locally; remaining SDK/browser acceptance branches stay explicit in [TASKS.md](TASKS.md).
+Review and commit this documentation/pin-consistency follow-up, then obtain authorization to push the local candidate and run remote CI. Final artifact pinning, named offline browser/restart acceptance and Linux packaging pass. Hosted work waits for platform staging clearance and scoped authorization; see [current release status](docs/release-status.json).
 
 Existing manual demos remain untouched under the user's local run/freeze confirmation. Production deployments/restarts remain paused; local checks grant no live-operation authority.
 

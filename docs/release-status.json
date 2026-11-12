@@ -1,0 +1,31 @@
+{
+  "as_of": "2026-11-12",
+  "scope": "Current local release status; not deployment authorization",
+  "validated_code_commit": "049387dd1e62899db6e31ebe9cf8919789f360c1",
+  "pins": {
+    "sdk_version": "0.5.9",
+    "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+    "platform_source": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
+    "gateway_candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40"
+  },
+  "sdk_publication": "Coordinator verified public npm archive byte-identical to retained tested artifact; no repin required",
+  "local_evidence": {
+    "v2": "docs/v2-acceptance.json",
+    "packaging": "docs/local-release-review.json",
+    "final_consumer_checkpoint": "docs/final-consumer-252cba1.json",
+    "tests": 1549,
+    "assertions": 10377,
+    "typecheck": "passed",
+    "workflow_lint": "passed",
+    "linux_container_smoke": "arm64 and amd64 passed offline; amd64 used emulation"
+  },
+  "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
+  "remaining": [
+    "Authorized push and remote CI on the reviewed candidate; local workflow lint is not a GitHub run",
+    "Platform staging-ready handoff, Market-route/shared-authority and recovery clearance",
+    "Supervised real wallet sign-in/signatures, DAO membership/quorum and independently confirmed payment",
+    "Provider-response-loss G14 continuation, DAO SIGKILL recovery and real historical installation remain unverified",
+    "Optional hosted NEAR/Hermes review is unverified and can remain disabled"
+  ],
+  "authorization": "No push, merge, deployment, staging restart, credential mutation or live financial action authorized"
+}

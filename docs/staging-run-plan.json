@@ -1,5 +1,5 @@
 {
-  "status": "NAMED LOCAL ACCEPTANCE/PACKAGING GATES PASS; OWNER REVIEW/COMMIT, REMOTE CI AND HOSTED APPROVAL REMAIN",
+  "status": "LOCAL CODE COMMITTED; CLEANUP REVIEW, AUTHORIZED PUSH, REMOTE CI AND HOSTED APPROVAL REMAIN",
   "accounts": {
     "wallet_agency_owner": "multiagentic.near",
     "dao_agency_owner": "agentic.sputnik-dao.near",
@@ -43,9 +43,9 @@
   },
   "user_confirmed_blockers": [
     "Market-route proof remains unverified; Market executor rollout held",
-    "Staging maintenance remains active; normal restart unauthorized",
+    "Last coordinator handoff reports staging maintenance; obtain fresh staging-ready clearance before any restart",
     "Configured provider-key/external authority and historical recovery limits remain",
-    "No publication, deployment, live signatures or funds authorization"
+    "SDK publication is complete; no Paperwork push, deployment, live signatures or funds authorization"
   ],
   "pending_inputs": [
     "Actual staging origin",
@@ -56,5 +56,6 @@
   "live_actions_performed": false,
   "offline_consumer_results": "docs/final-consumer-252cba1.json",
   "latest_local_review": "docs/local-release-review.json",
-  "latest_v2_acceptance": "docs/v2-acceptance.json"
+  "latest_v2_acceptance": "docs/v2-acceptance.json",
+  "current_release_status": "docs/release-status.json"
 }
