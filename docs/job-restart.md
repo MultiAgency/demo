@@ -1,6 +1,6 @@
-# Full app process restart
+# Paperwork process restart
 
-This proof runs Covenant as two distinct operating-system processes against the independent local platform gateway through SDK 0.5.6. Both app processes use the same durable SQLite database. The platform provider, chain, signatures, deposits and settlement remain simulated; this is neither hosted acceptance nor a real payment.
+The default command runs Paperwork as two distinct operating-system processes against the independent local platform gateway through SDK 0.5.7. Dated evidence below retains the SDK version used by each recorded run. Both app processes use the same durable SQLite database. The platform provider, chain, signatures, deposits and settlement remain simulated; this is neither hosted acceptance nor a real payment.
 
 The injected fault is specifically a lost **app HTTP proposal response**. A loopback proxy forwards the proposal, lets the application persist its judgment/payment identity and complete the SDK request, then suppresses the HTTP response and aborts the caller. The runner kills that app process with `SIGKILL`, starts a new one, and recovers the existing held payout by reading its retained identity. It never replaces the uncertain proposal with a new payment request.
 
@@ -13,6 +13,8 @@ bun run demo:job:restart
 ```
 
 The default command needs no environment variables or placeholder path. It launches `scripts/demo-job-restart-local.ts`, which finds the workspace's pinned platform snapshot `36a66cb4212faef9d651a342baead7203238eb19d866acf9a8b2ec6ef1e76518` and matching installed Node 24.22.2, verifies the source and dependencies, and copies them into a unique temporary directory. It starts the existing prebuilt offline stack, reads its actual ready `state.json` path, invokes the restart runner with that path and stops its owned stack afterward. It never rebuilds or mutates the sibling checkout or frozen artifact, installs dependencies, calls a hosted gateway or issues a live credential.
+
+The selected platform harness must support the exact `--app multiagency-paperwork` namespace. Earlier Covenant receipts and the older snapshot pin do not establish that support for this candidate.
 
 The launcher preserves public dependency bytes and internal symlinks, compares before-copy, copied and after-copy fingerprints, and sanitizes child environments. Its `launcher-receipt.json` records snapshot provenance, child results and retained job receipt paths. Logs and failed-run artifacts remain available. Only process groups created by this launcher are signalled during bounded cleanup.
 
@@ -31,7 +33,7 @@ bun scripts/demo-job-restart-local.ts --bootstrap-only
 To add the existing provider withdrawal-response fault on its own fresh stack:
 
 ```bash
-JOB_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart
+PAPERWORK_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart
 ```
 
 In that mode the initial platform correlation may be unknown. Submission, invoice, judgment and request IDs must remain unchanged; a correlation is accepted only when the original SDK request later supplies it. A bounded unresolved result fails with its database and IDs retained. It never creates another payment to obtain a successful receipt. Verification status for this optional mode is recorded separately from the default app-HTTP proof.
@@ -57,6 +59,16 @@ HTTP requests have bounded timeouts (30 seconds; five seconds for startup health
 The application runner stops its app processes and proxy. The default launcher then stops its own simulated gateway. An explicitly supplied stack remains caller-owned and is left running for its owner.
 
 Preserve a failed run's database and receipt for inspection. A failed or uncertain receipt does not authorize a replacement payment in that stack; start another fresh isolated stack only for a separate test.
+
+## Exported-bundle recovery rehearsal
+
+```sh
+env -u PLATFORM_STACK_DIR -u PAPERWORK_RESTART_COLLECT -u PAPERWORK_RESTART_DROP_WITHDRAW PAPERWORK_RECOVERY_REHEARSAL=1 bun --no-env-file scripts/demo-job-restart-local.ts
+```
+
+This opt-in mode extends the default proof after its original explicit approval. It stops the app before settlement, seeds historical local state only in separate fixture backups, inventories every known database compatibility blocker and exports two retained bundles. A mixed-history working copy must refuse the unsafe-budget-release guard without a listener, SDK calls or database changes. Only a clean bundle's separate working copy is resumed, killed and restarted across two additional app processes with timers disabled and SDK mutations blocked/traced. Both must successfully observe the original processing payout/payment; the already-approved original payment then settles once through the existing simulated control.
+
+The source and all bundle bytes remain unchanged and pass completed-bundle reuse afterward. This is v3 SDK processing/full-settlement coverage; v2, unknown and partial cases have separately labelled stand-in tests. It supplies no real historical or production resumption clearance. [Full procedure and limits](recovery-acceptance.md#whole-database-recovery-rehearsal) and [dated receipt](recovery-acceptance.md#whole-database-rehearsal-checkpoint) record the fresh source and exact checks. Collector, full-demo and provider-response-drop modes cannot be combined with this mode; their existing receipts remain separate.
 
 ## Wallet-signing follow-up evidence — November 11, 2026
 
@@ -119,3 +131,22 @@ That earlier run extended the SQLite connection-reopen check to a true applicati
 ## Independent developer reproduction
 
 The user independently reported a passing `bun run demo:browser` run and supplied its artifact `covenant-browser-N2Lmuu`. The retained receipt at `/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/covenant-browser-N2Lmuu/receipt.json` records the simulated job `c_5048d896ad77`, $300 paid and one successful transfer. This is a separate developer reproduction of the earlier browser command, reported by the user and corroborated by its local receipt; it is not hosted authentication, real-wallet or real-payment evidence. No external actor was contacted.
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).
+
+
+## Final combined candidate pin (2026-11-12)
+
+The local restart launcher now reads `vendor/multiagency-sdk/gateway-pin.json`, verifies the repository-local SDK artifact checksum, and requires the matching clean snapshot/source/dependency fingerprint before copying it. It no longer silently selects the old SDK 0.5.7 snapshot. The current pair is platform commit `252cba1d1e6642a5ea9f42ea4927f982423ed8e1`, snapshot `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40`, SDK SHA-256 `4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a`. Run `bun --no-env-file scripts/demo-job-restart-local.ts --preflight` to verify/copy it without a job. A supplied stack remains explicitly caller-owned and must be fresh and loopback-only; its actual provenance must be recorded separately. Older receipts above remain historical and do not validate these pins. This handoff authorizes offline consumer checks only.
+
+
+## V2 merge-judgment restart (2026-11-12)
+
+```sh
+bun --no-env-file scripts/demo-job-restart-local.ts --v2
+```
+
+Uses the same unchanged pinned final gateway, clean source/dependency copy and two real app processes as the v3 default. The fixture signs a v2 job containing one $300 CSV deliverable, judges its eligible independently merged PR, suppresses the completed `/contracts/:id/run` app HTTP reply and kills the first process with SIGKILL. The second process must recover the original judgment/request/correlation and exact recipient, amount, approval, sequence and attempt fields. A repeated run must defer with no replacement request. Explicit approval remains unpaid until the same simulated payment settles; one successful provider record must equal the full signed scope. V2 has no report/invoice records, and its receipt records those fields as null rather than inventing them.
+
+The default v3 proof retains its submission/invoice identity and same-body idempotence assertions; it was rerun successfully after the shared harness change. V2 cannot be combined with collector, restoration, full-demo or provider-response-loss modes. Unknown workflows refuse before any stack/job starts. Both modes prove app-HTTP response loss and process restart only; they do not establish recovery from a lost gateway/provider response. Gateway transaction hashes remain absent. Current receipts are indexed in `/tmp/paperwork-v2-acceptance/verification.json`.

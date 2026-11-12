@@ -38,7 +38,7 @@ export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held
     case "agent_frozen":
       return { id: "freeze", title: "Freeze", text: `${terms.representative.near_account} froze this contract's agent. Nothing pays until they unfreeze it.` };
     case "contract_ending":
-      return { id: "term", title: "Term clause", text: `The contract ends ${terms.end}; Covenant stops requesting payouts in its last minutes.` };
+      return { id: "term", title: "Term clause", text: `The contract ends ${terms.end}; Paperwork stops requesting payouts in its last minutes.` };
     case "policy_mismatch":
     case "setup":
     case "grant_missing":
@@ -51,7 +51,7 @@ export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held
     case "duplicate_held_payout":
       return { id: "platform", title: "Platform rule", text: "Platform rule: one held payout per payee, asset and amount at a time." };
     case "reviewed_policy_changed":
-      return { id: "platform", title: "Platform rule", text: "Platform rule: the policy changed after Covenant read it, so nothing was sent." };
+      return { id: "platform", title: "Platform rule", text: "Platform rule: the policy changed after Paperwork read it, so nothing was sent." };
     case "request_conflict":
       return { id: "platform", title: "Platform rule", text: "Platform rule: this request id was already used with different terms." };
     default:
@@ -72,10 +72,10 @@ function setupClause(code: string, terms: Terms): Clause {
     grant_expired: "The agent's payout grant has expired (the platform issues it for 30 days). The representative issues it again.",
     grant_purpose_denied: "The agent's grant doesn't cover payouts. Issue a payout grant.",
     policy_not_in_force: "The signed policy isn't in force yet.",
-    policy_mismatch: "The live policy no longer matches the signed contract. Covenant won't request payouts until it does.",
+    policy_mismatch: "The live policy no longer matches the signed contract. Paperwork won't request payouts until it does.",
     setup: "The contract's agent isn't fully set up yet.",
     recipient_not_registered: `${terms.payee.address} isn't registered on the USDC contract yet.`,
-    credential: "The platform refused Covenant's app credential. The operator has to fix it.",
+    credential: "The platform refused Paperwork's app credential. The operator has to fix it.",
     consent_revoked: "The representative revoked the app's consent. Sign a new consent.",
   };
   return { id: "setup", title: "Setup", text: text[code] ?? "The app's consent doesn't cover this request. Sign a new consent." };

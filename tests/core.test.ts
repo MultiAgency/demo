@@ -117,7 +117,7 @@ describe("policy request (what the platform is asked to enforce)", () => {
 describe("NEP-413", () => {
   const wallet = new DevWallet();
   const pk = wallet.addAccount("alice.demo");
-  const payload = { message: "hello", nonce: randomNonce(), recipient: "covenant" };
+  const payload = { message: "hello", nonce: randomNonce(), recipient: "multiagency-paperwork" };
 
   test("a demo wallet signature verifies", () => {
     const s = wallet.sign("alice.demo", payload);

@@ -123,3 +123,6 @@ Independent simulator state recorded **one agent**, **zero provider errors**, an
 - The stack does support withdrawal-response injection; its current unresolved recovery case is G14 above. Hosted approval/settlement, a hosted AI assessment, a real wallet flow and real payment were not tested. Browser wallet signing was incomplete at that milestone; the local follow-up is in [wallet-signing.md](wallet-signing.md). Actual wallet/hosted evidence remains absent.
 
 Exact repeatable commands and a filming sequence are in [job-demo.md](job-demo.md); the implementation/ownership map is in [workflow-map.md](workflow-map.md).
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

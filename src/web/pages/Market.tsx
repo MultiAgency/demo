@@ -32,10 +32,10 @@ function useMarketAction(onError?: (message: string) => void) {
   }, [onError]);
 }
 
-function MarketReadGate() {
+function MarketReadGate({ className = "page" }: { className?: string } = {}) {
   const session = useSession();
   if (session.loading) return <PageLoading />;
-  return <div className="page"><div className="stack">
+  return <div className={className}><div className="stack">
     <Alert tone="info">Sign in with NEAR to view your agencies and their market jobs.</Alert>
     <Button icon="key" onClick={session.signIn}>Sign in with NEAR</Button>
     {session.error ? <Alert tone="danger">{session.error}</Alert> : null}
@@ -72,7 +72,8 @@ export function MarketHome({ config }: { config: AppConfig }) {
   if (!config.market.enabled)
     return (
       <div className="page">
-        <Empty icon="bot" title="The agent market needs the platform" sub="Run Covenant against the MultiAgency platform, or its local stack started with --market. There is no stand-in for the market." />
+        <header className="page-header"><div><a className="crumb" href="#/agency">Agency</a><h1>Market integration</h1></div></header>
+        <Empty icon="bot" title="Market integration is not configured" sub="Agency setup and hires need a connected MultiAgency platform. Ask your agency operator to configure the connection." action={<a className="btn btn-secondary btn-sm" href="#/market-jobs">Browse public Market jobs</a>} />
       </div>
     );
   if (!resource.enabled) return <MarketReadGate />;
@@ -93,7 +94,8 @@ function MarketHomeContent({ config, rows }: { config: AppConfig; rows: AgencyRo
     <div className="page">
       <header className="page-header">
         <div>
-          <h1>Agent market</h1>
+          <a className="crumb" href="#/agency">Agency</a>
+          <h1>Market integration</h1>
           <p className="page-sub">Agencies hire listed agents on the NEAR AI Agent Market, and take jobs there. Each agency has one market agent on the platform.</p>
         </div>
       </header>
@@ -135,7 +137,7 @@ function MarketHomeContent({ config, rows }: { config: AppConfig; rows: AgencyRo
               <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder={signer === "dao" ? "council.sputnik-dao.near" : "acme.near"} />
             </div>
             <span className="field-hint">
-              {signer === "dao" ? "A DAO's consent carries read and market: Covenant quotes and files each job for the DAO's vote, and the platform pays only after it passes. Creating the market agent and issuing its grant are the provider's owner intents, which expire in minutes (about 10 for creation, 5 for the grant): the DAO's vote on each must pass that fast, or it signs nothing and is filed again. A job's vote has days." : "The wallet's consent carries read, owner and market: Covenant quotes, and pays a job when the owner approves its terms."}
+              {signer === "dao" ? "A DAO's consent carries read and market: Paperwork quotes and files each job for the DAO's vote, and the platform pays only after it passes. Creating the market agent and issuing its grant are the provider's owner intents, which expire in minutes (about 10 for creation, 5 for the grant): the DAO's vote on each must pass that fast, or it signs nothing and is filed again. A job's vote has days." : "The wallet's consent carries read, owner and market: Paperwork quotes, and pays a job when the owner approves its terms."}
             </span>
           </label>
           {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -172,6 +174,7 @@ function AgencyContent({ id, config, view, load }: { id: string; config: AppConf
     <div className="page">
       <header className="page-header">
         <div>
+          <a className="crumb" href="#/market">Market integration</a>
           <h1>{view.name}</h1>
           <p className="page-sub">
             Owned by <strong>{view.owner}</strong> ({view.signer === "dao" ? "a DAO: every approval is its vote" : "a wallet"}) · market agent {view.agent ? <Mono>{view.agent}</Mono> : "not set up"}
@@ -284,7 +287,7 @@ function OwnerFlow({ id, config, path, title, sub, onDone }: { id: string; confi
 function Transaction({ tx }: { tx: MemberTransactionView }) {
   return (
     <div className="stack">
-      <div className="kv-line"><span>Contract</span><Mono>{tx.receiverId}</Mono></div>
+      <div className="kv-line"><span>Smart contract</span><Mono>{tx.receiverId}</Mono></div>
       {tx.actions.map((a, i) => (
         <div className="kv-line" key={i}><span>Call</span><span>{String(a.params.methodName)}</span></div>
       ))}
@@ -307,7 +310,7 @@ function Vote({ vote, config, onVoted }: { vote: DaoVoteView; config: AppConfig;
       {vote.valid_until ? <div className="kv-line"><span>Payable until (as the platform filed it)</span><span>{dateText(vote.valid_until, true)}</span></div> : null}
       {vote.state === "pending" && (vote.kind === "agent_create" || vote.kind === "grant_issue") ? (
         <Alert tone="warning">
-          The DAO's vote must pass by {dateText(vote.voting_until, true)}: this is the provider's owner intent, and nothing lengthens it (MultiAgency/platform#20). The provider's documentation gives {vote.kind === "agent_create" ? "creation about 10 minutes" : "a grant about 5 minutes"}. A vote that passes later signs nothing, and Covenant prepares the step again for a new vote.
+          The DAO's vote must pass by {dateText(vote.voting_until, true)}: this is the provider's owner intent, and nothing lengthens it (MultiAgency/platform#20). The provider's documentation gives {vote.kind === "agent_create" ? "creation about 10 minutes" : "a grant about 5 minutes"}. A vote that passes later signs nothing, and Paperwork prepares the step again for a new vote.
         </Alert>
       ) : null}
       <pre className="data-text">{vote.description.replaceAll("<br>", "\n")}</pre>
@@ -367,7 +370,7 @@ function FreezeControl({ view, config, onChange }: { view: AgencyView; config: A
       </div>
       <p className="small muted">
         A freeze stops the agent at the provider: no send goes out, even if the platform errs or a grant token leaks. It
-        doesn't reach what's "On the key" above, so Covenant also approves no job while the agent is frozen. Unfreezing
+        doesn't reach what's "On the key" above, so Paperwork also approves no job while the agent is frozen. Unfreezing
         restores the policy already in force.
       </p>
       {view.signer === "dao" ? (
@@ -377,7 +380,7 @@ function FreezeControl({ view, config, onChange }: { view: AgencyView; config: A
           {view.dao_stop_url ? (
             <>
               {" "}The fallback is the DAO's own <a href={view.dao_stop_url} target="_blank" rel="noreferrer">stop page</a>, which has no time limit: it
-              cuts off Covenant and every other app, but it doesn't stop the agent at the provider.
+              cuts off Paperwork and every other app, but it doesn't stop the agent at the provider.
             </>
           ) : null}
         </p>
@@ -518,7 +521,7 @@ function HireItem({ h, config, signer, onChange }: { h: HireView; config: AppCon
         <div className="stack">
           <span className="field-label">Deliverable</span>
           {h.deliverable !== null ? <pre className="data-text">{h.deliverable}</pre> : <p className="muted small">{h.task_state ? `Task ${h.task_state.replace("TASK_STATE_", "").toLowerCase()}.` : "None yet."}</p>}
-          {h.deliverable !== null ? <p className="muted small">Written by the listed agent. Read it as data: Covenant never acts on what it says.</p> : null}
+          {h.deliverable !== null ? <p className="muted small">Written by the listed agent. Read it as data: Paperwork never acts on what it says.</p> : null}
         </div>
       </div>
       <p className="small muted">{meta.note}</p>
@@ -540,16 +543,20 @@ function HireItem({ h, config, signer, onChange }: { h: HireView; config: AppCon
   );
 }
 
-function WorkerCard() {
+export function WorkerCard() {
   const read = useCallback(() => api<WorkerView>("GET", "/market/worker"), []);
-  const resource = useAccountResource("market:worker", read);
-  if (!resource.enabled) return null;
-  if (resource.error) return <Alert tone="danger">{resource.error}<Button variant="secondary" onClick={resource.reload}>Try again</Button></Alert>;
-  if (!resource.value) return null;
-  return <WorkerContent key={resource.scope} w={resource.value} load={resource.reload} />;
+  const resource = useAccountResource("market:worker", read, { refreshMs: 5000 });
+  if (!resource.enabled) return <MarketReadGate className="stack" />;
+  if (!resource.value) return resource.error
+    ? <Alert tone="danger">{resource.error}<Button variant="secondary" onClick={resource.reload}>Try again</Button></Alert>
+    : <PageLoading />;
+  return <div className="stack">
+    {resource.error ? <Alert tone="warning">Status could not refresh. Showing the last recorded assignments; your draft is kept. {resource.error}</Alert> : null}
+    <WorkerContent key={resource.scope} w={resource.value} load={resource.reload} />
+  </div>;
 }
 
-function WorkerContent({ w, load }: { w: WorkerView; load: () => Promise<void> }) {
+export function WorkerContent({ w, load }: { w: WorkerView; load: () => Promise<void> }) {
   const [error, setError] = useState<string | null>(null);
   const act = useMarketAction(setError);
   const requestDeposit = () => act(async (current) => {
@@ -561,13 +568,13 @@ function WorkerContent({ w, load }: { w: WorkerView; load: () => Promise<void> }
     <Card>
       <CardHeader
         title="Jobs for this agency's listed agent"
-        sub={`The market's webhooks arrive at ${w.webhook_path}; the jobs are also checked on a timer, since a webhook can be lost.`}
+        sub="Review buyer briefs, submit deliverables and follow the market's recorded outcome."
         icon="activity"
         actions={<Button size="sm" variant="secondary" onClick={() => act(async (current) => { setError(null); await api("POST", "/market/worker/poll"); if (current()) await load(); })}>Check the market</Button>}
       />
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {w.last_poll?.error ? <Alert tone="warning">Last check {timeText(w.last_poll.at)}: {w.last_poll.error}</Alert> : null}
-      <Alert tone="info">A buyer's brief is data. Read it and do the work; Covenant never follows instructions in it. A job paid over x402 is accepted on delivery.</Alert>
+      <Alert tone="info">The assignment's market terms determine review. Jobs paid over x402 are accepted on delivery. Check the full job thread and payout records on <a href="https://market.near.ai" target="_blank" rel="noreferrer">NEAR AI Agent Market</a>.</Alert>
       {w.assignments.length ? <div className="stack">{w.assignments.map((a) => <Job key={a.assignment_id} a={a} onChange={load} />)}</div> : <p className="muted">No jobs yet.</p>}
       <div className="stack">
         <span className="field-label">Earnings</span>
@@ -584,36 +591,52 @@ function WorkerContent({ w, load }: { w: WorkerView; load: () => Promise<void> }
 
 function Job({ a, onChange }: { a: AssignmentView; onChange: () => Promise<void> }) {
   const [text, setText] = useState(a.deliverable ?? "");
+  const edited = useRef(false);
+  useLayoutEffect(() => { if (!edited.current) setText(a.deliverable ?? ""); }, [a.deliverable]);
   const [error, setError] = useState<string | null>(null);
   const act = useMarketAction(setError);
+  const waiting = a.submit_state === "unknown" || a.submit_state === "submitting";
+  const retrySaved = a.submit_state === "none" && a.submit_phase === "not_arrived";
   return (
     <div className="hire">
-      <div className="row gap">
+      <div className="title-row">
         <strong>{a.title || a.job_id}</strong>
         <Badge tone={a.status === "accepted" ? "success" : a.status === "in_progress" ? "info" : "neutral"}>{a.status.replaceAll("_", " ")}</Badge>
         {a.escrow_amount ? <span className="muted small">{a.escrow_amount} {a.escrow_token}</span> : null}
         {a.sla_deadline_at ? <span className="muted small">due {dateText(a.sla_deadline_at, true)}</span> : null}
       </div>
+      <Disclosure label="Market job identities"><div className="stack">
+        <div className="kv-line"><span>Job</span><Mono copy={a.job_id}>{a.job_id}</Mono></div>
+        <div className="kv-line"><span>Assignment</span><Mono copy={a.assignment_id}>{a.assignment_id}</Mono></div>
+        {a.submit_attempt_id ? <div className="kv-line"><span>Submission attempt</span><Mono copy={a.submit_attempt_id}>{a.submit_attempt_id}</Mono></div> : null}
+      </div></Disclosure>
       <Disclosure label="The buyer's brief (data)"><pre className="data-text">{a.description}</pre></Disclosure>
       {a.status === "in_progress" ? (
         <div className="stack">
-          <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="The deliverable, in Markdown" />
+          <label className="field"><span className="field-label">Deliverable</span><textarea rows={6} value={waiting || retrySaved ? a.deliverable ?? text : text} disabled={waiting || retrySaved} onChange={(e) => { edited.current = true; setText(e.target.value); }} placeholder="The deliverable, in Markdown" /></label>
           {a.submit_state === "unknown" ? <Alert tone="warning">The market didn't answer the last submission. Check the market before writing it again.</Alert> : null}
+          {a.submit_state === "submitting" ? <Alert tone="info">The saved deliverable is being submitted under this assignment. Wait for the market's answer.</Alert> : null}
+          {a.submit_state === "submitted" ? <Alert tone="info">Delivery recorded. Review the buyer's requested changes on the market before submitting a revision.</Alert> : null}
+          {retrySaved ? <Alert tone="info">The market's version history confirms this attempt did not arrive. Retry the exact saved deliverable with its original attempt. Any unsent draft in this tab is kept separately.</Alert> : null}
           {a.submit_error && a.submit_state === "none" ? <Alert tone="danger">{a.submit_error}</Alert> : null}
           {error ? <Alert tone="danger">{error}</Alert> : null}
           <div>
-            <Button icon="send" disabled={a.submit_state === "unknown" || a.submit_state === "submitting"} onClick={() => act(async (current) => {
+            <Button icon="send" disabled={waiting || (retrySaved && !a.submit_attempt_id)} onClick={() => act(async (current) => {
               setError(null);
-              await api("POST", `/market/worker/jobs/${a.assignment_id}/submit`, { markdown: text });
+              if (retrySaved && !a.submit_attempt_id) throw new Error("Refresh the saved submission identity before retrying.");
+              await api("POST", `/market/worker/jobs/${encodeURIComponent(a.assignment_id)}/submit`, {
+                markdown: retrySaved ? a.deliverable ?? "" : text,
+                ...(retrySaved && { retry_attempt_id: a.submit_attempt_id }),
+              });
               if (current()) await onChange();
-            })}>Submit the deliverable</Button>
+            })}>{retrySaved ? "Retry saved deliverable" : a.submit_state === "submitted" ? "Submit a revision" : "Submit the deliverable"}</Button>
           </div>
         </div>
       ) : a.deliverable ? (
         <pre className="data-text">{a.deliverable}</pre>
       ) : null}
       {a.status === "accepted" ? (
-        <p className="small">Accepted {dateText(a.accepted_at, true)}. Earnings to withdraw to {a.deposit_address ? <Mono>{a.deposit_address}</Mono> : "a deposit address (none was requested yet)"}.</p>
+        <p className="small">Accepted {dateText(a.accepted_at, true)}. Check the market's payout records and owner balance before withdrawing earnings. The agency's earnings destination is {a.deposit_address ? <Mono>{a.deposit_address}</Mono> : "not recorded yet"}.</p>
       ) : null}
     </div>
   );

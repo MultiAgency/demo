@@ -10,7 +10,7 @@ const MAINNET_RPC = "https://rpc.mainnet.fastnear.com";
 const MARKET_URL = "https://market.near.ai";
 
 /**
- * The platform Covenant talks to.
+ * The platform Paperwork talks to.
  * - `fake`: the in-process stand-in (keyless demo, tests). One throwaway dev key signs for every account, like the
  *   stack's fixture key; the fake chain trusts it everywhere.
  * - `remote`: the MultiAgency platform through `@multiagency/sdk`. With `stackDir` (a local platform stack, dev only),
@@ -28,11 +28,11 @@ export function makePlatform(cfg: PlatformConfig): PlatformKit {
   if (cfg.stackDir) {
     const stack = readStack(cfg.stackDir);
     if (cfg.deployment !== stack.deployment)
-      throw new Error(`The platform stack serves app deployment "${stack.deployment}", but Covenant is configured as "${cfg.deployment}"`);
+      throw new Error(`The platform stack serves app deployment "${stack.deployment}", but Paperwork is configured as "${cfg.deployment}"`);
     const send = caFetch(stack.caPem);
     const platform = new SdkPlatform({ url: stack.url, credential: stack.credential, deployment: stack.deployment, fetch: send, grantLabel: "invoices" });
     const controls = new StackControls(cfg.stackDir);
-    // Without `--market` the stack sets up no market agents and serves no market: Covenant shows no market then.
+    // Without `--market` the stack sets up no market agents and serves no market: Paperwork shows no market then.
     const market = stack.marketUrl
       ? { platform: new SdkMarket({ url: stack.url, credential: stack.credential, deployment: stack.deployment, fetch: send }), controls, url: stack.marketUrl, rpcUrl: stack.rpcUrl, owner: stack.owner, dao: stack.dao }
       : null;

@@ -21,7 +21,7 @@ export function PolicyCard(p: PolicyCardProps) {
   const values = p.scope.map((d) => Number(d.value_usd) || 0);
   const total = values.reduce((a, b) => a + b, 0);
   const largest = values.length ? Math.max(...values) : 0;
-  // locked: written into the platform policy (or Covenant's consent). Funding is what the company deposits, not a limit.
+  // locked: written into the platform policy (or the app's consent). Funding is what the company deposits, not a limit.
   const rows: { icon: IconName; label: string; value: string; locked: boolean }[] = [
     { icon: "user", label: "Pays only", value: p.payee || "—", locked: true },
     { icon: "zap", label: "One payment", value: largest ? `≤ ${usd(largest)}` : "—", locked: true },
@@ -34,7 +34,7 @@ export function PolicyCard(p: PolicyCardProps) {
     <div className={`policy-card policy-${status}`}>
       <div className="policy-top">
         <div>
-          <div className="policy-kicker">Contract agent</div>
+          <div className="policy-kicker">Job agent</div>
           <div className="policy-id" title={p.agentId ?? undefined}>{p.agentId ? short(p.agentId, 10, 6) : status === "draft" ? "Not created yet" : "—"}</div>
         </div>
         <span className="policy-status">
@@ -60,7 +60,7 @@ export function PolicyCard(p: PolicyCardProps) {
         </span>
       </div>
       <div className="policy-app">
-        <div className="policy-app-label">{p.reportWorkflow ? "Proposed from the builder report and invoice" : "Judged by Covenant on every merge"}</div>
+        <div className="policy-app-label">{p.reportWorkflow ? "Proposed from the builder report and invoice" : "Judged by Paperwork on every merge"}</div>
         <div className="policy-app-row">
           <Icon name="pr" size={14} />
           {p.scope.length} deliverable{p.scope.length === 1 ? "" : "s"}

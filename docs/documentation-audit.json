@@ -1,0 +1,644 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-11-11",
+  "scope": "Review of the six root project documents against public application source, demo scripts, configuration and relevant tests, plus execution of the complete existing local test suite.",
+  "git_head": "77d7416171708dae00c4d8c36ecf459c4179b1b7",
+  "working_tree_included": true,
+  "source_unchanged_during_checks": true,
+  "public_source": {
+    "algorithm": "SHA-256 of sorted relative path + NUL + file bytes + NUL",
+    "sha256": "bfeab399676deccd9b7250f3223e0860b7a3ac9e080a9a1acb77b501596f57ab",
+    "files": [
+      {
+        "path": ".dockerignore",
+        "sha256": "96e7375a8b474bc852ed2c906f19117dac3012079f1b27b678e08cc99cef9001"
+      },
+      {
+        "path": ".env.example",
+        "sha256": "9d44a87f0bfebe73ea1e3d32c6c398c28c9135f2b93d7631e6cd45940577b4fb"
+      },
+      {
+        "path": ".gitignore",
+        "sha256": "d421f43cc853ffe2cc23346ebe9577cf43803b6411ebeecc2d1c4e76b1e448a4"
+      },
+      {
+        "path": ".railway/railway.ts",
+        "sha256": "b9a04b461c3a86554eeef97a35ac02255c3ed0a0d855c27bca0c25d25c3ca1ff"
+      },
+      {
+        "path": ".railway/tsconfig.json",
+        "sha256": "945351ccfae3b6d3d3b11589f3ebbde1166cdc4c99392f8bff71b869148d5ca0"
+      },
+      {
+        "path": "Dockerfile",
+        "sha256": "b39eff42c9578cc353d4155070dbaba0a47cb730b7f3de47a1863109c202b714"
+      },
+      {
+        "path": "bos.app.ts",
+        "sha256": "4c2bfb61ec5492c55237b81d44319ed9a91a3cbfe72d491392158bf7af27ba76"
+      },
+      {
+        "path": "bun.lock",
+        "sha256": "903e43129cae7f04874a732774f2064828c1e4cd8432dab9f0ba2943ba41cfb5"
+      },
+      {
+        "path": "package.json",
+        "sha256": "36b3fa6f0ef29dd24427ac154c56ca8161774530990d7a69d64a5629342e6587"
+      },
+      {
+        "path": "scripts/demo-browser.ts",
+        "sha256": "d87ff81bd5b619984f771baeb9fd5ffa0ca2c532a60af310cc3a780bef8f5f61"
+      },
+      {
+        "path": "scripts/demo-e2e.ts",
+        "sha256": "55768baf4c40b40d537f6c517cb890fa225e178c75e6088b7d8d756899e80764"
+      },
+      {
+        "path": "scripts/demo-full.ts",
+        "sha256": "6bd41ae2dbb15fe02ff7507040b1a24988ef5aa0002d70e3b4631478d5f87783"
+      },
+      {
+        "path": "scripts/demo-job-restart-local.ts",
+        "sha256": "eafe8811f15957e3bec4c4b4b461a562f13ee6255da8ae82305a815a0f7db669"
+      },
+      {
+        "path": "scripts/demo-job-restart.ts",
+        "sha256": "74683926e869aaaebd55642daaa5a81768f39a720a67e495e52fe015f76fbdb9"
+      },
+      {
+        "path": "scripts/demo-job.ts",
+        "sha256": "14b45011e9f1251bc21d3c5b324b770c16df7ee323f623c1a226e6ad16bbe747"
+      },
+      {
+        "path": "scripts/demo-jobs.ts",
+        "sha256": "ec046bdc9f7779462e1d130daa4e3a73777422185deb27c64131911dbd2c2eba"
+      },
+      {
+        "path": "scripts/demo-market.ts",
+        "sha256": "7e2a9c4aff97306f65473c06f669b2466afb9a5e7133161711c035b955cdf1cd"
+      },
+      {
+        "path": "scripts/demo-stack.ts",
+        "sha256": "1379b7c1bf6763261ef53341fd1d28d3c1b0f8ca9417ca1f54bf50d6228a606d"
+      },
+      {
+        "path": "scripts/scenario-driver.ts",
+        "sha256": "13c5de07e378dc67bcbc69971eddd1e5b334bc884d3dde2f252be2e791ff1ab3"
+      },
+      {
+        "path": "scripts/scenario.ts",
+        "sha256": "f6bbb1fe9b0397a09238e56e2e4c39d0e1f134e4f62d84f1d43222cdd4521b2b"
+      },
+      {
+        "path": "src/server/app.ts",
+        "sha256": "3f70368ff3364dc31c996fd07b4125b008b9e1b4c8542fceff857749371da0f4"
+      },
+      {
+        "path": "src/server/auth.ts",
+        "sha256": "3e4a76812ce73bb0807093ddc0aa6d4391f99706c18d11dce1dee582ed831609"
+      },
+      {
+        "path": "src/server/config.ts",
+        "sha256": "42f62ac162b234c7fd7435aaacbf3efd832451e0fee72e335ce225400348eb0d"
+      },
+      {
+        "path": "src/server/db.ts",
+        "sha256": "d83ab0f6fe03cc5d36cb8d72bec7722f9f5f363f33bd9452467e398277329dd9"
+      },
+      {
+        "path": "src/server/engine.ts",
+        "sha256": "f717d27f811486d6a1881b39a67a9c423fc8691e0bb808fd33d40c6bb1a15226"
+      },
+      {
+        "path": "src/server/evidence/github.ts",
+        "sha256": "d702e5e2e3fc40382e2d2cd8ba0077aa8c5f47a330358ab6818c14233ad06f16"
+      },
+      {
+        "path": "src/server/index.ts",
+        "sha256": "50905a84839160d61c685797592499d4d72cca8c33e7130382bfdb3d811bc859"
+      },
+      {
+        "path": "src/server/job-judge.ts",
+        "sha256": "7a1af50196b89aa085b492d3037635e555f50fcc290f4e632161f43eb26f38ce"
+      },
+      {
+        "path": "src/server/jobs/attention.ts",
+        "sha256": "a3eb4cfbe680865ba8612e7c228b049bf891012a7bfa5c8fee60735a8d22b116"
+      },
+      {
+        "path": "src/server/jobs/openings.ts",
+        "sha256": "6fc746e51b18e93d0e9f56bfc1adfb37238acbf224525f8d18a954a8f44c25bc"
+      },
+      {
+        "path": "src/server/judge.ts",
+        "sha256": "865315ff4f9297fab8e7abd78c2256ceee83f08216886292901593ab922b703d"
+      },
+      {
+        "path": "src/server/market/agencies.ts",
+        "sha256": "3aefd8256983723aca34e2574e23eeadb3fe818fb032a1af9c965eab0e1af4b8"
+      },
+      {
+        "path": "src/server/market/api.ts",
+        "sha256": "2af872f8873432d2ebfe6897e464d88e13973357cd4e08db61358252eb45cdbf"
+      },
+      {
+        "path": "src/server/market/db.ts",
+        "sha256": "30296fd560d6d69006be8acc64218728fbe93ab0bad8f2ca563c97fd74d0fbff"
+      },
+      {
+        "path": "src/server/market/hires.ts",
+        "sha256": "79543e487f4e39f1c1b8ee3abe60d05a6aac06a4f54306dc8e50d811e82eccb0"
+      },
+      {
+        "path": "src/server/market/index.ts",
+        "sha256": "227d428f0eca8292322f93b56db876b81cb69fe527e212c65dd9d570723f35c1"
+      },
+      {
+        "path": "src/server/market/members.ts",
+        "sha256": "795ffae2f41880de5d98a293e8eb2cae08d99b8e7e7759f721796f1f7b2ec726"
+      },
+      {
+        "path": "src/server/market/port.ts",
+        "sha256": "ffc244520f64fa0a2811b970025d2bf2c8c13d01fbd436ab69b766dba449fe0e"
+      },
+      {
+        "path": "src/server/market/routes.ts",
+        "sha256": "a2ab86a75f8dc7f93bdfc8e801293fdab60b793cc09c9291f0478946ce10aa57"
+      },
+      {
+        "path": "src/server/market/sdk.ts",
+        "sha256": "adbd94d6444c226f2f910180afa0e1e0776115f1e76ab4573ff4ff11b979b80d"
+      },
+      {
+        "path": "src/server/market/worker.ts",
+        "sha256": "7909bf545758bdb4b612095fa32df4323100cd4f434bd74ae5aceea79f8f464c"
+      },
+      {
+        "path": "src/server/nep413.ts",
+        "sha256": "0003bad72fc7f51162c21c09024650f0e54640f3a1d3d597e085c026176f2bc2"
+      },
+      {
+        "path": "src/server/onboarding.ts",
+        "sha256": "3d9a9787fe7acb0e030f528534db77d3858961220f7ee280f1f2647cd952920b"
+      },
+      {
+        "path": "src/server/payouts.ts",
+        "sha256": "73ec2cd292330131fad2504484c00ad1ef442851c9c8a59f276c3893affc6b1a"
+      },
+      {
+        "path": "src/server/platform/chain.ts",
+        "sha256": "f243787024f221e48c3b0a75481b5983e8296adc641b768a00777a9c7acd0aea"
+      },
+      {
+        "path": "src/server/platform/client.ts",
+        "sha256": "9ec147ee2cb450febae1e0aba1804c33c4953801b7565845280f8a3d17a019b9"
+      },
+      {
+        "path": "src/server/platform/fake.ts",
+        "sha256": "7e13c1d5718a0e64f2ffa0a38f44409e58f76d13d5c64be90ba530b09e13dd50"
+      },
+      {
+        "path": "src/server/platform/index.ts",
+        "sha256": "9473a4f29c72b119f7b8e521cfebda5ce072c2e5779c8471489a9c334585698f"
+      },
+      {
+        "path": "src/server/platform/port.ts",
+        "sha256": "32348de83a89be141284b95e3f2499ce5c8e48460c06ca8b9139178708e2d18c"
+      },
+      {
+        "path": "src/server/platform/signer.ts",
+        "sha256": "d0b5111b2527dd78d4a3214fbf98293f10f34da9664395140e26eee8b8708a49"
+      },
+      {
+        "path": "src/server/platform/stack.ts",
+        "sha256": "acf061a9410a542b2a4ab2e8c5373187c8d2b5f8ad17f2f5d712c64794f46443"
+      },
+      {
+        "path": "src/shared/canonical.ts",
+        "sha256": "bc230a932cc3d392dca198b3fd5f11ee488b9613c38885dc6cd4dcdf92aacd1c"
+      },
+      {
+        "path": "src/shared/clauses.ts",
+        "sha256": "ca5c5fe87d1e9dff23041675faae13b1897fdb1351bcd9527ad14efb19c9afe3"
+      },
+      {
+        "path": "src/shared/demo.ts",
+        "sha256": "5f3e1738acbbc0df3e4ff722d0f4d4beab60e341234bfd1393a6cab1436e38ec"
+      },
+      {
+        "path": "src/shared/job-openings.ts",
+        "sha256": "30f510ae23336184145c7f99dd3ce475cbc46d1fde6120eba1ef12d34700fa74"
+      },
+      {
+        "path": "src/shared/jobs.ts",
+        "sha256": "e9a80f30780e7a7a305844a5fe46b4629e49413f6bae78235ce89234a163116f"
+      },
+      {
+        "path": "src/shared/market-board.ts",
+        "sha256": "82ec087bdb3eae18c18f919ea196902049ba1641f54a83c72e959941c26e1891"
+      },
+      {
+        "path": "src/shared/market.ts",
+        "sha256": "8338ce4837d4f01f5db10bc135972c3a597fdd0938d99b7c6841fa57963837a0"
+      },
+      {
+        "path": "src/shared/money.ts",
+        "sha256": "017b795b58634a092bc9f5459ade64abe73cfa84b01fec1a6513a77f4f8116d8"
+      },
+      {
+        "path": "src/shared/my-jobs.ts",
+        "sha256": "3878bdc012cd6e52c2ba4a7c1a796c199576fd5482792df0ccc0d81f9889f00d"
+      },
+      {
+        "path": "src/shared/nep413.ts",
+        "sha256": "9896a99eb5e26ca2ed763050f3dad2ca7ec2a3517e35fecf4178ce99fb696b8d"
+      },
+      {
+        "path": "src/shared/policy-request.ts",
+        "sha256": "e776d3d12cce3c4806c56427cac23f596f326ffca5b9a98bdfa4f6ec50af50c8"
+      },
+      {
+        "path": "src/shared/terms.ts",
+        "sha256": "5822c865bb0a04d1364fb814d79ec10549ee5d85743bf9fb251a33aa98ea313f"
+      },
+      {
+        "path": "src/shared/views.ts",
+        "sha256": "1918be3879d63bdd925ee44618cda50aa5c5abd75fe3bf9b2aa39690d97725e8"
+      },
+      {
+        "path": "src/web/account-resource.ts",
+        "sha256": "1dfab40f3d6e6245d9c896d18e33370898e1245c43e1546cb7b63a139b319851"
+      },
+      {
+        "path": "src/web/api.ts",
+        "sha256": "14712bdf4625dd036b6f7d8fee7c645be25212da31dd3a28178031ee8c1a8118"
+      },
+      {
+        "path": "src/web/auth-lifecycle.ts",
+        "sha256": "226a75906886fb2d5b0c581335a66959f812f46fc0fb76a221c5e1b26787afa1"
+      },
+      {
+        "path": "src/web/components/Account.tsx",
+        "sha256": "484574b1d357fda6a9efc5af6afc45719aee27811011db71ff8461ef196f8b62"
+      },
+      {
+        "path": "src/web/components/JobWorkflow.tsx",
+        "sha256": "ccdc9339abbdd001cd24fe2541278f6799ec6eebdfea6f4774c5fbaf9ea85c97"
+      },
+      {
+        "path": "src/web/components/Payouts.tsx",
+        "sha256": "ddde227d1457d629f9ad6ebf1fe8d9a96b3b21b3638ff9ccc9e15b87e86a322f"
+      },
+      {
+        "path": "src/web/components/PolicyCard.tsx",
+        "sha256": "aa981cc4e4f2d267d0e61b9d6159cdcde9892467c7b2dbf1917f999a96491560"
+      },
+      {
+        "path": "src/web/components/SignBox.tsx",
+        "sha256": "18fae4458b687aba8003975c89d69ecd46c69381892867dd59ed844006bd43e6"
+      },
+      {
+        "path": "src/web/components/icons.tsx",
+        "sha256": "3dde47fcb1fc891036dd157fe4c72bc475fb2d331183bf402696c303f8b23267"
+      },
+      {
+        "path": "src/web/components/ui.tsx",
+        "sha256": "50a8b85ea85c963d03a172be70377b104a9f5a51de5802822161299975d2feee"
+      },
+      {
+        "path": "src/web/guide.ts",
+        "sha256": "fa0a3ca3faa1c56be816c8e6a2015f10ebf756f94c088148b79f877199d8a539"
+      },
+      {
+        "path": "src/web/index.html",
+        "sha256": "fb616a2059b70b7855800206af3547fd99e3fa247da4962e9259424d02ea76a1"
+      },
+      {
+        "path": "src/web/main.tsx",
+        "sha256": "0ed4ba294dfa45063ec295a2d1f2e91cffaec3201909eec664ee244d8959dc0f"
+      },
+      {
+        "path": "src/web/market-board-resource.ts",
+        "sha256": "3cb952a1999c91185edd5e14262b2b79f7d3926682000930941add0693c1076d"
+      },
+      {
+        "path": "src/web/pages/Contract.tsx",
+        "sha256": "92c7337660c48ad8abe9e3b659a2a0d382f36ce69e6fb4c776b01929dc4e256d"
+      },
+      {
+        "path": "src/web/pages/ContractorSign.tsx",
+        "sha256": "6cbdb3389b00df3e6041860faea230500195da53a2e3a7eebb4a9b0b90098500"
+      },
+      {
+        "path": "src/web/pages/Guide.tsx",
+        "sha256": "806d7bc485efbb30743ecb03e7db243672c5c5fd34dea8613936ddaf5dd807c9"
+      },
+      {
+        "path": "src/web/pages/Home.tsx",
+        "sha256": "b0e3419c1c3fe8e226024efeafcfb607671e36327cf89a7c770b2d5fb12c3f3f"
+      },
+      {
+        "path": "src/web/pages/Jobs.tsx",
+        "sha256": "2a3dc2f1f3eff9c518567abecac60be0281989969a3183183f097411b0295474"
+      },
+      {
+        "path": "src/web/pages/JobsOnboarding.tsx",
+        "sha256": "e9c347b4636cf19600eb6a1247c53fed90f7395c6f773152d29401e93f09b220"
+      },
+      {
+        "path": "src/web/pages/Market.tsx",
+        "sha256": "0b5de81710993616caa4b1364915e4e66689f8230b25ffa85e694b8ccabcd00b"
+      },
+      {
+        "path": "src/web/pages/MyJobs.tsx",
+        "sha256": "1a2ded4931d9e45318bcb5a65bb78c6f4eb4d6b7b4849ce3d28c7077c65f44a5"
+      },
+      {
+        "path": "src/web/pages/NewContract.tsx",
+        "sha256": "b331c5604229bd3da1b928b1099e81b44a919d83d62223f6c1ad8a2808efeeee"
+      },
+      {
+        "path": "src/web/pages/OpenJobs.tsx",
+        "sha256": "5f35b3cb4b4698a0911218cb6d7ce47bf217befe0435adb26be3b8910a308b40"
+      },
+      {
+        "path": "src/web/pages/PublishedOpenings.tsx",
+        "sha256": "c106e2f5c5779c35e1b4670a24abe8f5355684f5393a33d06081200b876acdc8"
+      },
+      {
+        "path": "src/web/pages/Verify.tsx",
+        "sha256": "85b78687e22f1e5b74b466c6e88145df4c8dac132e4accf74440ece0f279849f"
+      },
+      {
+        "path": "src/web/session.tsx",
+        "sha256": "f1fbef30f4998aa7100d502b216c7ac7203f4fe554978cb757a6b21c13c21028"
+      },
+      {
+        "path": "src/web/styles.css",
+        "sha256": "c2a33e6d29cbe4297e7997c8e06400e7ed6b3f4f9238f57e4d393ab9315a5851"
+      },
+      {
+        "path": "src/web/types.ts",
+        "sha256": "aba93be9bb975df2b2fd197b7e59307bb4c22f948344c1c08c6b8d79964ca577"
+      },
+      {
+        "path": "src/web/useAccountResource.tsx",
+        "sha256": "87db0116242b19e5ff62d2cd0e9c10d79756b029e804402d1b5481a6d995f528"
+      },
+      {
+        "path": "src/web/wallet-signing.ts",
+        "sha256": "1c9d3ef03c6ddd5aceb558243552e2f4ee8c13fe89132b372bc64d8f9c326eac"
+      },
+      {
+        "path": "tests/account-resource.test.ts",
+        "sha256": "f32b3e0b77522f5e1ab9f6764fde5f80c89d370917290ee573b25c17afd49be9"
+      },
+      {
+        "path": "tests/auth.test.ts",
+        "sha256": "cf5d7c9ffcea907c38b6644286667d1e07899d14d82040412c027611cba46867"
+      },
+      {
+        "path": "tests/clauses.test.ts",
+        "sha256": "ce10157be505e1227bef7eb4ab93c93a9148170587cbdec3f61a8d9fa6432169"
+      },
+      {
+        "path": "tests/config-mount.test.ts",
+        "sha256": "536d7a45cffb05b80e73eb009e7aa2499560f6f33ca45bc682249126f35caab2"
+      },
+      {
+        "path": "tests/core.test.ts",
+        "sha256": "17f14c36962757225c8208ba5b2af113add96bb0f7981af639909d1071b38882"
+      },
+      {
+        "path": "tests/db-binding.test.ts",
+        "sha256": "cacfc408b0e78f655bd51102ef983ed17663d44466da7f742fba8efed2bcc96b"
+      },
+      {
+        "path": "tests/db-rejection-compat.test.ts",
+        "sha256": "a4d4749a8a72bf933efce75d144a4e0973e8620d3c80eb944431e804c6000635"
+      },
+      {
+        "path": "tests/engine.test.ts",
+        "sha256": "31e2f4b3eec5eb4f5a69d87aba3a012151159c48b5d1c4708ff90dcf50a741fe"
+      },
+      {
+        "path": "tests/job-assessor.test.ts",
+        "sha256": "c71f9df88ab906fc3e36e8a6c968fc684c525cc54cb89e41311dc58dbd75808a"
+      },
+      {
+        "path": "tests/job-attention.test.ts",
+        "sha256": "68b507653b8e89299b91a4820b3aa07f7ff908848812e85c6ac29a6ef0facbc3"
+      },
+      {
+        "path": "tests/job-dispute.test.ts",
+        "sha256": "1275b91befa052ead1b0c7f107ad53d17cb1ce66a41b9e9f148f545caf30ceaf"
+      },
+      {
+        "path": "tests/job-finalization.test.ts",
+        "sha256": "cc43261ea8fc8e37b222f983e7d37e169e76b92242f4ba47341136f4e6bfc641"
+      },
+      {
+        "path": "tests/job-openings-http.test.ts",
+        "sha256": "7c8537b82ee77a0ac21e08e3a5e8afb069bc8bedbaa0ba93cc6dc7d78ec3ff3a"
+      },
+      {
+        "path": "tests/job-openings.test.ts",
+        "sha256": "52c993c27807b0f4c513bb80dd87b7bca0d2de2b78119abc5a8c44cbd382b3dc"
+      },
+      {
+        "path": "tests/job-review-auth.test.ts",
+        "sha256": "e95ac13abcf724dc9b842f0b8d761dd4ee33e221bb659950d4574cb6b46c55d5"
+      },
+      {
+        "path": "tests/job-workflow.test.ts",
+        "sha256": "ac77a165a6f51a8584e6f8c30a5aaf6dc871f6ff85ccf4bf8830f831256e255e"
+      },
+      {
+        "path": "tests/jobs-onboarding-view.test.ts",
+        "sha256": "7a8d039c83ce67c2b0c5fb47e38e837e60278da75bb549058ac812b8628ef2b5"
+      },
+      {
+        "path": "tests/jobs-portal-http.test.ts",
+        "sha256": "c786fdac52c11fcfc8ee0f499f85f36bfeb6509c0fd82d4b934cc4e3e5642e0e"
+      },
+      {
+        "path": "tests/jobs-portal-view.test.ts",
+        "sha256": "3871b0bb5056a33a0057923f592d905ebcd734795d9818f8c04031213ee1f2e9"
+      },
+      {
+        "path": "tests/market-board-api.test.ts",
+        "sha256": "985f842dfabacb6297b099fb559a432532d445bf13b20b6437ebba3dd2f503c9"
+      },
+      {
+        "path": "tests/market-board-http.test.ts",
+        "sha256": "17411f21c36e0fc992e3bf8bfb444d9542273c59638831cfd64ae345f02399ae"
+      },
+      {
+        "path": "tests/market-board-state.test.ts",
+        "sha256": "902db27169e5dff9c98c1820397488c3a259bf8dbb2817ee0890a93a806206af"
+      },
+      {
+        "path": "tests/market-board-view.test.ts",
+        "sha256": "bbf62ac398ece7fccd2a8bbc4621404dccfbe587410224ead2fa2482d06ed7cc"
+      },
+      {
+        "path": "tests/market-isolation.test.ts",
+        "sha256": "16da2e33f2bf3b3218a48066ceedd38b5b93468999ca8e1534e9f4c5835fe6e2"
+      },
+      {
+        "path": "tests/market-recovery.test.ts",
+        "sha256": "5dc699258a5c8f6fce8e13d402f70cc09c25b8dd2dd7cffe39811ac66d8b06dd"
+      },
+      {
+        "path": "tests/market-saved-retry.test.ts",
+        "sha256": "5d8c8e41de9697c533b62e225858da790874792df9d19e5303b56bb8b82bccb7"
+      },
+      {
+        "path": "tests/market.test.ts",
+        "sha256": "2aeb2d8ded68323adb3f759c26f9dfa442c8f95a224e9d0e537bf18882bcaff2"
+      },
+      {
+        "path": "tests/my-jobs-view.test.ts",
+        "sha256": "499ef05ba7c4068352e63b992fb01c3f70b66bd14384e4ad1f217b181ce93adf"
+      },
+      {
+        "path": "tests/my-jobs.test.ts",
+        "sha256": "61d2eb8bea443b4e874471d09dfde542ff9e8f578e20bb6f2800274b426d5ee0"
+      },
+      {
+        "path": "tests/onboarding.test.ts",
+        "sha256": "8d91422cb2732787cf03cc36eb12dd0a322f95dd88c0d98fcb90123908cd3341"
+      },
+      {
+        "path": "tests/owner-signing-recovery.test.ts",
+        "sha256": "af3455df80f9fb28a9355573d8424dc586b417b6912e9a149c36059c1657de85"
+      },
+      {
+        "path": "tests/payouts.test.ts",
+        "sha256": "dc537aa3922cb262551e7b83553232aa4b43ecb0924cf9f46eec1d658977d26b"
+      },
+      {
+        "path": "tests/platform-fake.test.ts",
+        "sha256": "3ce2f62ee8a730e74919f7b885bffd7f33ceb5cd708a69b7b075b9bbcf9c70b2"
+      },
+      {
+        "path": "tests/portal-auth.test.ts",
+        "sha256": "22faf4fa84c5a7e589b63129c899edfbf85bbff673422e14a43e171c5f53b6bd"
+      },
+      {
+        "path": "tests/portal-config.test.ts",
+        "sha256": "70578b0237c656894d0bffd9b9894148c5e438ddeaf8e715fecfac87485c92b3"
+      },
+      {
+        "path": "tests/published-openings-view.test.ts",
+        "sha256": "5c78fd6c577fb9277bfc789bcb8715f86eff45c13d5781f7c6388f4138613022"
+      },
+      {
+        "path": "tests/review-regressions.test.ts",
+        "sha256": "99ada9704d81a843c2f5e83d4ad1fffcf13ce83518d78a49b021d88ba669e0f7"
+      },
+      {
+        "path": "tests/sdk-payout-proof.test.ts",
+        "sha256": "0d7ac58220a1c5fc1de6392a56289aadd204c42de5cd63d556937cf2fd3f75bc"
+      },
+      {
+        "path": "tests/support/fake-harness.ts",
+        "sha256": "1e473c8ff6b9c3cb07e97a076c949832025bd7214f9054eceef586dcd160ea33"
+      },
+      {
+        "path": "tests/support/harness.ts",
+        "sha256": "ba6137c66646664cbf50c79d554fed794091048cec8cfb7e76a6be2d4feaadd1"
+      },
+      {
+        "path": "tests/support/market-stub.ts",
+        "sha256": "077b9afee214f035575c8a8f920af710f81b4b1c3e01c061d33fcc037dee3092"
+      },
+      {
+        "path": "tests/support/stub-platform.ts",
+        "sha256": "4d5741296e792fba5ba37614513926662d7edb3395c577c8f64dfc58d5c3019e"
+      },
+      {
+        "path": "tests/wallet-api.test.ts",
+        "sha256": "4218468a888551dc730a12cbd4c424d4784ebaaba284d4c9dbf003177df8d421"
+      },
+      {
+        "path": "tests/wallet-signing.test.ts",
+        "sha256": "e49a79e56f2cb7609845036f8589cf3190f5c0031634cb209027b08afcf54238"
+      },
+      {
+        "path": "tsconfig.json",
+        "sha256": "93380e7aff79a0f14b474f22ef3b1cb64bfa525dd23760a2de261c961d9cb9dd"
+      }
+    ]
+  },
+  "toolchain": {
+    "bun": "1.4.2",
+    "typescript": "7.0.2",
+    "sdk_declared_in_package_json": "0.5.7"
+  },
+  "checks": [
+    {
+      "name": "typecheck",
+      "command": "bun --no-env-file run typecheck",
+      "exit_code": 0,
+      "log_sha256": "c8a16b2be805fa3102bbdfee453203f5a72be2fbd712c978736b561d7e3cb39b"
+    },
+    {
+      "name": "tests",
+      "command": "bun --no-env-file test",
+      "exit_code": 0,
+      "log_sha256": "c139fe7c20c3085b50e21f4949efaa0e1653905f691ccee16db6aea638969a67",
+      "passed": 664,
+      "failed": 0,
+      "assertions": 3818,
+      "test_files": 40
+    }
+  ],
+  "documents": [
+    {
+      "path": "PRD.md",
+      "sha256": "bfe8216e2c67783ca4ca5993f6b72ac455c4a5c2ee8258c9ecbadc1c2232c83a"
+    },
+    {
+      "path": "ARCHITECTURE.md",
+      "sha256": "0e0296450d69ab4d5392ceef17b9fc1b0bf9728092d1c6d025b44d95f0cbd3b1"
+    },
+    {
+      "path": "DESIGN.md",
+      "sha256": "88ab6a8a490c41b631649fefdc6ab54066110142e30c8e06353710144f333d2e"
+    },
+    {
+      "path": "RULES.md",
+      "sha256": "b22d6c95b4bb93c8f328a5b6a8448d1e8e76d27621c2e5f4fe555a9cd8c402cf"
+    },
+    {
+      "path": "TASKS.md",
+      "sha256": "9d964d6006b6b43ed72d4b115f5314c0970a1b503bc66bbff755c7d397881449"
+    },
+    {
+      "path": "PROGRESS.md",
+      "sha256": "2709f2733dd1da358a9def831eb34e1276b80b9fb16eb8fb9780f8403f3e862c"
+    }
+  ],
+  "limits": [
+    "This is a source/documentation audit, not a complete security or hosted-runtime assessment.",
+    "No browser, SDK-stack, actual-wallet, hosted-model or real-payment workflow was rerun.",
+    "The manifest hashes public source/configuration/lock files, not installed dependency bytes, runtime state or a release artifact.",
+    "Newly documented source conditions are not represented as newly reproduced hosted or browser failures."
+  ],
+  "documentation_validation": {
+    "passed": true,
+    "local_links_checked": 91,
+    "literal_source_references_checked": 8,
+    "requirement_references_checked": 8,
+    "source_hashes_verified": 140,
+    "document_hashes_verified": 6,
+    "whitespace_check": "passed",
+    "independent_final_review": [
+      "core domain and platform",
+      "frontend and signing",
+      "auth, Market and discovery"
+    ],
+    "remaining_material_documentation_findings": 0
+  }
+}

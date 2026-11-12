@@ -51,11 +51,11 @@ export interface Judge {
 export function precheck(terms: Terms, pr: PullRequest, window: { since: string; until: string }): string[] {
   const fails: string[] = [];
   if (pr.author !== terms.contractor.github) fails.push(`authored by ${pr.author}, not ${terms.contractor.github}`);
-  if (!terms.repos.includes(pr.repo)) fails.push(`${pr.repo} is not a repo in this contract`);
+  if (!terms.repos.includes(pr.repo)) fails.push(`${pr.repo} is not a repo in this job`);
   if (!pr.merged_by) fails.push("merger unknown");
   else if (pr.merged_by === pr.author) fails.push("merged by its own author");
   const t = Date.parse(pr.merged_at);
-  if (t < Date.parse(startInstant(terms)) || t > Date.parse(endInstant(terms))) fails.push("merged outside the contract dates");
+  if (t < Date.parse(startInstant(terms)) || t > Date.parse(endInstant(terms))) fails.push("merged outside the job dates");
   else if (t > Date.parse(window.until)) fails.push("merged after this run");
   return fails;
 }

@@ -2127,6 +2127,7 @@ textarea:focus {
     z-index: 10;
     height: auto;
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     padding: 10px 16px;
@@ -2135,7 +2136,10 @@ textarea:focus {
   }
   .nav {
     flex-direction: row;
-    margin-left: auto;
+    flex-wrap: wrap;
+    flex-basis: 100%;
+    order: 2;
+    margin-left: 0;
   }
   .nav-item span {
     display: none;
@@ -2147,6 +2151,8 @@ textarea:focus {
   }
   .sidebar-foot {
     display: none;
+    order: 1;
+    margin-left: auto;
   }
   .page {
     padding: 20px 16px 48px;

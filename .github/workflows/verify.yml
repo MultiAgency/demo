@@ -1,0 +1,69 @@
+name: Paperwork offline checks
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paperwork-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      COPILOTKIT_TELEMETRY_DISABLED: "true"
+      PAPERWORK_DEMO_ARTIFACTS: /tmp/paperwork-ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - name: Install locked dependencies
+        run: bun --no-env-file install --frozen-lockfile --ignore-scripts
+      - name: Prepare local evidence
+        run: mkdir -p "$PAPERWORK_DEMO_ARTIFACTS"
+      - name: Verify retained SDK and gateway bindings
+        run: bun --no-env-file scripts/check-sdk-pin.ts | tee "$PAPERWORK_DEMO_ARTIFACTS/sdk-pin.json"
+      - name: Typecheck
+        run: bun --no-env-file run typecheck
+      - name: Offline tests
+        run: bun --no-env-file test 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/tests.log"
+      - name: Simulated job and security journeys
+        run: |
+          bun --no-env-file run demo:job | tee "$PAPERWORK_DEMO_ARTIFACTS/job.log"
+          bun --no-env-file run demo:e2e | tee "$PAPERWORK_DEMO_ARTIFACTS/security.log"
+      - name: Install pinned browser automation
+        run: |
+          npm install --global agent-browser@0.26.0
+          agent-browser --version
+          agent-browser install --with-deps
+      - name: Fixture browser and privacy checks
+        run: |
+          bun --no-env-file run demo:browser | tee "$PAPERWORK_DEMO_ARTIFACTS/browser.log"
+          bun --no-env-file run demo:privacy:browser | tee "$PAPERWORK_DEMO_ARTIFACTS/privacy.log"
+          bun --no-env-file scripts/demo-v2-browser.ts | tee "$PAPERWORK_DEMO_ARTIFACTS/v2-browser.log"
+      - name: Build local Linux container
+        run: docker build --iidfile "$PAPERWORK_DEMO_ARTIFACTS/image.id" -t paperwork-ci:check .
+      - name: Network-disabled container smoke test
+        run: bun --no-env-file scripts/check-container.ts paperwork-ci:check "$PAPERWORK_DEMO_ARTIFACTS/container"
+      - name: Retain simulated check receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: paperwork-offline-checks-${{ github.sha }}
+          path: /tmp/paperwork-ci/
+          if-no-files-found: warn
+          retention-days: 14
+
+# The external frozen gateway is not in this checkout. Exact-gateway DAO/restart
+# validation remains a separately recorded consumer gate; this job uses stand-ins.
+# No registry login, image push, deployment, live credentials or payment step.

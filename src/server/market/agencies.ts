@@ -194,10 +194,10 @@ export class Agencies {
 
   private walletConsent(a: AgencyRow): AgencyNext {
     const expiresAt = new Date(this.d.now().getTime() + CONSENT_MS).toISOString();
-    return this.signRequest(a, "consent", (until) => this.d.market.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: [...WALLET_SCOPES], expiresAt: until }), expiresAt, (until) => `Let Covenant quote and hire on the market for this agency until ${until.slice(0, 10)}`);
+    return this.signRequest(a, "consent", (until) => this.d.market.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: [...WALLET_SCOPES], expiresAt: until }), expiresAt, (until) => `Let Paperwork quote and hire on the market for this agency until ${until.slice(0, 10)}`);
   }
 
-  /** The wallet's NEP-413 signature over the setup or consent text Covenant issued last. */
+  /** The wallet's NEP-413 signature over the setup or consent text Paperwork issued last. */
   async signed(id: string, body: { step: PendingSign["step"]; nonce: string; publicKey: string; signature: string }): Promise<AgencyNext> {
     const a = this.row(id);
     const pending = a.pending_sign ? (JSON.parse(a.pending_sign) as PendingSign) : null;
@@ -249,7 +249,7 @@ export class Agencies {
   }
 
   private async daoConsent(a: AgencyRow): Promise<AgencyNext> {
-    const label = "The DAO votes to let Covenant quote and hire for it (read, market)";
+    const label = "The DAO votes to let Paperwork quote and hire for it (read, market)";
     let v = this.latestVote(a.id, "consent");
     if (v && v.state === "pending") {
       const st = await this.d.market.daoConsent.state(v.id);
@@ -346,8 +346,8 @@ export class Agencies {
           label,
           detail:
             kind === "grant_issue"
-              ? "The platform reaches a DAO's owner actions only under a `treasury` consent, and the DAO's consent here carries `read` and `market` (decided 2026-11-09). So the DAO can't issue its market agent's grant through Covenant, and the agent can't hire. Reported to the platform (docs/platform-gaps.md, M2; MultiAgency/platform#67)."
-              : `The platform doesn't yet let a DAO's \`market\` consent ask for a ${kind === "agent_freeze" ? "freeze" : "unfreeze"} (MultiAgency/platform#67). Until it does, the DAO's own stop page cuts Covenant off without a time limit: ${this.daoStopUrl(a)}. It doesn't stop the agent at the provider.`,
+              ? "The platform reaches a DAO's owner actions only under a `treasury` consent, and the DAO's consent here carries `read` and `market` (decided 2026-11-09). So the DAO can't issue its market agent's grant through Paperwork, and the agent can't hire. Reported to the platform (docs/platform-gaps.md, M2; MultiAgency/platform#67)."
+              : `The platform doesn't yet let a DAO's \`market\` consent ask for a ${kind === "agent_freeze" ? "freeze" : "unfreeze"} (MultiAgency/platform#67). Until it does, the DAO's own stop page cuts Paperwork off without a time limit: ${this.daoStopUrl(a)}. It doesn't stop the agent at the provider.`,
         };
       if (prepared.kind === "unknown" || prepared.kind === "unavailable") return wait("The platform did not answer; preparing the step again shortly");
       throw failError(prepared, kind);
@@ -470,7 +470,7 @@ export class Agencies {
   /**
    * Freezes or unfreezes the agency's market agent: the owner's wallet signs it on the platform's confirm page, or the
    * DAO votes on it. A freeze stops every provider send of the agent; it doesn't reach funds already on the payment key,
-   * so Covenant also approves no hire while the agent is frozen (Hires.approve).
+   * so Paperwork also approves no hire while the agent is frozen (Hires.approve).
    */
   async stop(id: string, kind: "agent_freeze" | "agent_unfreeze"): Promise<AgencyNext> {
     // Only the created agent is needed, not a finished setup: an owner may stop an agent whose grant never came.

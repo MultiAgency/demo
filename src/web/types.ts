@@ -47,6 +47,7 @@ export interface Judgment {
 
 /** POST /api/payouts/:rid/vote. `terms` are the payment terms the platform proved for this approval. */
 export interface VoteAnswer {
+  dao?: import("../server/platform/port").OwnerPrepared["dao"];
   correlation_id: string;
   sign?: SignRequest;
   confirm?: { url: string; expires_at: string };

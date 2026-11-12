@@ -8,6 +8,7 @@ import { ContractPage } from "./pages/Contract";
 import { ContractorSign } from "./pages/ContractorSign";
 import { GuidePage } from "./pages/Guide";
 import { Home } from "./pages/Home";
+import { JobsPage } from "./pages/Jobs";
 import { AgencyPage, MarketHome } from "./pages/Market";
 import { NewContract } from "./pages/NewContract";
 import { VerifyPage } from "./pages/Verify";
@@ -34,7 +35,7 @@ function useHashRoute() {
 
 function NavItem({ href, icon, label, active }: { href: string; icon: IconName; label: string; active: boolean }) {
   return (
-    <a href={href} className={`nav-item${active ? " is-active" : ""}`}>
+    <a href={href} className={`nav-item${active ? " is-active" : ""}`} aria-current={active ? "page" : undefined} aria-label={label} title={label}>
       <Icon name={icon} size={17} />
       <span>{label}</span>
     </a>
@@ -43,6 +44,7 @@ function NavItem({ href, icon, label, active }: { href: string; icon: IconName; 
 
 function Shell({ config, error }: { config: AppConfig | null; error: string | null }) {
   const { path, query } = useHashRoute();
+  useEffect(() => { document.title = "Paperwork"; }, []);
 
   const m = path.match(/^\/c\/([\w-]+)(\/(sign|verify))?$/);
   const agency = path.match(/^\/market\/([\w-]+)$/);
@@ -51,6 +53,12 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
 
   let page: React.ReactNode;
   if (!config) page = error ? <div className="page"><p>Can't reach the server: {error}</p></div> : <PageLoading />;
+  else if (path === "/" || path === "/my-jobs") page = <JobsPage config={config} view="my-jobs" />;
+  else if (path === "/agency") page = <Home />;
+  else if (path === "/openings") page = <JobsPage config={config} view="openings" />;
+  else if (path === "/market-jobs") page = <JobsPage config={config} view="market" />;
+  else if (path === "/assignments") page = <JobsPage config={config} view="assignments" />;
+  else if (path === "/start") page = <JobsPage config={config} view="start" />;
   else if (path === "/new") page = <NewContract config={config} />;
   else if (path === "/guide") page = <GuidePage />;
   else if (path === "/market") page = <MarketHome config={config} />;
@@ -58,7 +66,7 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
   else if (m && m[3] === "sign") page = <ContractorSign id={m[1]!} token={query.get("t")} config={config} />;
   else if (m && m[3] === "verify") page = <VerifyPage id={m[1]!} />;
   else if (m) page = <ContractPage key={m[1]} id={m[1]!} config={config} />;
-  else page = <Home />;
+  else page = <JobsPage config={config} view="my-jobs" />;
 
   if (standalone)
     return (
@@ -68,7 +76,7 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
             <span className="brand-mark">
               <Icon name="check" size={14} strokeWidth={2.6} />
             </span>
-            Covenant
+            Paperwork
           </span>
           <div className="row gap">
             {config?.platform === "fake" ? <span className="env-chip">Platform stand-in</span> : config?.stack ? <span className="env-chip">Local stack</span> : null}
@@ -86,12 +94,13 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
           <span className="brand-mark">
             <Icon name="check" size={14} strokeWidth={2.6} />
           </span>
-          Covenant
+          Paperwork
         </a>
         <nav className="nav">
-          <NavItem href="#/" icon="grid" label="Contracts" active={path === "/" || (!!m && !standalone)} />
-          <NavItem href="#/new" icon="plus" label="New contract" active={path === "/new"} />
-          {config?.market.enabled ? <NavItem href="#/market" icon="bot" label="Agent market" active={path.startsWith("/market")} /> : null}
+          <NavItem href="#/" icon="grid" label="Assigned to me" active={path === "/" || path === "/my-jobs"} />
+          <NavItem href="#/agency" icon="building" label="Agency" active={path === "/agency" || path === "/new" || path === "/market" || path === "/assignments" || !!agency || (!!m && !standalone)} />
+          <NavItem href="#/openings" icon="file" label="Openings" active={path === "/openings" || path === "/market-jobs"} />
+          <NavItem href="#/start" icon="plus" label="Get started" active={path === "/start"} />
           <NavItem href="#/guide" icon="book" label="How it works" active={path === "/guide"} />
         </nav>
         <div className="sidebar-foot">

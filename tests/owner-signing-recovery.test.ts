@@ -9,13 +9,13 @@ import { JOB_DEMO_TERMS } from "../src/shared/demo";
 import { SdkPlatform } from "../src/server/platform/client";
 import { activate, play, setup, signTerms, START, type Ctx } from "./support/harness";
 
-const dbOf = (rt: Runtime) => (rt.covenant as unknown as { d: { db: Database } }).d.db;
+const dbOf = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
 async function close(rt: Runtime) {
   await (await rt.auth.$context).checkSchema?.();
   dbOf(rt).close();
 }
 async function held(ctx: Ctx) {
-  const c = ctx.rt.covenant;
+  const c = ctx.rt.engine;
   const submission = await c.submitJob(ctx.id, {
     client_request_id: "signing-recovery-submission", report: "The CSV export and tests are ready for agency review.",
     evidence: [{ deliverable_id: "d1", label: "CSV acceptance tests", url: "https://evidence.invalid/tests" }],
@@ -27,7 +27,7 @@ async function held(ctx: Ctx) {
 
 describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("a lost app prepare response reuses the same stored vote, including after a database reopen", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "covenant-signing-"));
+    const dir = mkdtempSync(join(tmpdir(), "paperwork-signing-"));
     let rt: Runtime | null = null;
     try {
       const path = join(dir, "fixture.sqlite");
@@ -40,15 +40,15 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
         const handle = original(org, agent);
         return { ...handle, ownerPrepare: async (action) => { prepares++; return handle.ownerPrepare(action); } };
       };
-      const first = await rt.covenant.vote(payout.request_id, "approve"); // Caller loses this app response.
-      expect(await rt.covenant.vote(payout.request_id, "approve")).toEqual(first);
+      const first = await rt.engine.vote(payout.request_id, "approve"); // Caller loses this app response.
+      expect(await rt.engine.vote(payout.request_id, "approve")).toEqual(first);
       await close(rt);
       rt = null;
       rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules", DB_PATH: path }), { clockStart: START, kit: ctx.stub.kit(), log: () => {} });
-      const recovered = await rt.covenant.vote(payout.request_id, "approve");
+      const recovered = await rt.engine.vote(payout.request_id, "approve");
       expect(recovered).toEqual(first);
       expect(prepares).toBe(1);
-      expect(rt.covenant.attempt(payout.request_id).vote_correlation_id).toBe(first.correlation_id);
+      expect(rt.engine.attempt(payout.request_id).vote_correlation_id).toBe(first.correlation_id);
       expect(ctx.stub.calls.requestPayout).toBe(1);
     } finally {
       if (rt) await close(rt);
@@ -59,7 +59,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("only unsubmitted preparations may be superseded; a stale opposite wallet prompt cannot submit", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { submission, payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const approve = await c.vote(payout.request_id, "approve");
     await c.requestJobChanges(submission.id, "Attach reproducible acceptance-test output.");
     const reject = await c.vote(payout.request_id, "reject");
@@ -73,7 +73,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("an expired preparation gets a new intent; the old signed intent cannot be submitted", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const first = await c.vote(payout.request_id, "approve");
     ctx.rt.clock.advance(16 * 60_000);
     const second = await c.vote(payout.request_id, "approve");
@@ -86,7 +86,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("a confirm-only preparation is reused without inferring a vote or superseding an external confirmation", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const original = ctx.stub.agent.bind(ctx.stub);
     let prepares = 0;
     ctx.stub.agent = (org, agent) => {
@@ -113,7 +113,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   for (const terminalStage of ["expired", "failed"] as const) test(`authoritative unsubmitted expiry (${terminalStage}) renews only the original payout's owner intent`, async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const original = ctx.stub.agent.bind(ctx.stub);
     const reads: string[] = [];
     let prepares = 0;
@@ -159,7 +159,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("an externally submitted confirmation is followed and never replaced by another owner decision", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { submission, payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const original = ctx.stub.agent.bind(ctx.stub);
     let submitted = false;
     let prepares = 0;
@@ -188,7 +188,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("a failed confirmation without unsubmitted proof cannot be replaced after its local deadline", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const original = ctx.stub.agent.bind(ctx.stub);
     let prepares = 0;
     ctx.stub.agent = (org, agent) => {
@@ -213,7 +213,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("a thrown submit records the original vote before I/O and blocks duplicate or opposite preparation", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { submission, payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const vote = await c.vote(payout.request_id, "approve");
     const original = ctx.stub.agent.bind(ctx.stub);
     let submits = 0;
@@ -240,7 +240,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("a definite owner-submit refusal clears its tentative decision and permits agency changes without replaying", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const { submission, payout } = await held(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const vote = await c.vote(payout.request_id, "approve");
     const original = ctx.stub.agent.bind(ctx.stub);
     let submits = 0;
@@ -272,31 +272,31 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   });
 
   test("a crash boundary after provider acceptance leaves the durable vote unrepeatable after reopen", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "covenant-owner-crash-"));
+    const dir = mkdtempSync(join(tmpdir(), "paperwork-owner-crash-"));
     let rt: Runtime | null = null;
     try {
       const path = join(dir, "fixture.sqlite");
       const ctx = await activate("300", JOB_DEMO_TERMS, { DB_PATH: path });
       rt = ctx.rt;
       const { payout } = await held(ctx);
-      const vote = await rt.covenant.vote(payout.request_id, "approve");
+      const vote = await rt.engine.vote(payout.request_id, "approve");
       // Model a process loss between external acceptance and the app's result write; no OS crash is claimed.
       dbOf(rt).exec(`CREATE TEMP TRIGGER fail_submit_result BEFORE UPDATE OF state ON owner_steps
         WHEN NEW.state = 'submitted' BEGIN SELECT RAISE(ABORT, 'fixture crash after provider acceptance'); END`);
-      await expect(rt.covenant.submitOwnerStep(vote.correlation_id, ctx.stub.sign(vote.sign!))).rejects.toThrow("fixture crash");
-      expect(rt.covenant.onboarding.step(vote.correlation_id).state).toBe("unknown");
-      expect(rt.covenant.attempt(payout.request_id).vote).toBe("approve");
-      const correlation = rt.covenant.attempt(payout.request_id).correlation_id!;
+      await expect(rt.engine.submitOwnerStep(vote.correlation_id, ctx.stub.sign(vote.sign!))).rejects.toThrow("fixture crash");
+      expect(rt.engine.onboarding.step(vote.correlation_id).state).toBe("unknown");
+      expect(rt.engine.attempt(payout.request_id).vote).toBe("approve");
+      const correlation = rt.engine.attempt(payout.request_id).correlation_id!;
       await close(rt); // The temporary trigger also disappears with this connection.
       rt = null;
       rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules", DB_PATH: path }), { clockStart: START, kit: ctx.stub.kit(), log: () => {} });
-      const recovered = await rt.covenant.getContract(ctx.id);
+      const recovered = await rt.engine.getContract(ctx.id);
       expect(recovered.payouts[0]!.state).toBe("processing");
-      expect(rt.covenant.attempt(payout.request_id).vote_correlation_id).toBe(vote.correlation_id);
-      expect(rt.covenant.attempt(payout.request_id).correlation_id).toBe(correlation);
-      await expect(rt.covenant.submitOwnerStep(vote.correlation_id, ctx.stub.sign(vote.sign!))).rejects.toThrow("already");
+      expect(rt.engine.attempt(payout.request_id).vote_correlation_id).toBe(vote.correlation_id);
+      expect(rt.engine.attempt(payout.request_id).correlation_id).toBe(correlation);
+      await expect(rt.engine.submitOwnerStep(vote.correlation_id, ctx.stub.sign(vote.sign!))).rejects.toThrow("already");
       ctx.stub.settle(correlation);
-      const paid = await rt.covenant.getContract(ctx.id);
+      const paid = await rt.engine.getContract(ctx.id);
       expect(paid.submissions[0]!.state).toBe("settled");
       expect(ctx.stub.calls.requestPayout).toBe(1);
       expect(ctx.stub.transfers).toHaveLength(1);
@@ -309,7 +309,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("a thrown non-payment owner submit is recovered by status without another signature", async () => {
     const ctx = await setup(JOB_DEMO_TERMS);
     await signTerms(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const creation = await play(ctx, await c.next(ctx.id));
     if (creation.kind !== "owner_step") throw new Error("Expected agent creation.");
     const original = ctx.stub.agent.bind(ctx.stub);
@@ -331,7 +331,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("setup and consent wallet prompts retain their exact nonce/body across next-step reloads", async () => {
     const ctx = await setup(JOB_DEMO_TERMS);
     await signTerms(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const setupRequest = await c.next(ctx.id);
     if (setupRequest.kind !== "sign") throw new Error("Expected setup signature.");
     ctx.rt.clock.advance(1000);
@@ -347,7 +347,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
   test("an expired setup wallet prompt is renewed and its stale nonce is refused", async () => {
     const ctx = await setup(JOB_DEMO_TERMS);
     await signTerms(ctx);
-    const c = ctx.rt.covenant;
+    const c = ctx.rt.engine;
     const first = await c.next(ctx.id);
     if (first.kind !== "sign") throw new Error("Expected setup signature.");
     ctx.rt.clock.advance(31 * 60_000);

@@ -1,4 +1,4 @@
-// The whole Covenant story over HTTP, shared by demo:e2e (platform stand-in) and demo:stack (local platform stack).
+// The whole Paperwork story over HTTP, shared by demo:e2e (platform stand-in) and demo:stack (local platform stack).
 // It returns the failures; an empty list means every step passed.
 import { DEMO_TERMS } from "../src/shared/demo";
 import { toAtomic } from "../src/shared/money";
@@ -59,7 +59,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
   }
 
   try {
-    out(`Covenant · end-to-end scenario on the ${d.name === "fake" ? "platform stand-in (fake: no real funds, no network)" : "local MultiAgency platform stack"}`);
+    out(`Paperwork · end-to-end scenario on the ${d.name === "fake" ? "platform stand-in (fake: no real funds, no network)" : "local MultiAgency platform stack"}`);
     const cfg = await api("GET", "/config");
     out(`Platform: ${cfg.platform} at ${cfg.host} · clock ${cfg.now} · judge: ${cfg.judge.kind}`);
 
@@ -169,7 +169,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
     check(run.outcome === (disputed ? "deferred" : "nothing"), disputed ? "the disputed money outcome blocks another request; no replacement payment" : "the injected PR is excluded; the next run requests nothing");
 
     // 8. Compromised server: requests go straight to the platform
-    log("Compromised server: Covenant's own checks off, requests go straight to the platform");
+    log("Compromised server: Paperwork's own checks off, requests go straight to the platform");
     const redirect = await api("POST", `/contracts/${id}/attacks/redirect`);
     check(redirect.outcome === "refused" && redirect.code === "payee_not_agreed", `redirect: ${redirect.story} → ${redirect.code}${redirect.clause ? ` (${redirect.clause.title})` : ""}`);
     const overpay = await api("POST", `/contracts/${id}/attacks/overpay`);

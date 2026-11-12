@@ -15,16 +15,16 @@ function asAccount(rt: Runtime, account: string | null) {
 
 test("owner-step reads protect owner metadata and never poll for another party", async () => {
   const ctx = await activate("300", JOB_DEMO_TERMS);
-  const submission = await ctx.rt.covenant.submitJob(ctx.id, {
+  const submission = await ctx.rt.engine.submitJob(ctx.id, {
     client_request_id: "owner-metadata-proof", report: "CSV export and test results are ready for review.",
     evidence: [{ deliverable_id: "d1", label: "CSV export tests", url: "https://evidence.invalid/export" }],
     invoice: { number: "OWNER-METADATA", amount_usd: "300" },
   }, JOB_DEMO_TERMS.contractor.near_account);
-  const proposed = await ctx.rt.covenant.proposeJob(submission.id);
-  const step = await ctx.rt.covenant.vote(proposed.payouts[0]!.request_id, "approve");
-  const original = ctx.rt.covenant.getOwnerStep.bind(ctx.rt.covenant);
+  const proposed = await ctx.rt.engine.proposeJob(submission.id);
+  const step = await ctx.rt.engine.vote(proposed.payouts[0]!.request_id, "approve");
+  const original = ctx.rt.engine.getOwnerStep.bind(ctx.rt.engine);
   let polls = 0;
-  ctx.rt.covenant.getOwnerStep = async (id) => { polls++; return original(id); };
+  ctx.rt.engine.getOwnerStep = async (id) => { polls++; return original(id); };
   for (const [account, expected] of [[null, 401], ["attacker.demo", 403], ["maria.demo", 403]] as const) {
     const response = await asAccount(ctx.rt, account).request(`/api/owner-steps/${step.correlation_id}`);
     expect(response.status).toBe(expected);
@@ -39,9 +39,9 @@ test("owner-step reads protect owner metadata and never poll for another party",
 
 test("a private work order rejects unrelated readers before a platform view is fetched", async () => {
   const ctx = await activate("300", JOB_DEMO_TERMS);
-  const original = ctx.rt.covenant.viewContract.bind(ctx.rt.covenant);
+  const original = ctx.rt.engine.viewContract.bind(ctx.rt.engine);
   let reads = 0;
-  ctx.rt.covenant.viewContract = async (id) => { reads++; return original(id); };
+  ctx.rt.engine.viewContract = async (id) => { reads++; return original(id); };
   for (const [account, expected] of [[null, 401], ["attacker.demo", 403]] as const) {
     expect((await asAccount(ctx.rt, account).request(`/api/contracts/${ctx.id}`)).status).toBe(expected);
     expect(reads).toBe(0);

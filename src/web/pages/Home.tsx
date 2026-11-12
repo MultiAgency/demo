@@ -1,8 +1,7 @@
 import { useCallback } from "react";
 import { api } from "../api";
 import { Icon } from "../components/icons";
-import { PolicyCard } from "../components/PolicyCard";
-import { Alert, Avatar, Badge, Button, LinkButton, PageLoading, Progress, dateText, usd, type Tone } from "../components/ui";
+import { Alert, Avatar, Badge, Button, Empty, LinkButton, PageLoading, Progress, dateText, usd, type Tone } from "../components/ui";
 import { AccountReadGate, useAccountResource } from "../useAccountResource";
 
 import type { ContractRow as Row } from "../types";
@@ -22,11 +21,11 @@ export const STAGES: Record<string, { label: string; tone: Tone }> = {
 };
 
 export function Home() {
-  const read = useCallback(() => api<Row[]>("GET", "/contracts"), []);
-  const resource = useAccountResource("contracts", read);
+  const read = useCallback(() => api<Row[]>("GET", "/contracts?role=agency"), []);
+  const resource = useAccountResource("contracts:agency", read);
   const rows = resource.value;
   if (!resource.enabled) return <AccountReadGate />;
-  if (resource.error) return <div className="page stack"><Alert tone="danger">{resource.error}</Alert><Button variant="secondary" onClick={resource.reload}>Retry loading contracts</Button></div>;
+  if (resource.error) return <div className="page stack"><Alert tone="danger">{resource.error}</Alert><Button variant="secondary" onClick={resource.reload}>Retry loading jobs</Button></div>;
   if (rows === null) return <PageLoading />;
   if (rows.length === 0) return <Welcome />;
 
@@ -38,25 +37,23 @@ export function Home() {
     <div className="page">
       <header className="page-header">
         <div>
-          <h1>Contracts</h1>
-          <p className="page-sub">Each contract has its own platform agent and limits.</p>
+          <h1>Agency work</h1>
+          <p className="page-sub">Jobs where this account is the named agency representative. Review submissions and approve payouts here.</p>
         </div>
-        <LinkButton href="#/new" variant="primary" icon="plus">
-          New contract
-        </LinkButton>
+        <AgencyActions />
       </header>
 
       <div className="stats-row">
         <div className="stat">
-          <div className="stat-label">Active contracts</div>
+          <div className="stat-label">Active jobs</div>
           <div className="stat-value">{active.length}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Scope under contract</div>
+          <div className="stat-label">Agreed scope</div>
           <div className="stat-value">{usd(committed)}</div>
         </div>
         <div className="stat">
-          <div className="stat-label">Paid for merged work</div>
+          <div className="stat-label">Recorded as paid</div>
           <div className="stat-value">{usd(used)}</div>
         </div>
       </div>
@@ -65,9 +62,9 @@ export function Home() {
         <table className="table">
           <thead>
             <tr>
-              <th>Contractor</th>
+              <th>Builder</th>
               <th>Scope</th>
-              <th className="hide-sm">Paid</th>
+              <th className="hide-sm">Recorded paid</th>
               <th className="hide-sm">Term</th>
               <th>Status</th>
               <th aria-label="Open" />
@@ -112,50 +109,24 @@ export function Home() {
           </tbody>
         </table>
       </div>
+      <p className="small muted">Recorded paid totals include agency-reported arrivals. Open a job to distinguish those reports from platform-confirmed settlement.</p>
     </div>
   );
 }
 
-function Welcome() {
-  return (
-    <div className="page">
-      <section className="welcome">
-        <div className="welcome-copy">
-          <Badge tone="accent">Pay-on-merge, judged against the scope</Badge>
-          <h1 className="display">The contract is the spending limit.</h1>
-          <p className="lede">Sign a scope. Every merged PR is judged against it, and you approve each payout. The platform enforces the most it can ever be.</p>
-          <div className="row gap">
-            <LinkButton href="#/new" variant="primary" icon="plus">
-              Create a contract
-            </LinkButton>
-            <LinkButton href="#/guide" variant="ghost" icon="book">
-              How it works
-            </LinkButton>
-          </div>
-        </div>
-        <div className="welcome-visual">
-          <PolicyCard payee="maria.near" scope={[{ value_usd: "1200" }, { value_usd: "500" }, { value_usd: "300" }]} start="2026-11-01" end="2026-12-31" repos={["acme/app"]} approver="acme.near" status="live" agentId="agent · Acme → Maria" />
-        </div>
-      </section>
+function AgencyActions() {
+  return <div className="header-actions">
+    <LinkButton href="#/new" variant="primary" icon="plus">New job</LinkButton>
+    <LinkButton href="#/market" icon="bot">Market integration</LinkButton>
+  </div>;
+}
 
-      <section className="features">
-        {(
-          [
-            ["pen", "Sign a scope", "Deliverables with a value each, signed by both sides."],
-            ["wallet", "Fund its own agent", "The scope becomes the agent's policy and balance."],
-            ["bot", "Approve on merge", "A judge decides how much each merge completes; you approve the payout."],
-            ["shieldCheck", "Anyone can verify", "The live policy, checked against what was signed."],
-          ] as const
-        ).map(([icon, t, d]) => (
-          <div className="feature" key={t}>
-            <span className="icon-tile">
-              <Icon name={icon} />
-            </span>
-            <h3>{t}</h3>
-            <p>{d}</p>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
+function Welcome() {
+  return <div className="page stack">
+    <header className="page-header">
+      <div><h1>Agency work</h1><p className="page-sub">Jobs where this account is the named agency representative.</p></div>
+      <AgencyActions />
+    </header>
+    <Empty icon="building" title="No agency jobs for this account yet" sub="Create a job to agree the scope and payment terms with a builder, then review their submissions and approve payouts." />
+  </div>;
 }

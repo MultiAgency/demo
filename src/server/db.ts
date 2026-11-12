@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import type { AttemptState, JudgmentOutcome, PayoutResolution } from "../shared/views";
 import { OPEN_STATES } from "./payouts";
 import type { JobSubmissionState } from "../shared/jobs";
+import type { TermsRecipient } from "../shared/terms";
 
 export interface JobRow {
   id: string; contract_id: string; client_request_id: string; content_hash: string; revision: number;
@@ -31,6 +32,7 @@ export interface ContractRow {
   organization: string;
   payee_registered: number | null;
   frozen: number;
+  signing_recipient: TermsRecipient;
 }
 
 export type AgentStage = "needs_setup" | "needs_create" | "needs_consent" | "needs_grant" | "needs_policy" | "policy_pending" | "ready";
@@ -90,7 +92,7 @@ export interface AttemptRow {
   amount_atomic: string;
   state: AttemptState;
   code: string | null;
-  /** How the code arrived: refused (recorded or thrown), forbidden, session, blocked (Covenant's own check). */
+  /** How the code arrived: refused (recorded or thrown), forbidden, session, blocked (Paperwork's own check). */
   fail_kind: string | null;
   correlation_id: string | null;
   approval_id: string | null;
@@ -101,6 +103,7 @@ export interface AttemptRow {
   tx_hash: string | null;
   never_executed: number;
   refund_tx_hash: string | null;
+  refunded_amount: string | null;
   resolution: PayoutResolution | null;
   retry_at: string | null;
   auto_retry: number;
@@ -139,8 +142,7 @@ export function openDb(path: string): Database {
   const db = new Database(path, { strict: true });
   try {
     refuseOldSchema(db);
-    refuseUnprovenRejections(db);
-    refuseUnprovenJobResolutions(db);
+    refuseUnprovenBudgetReleases(db);
   } catch (error) {
     db.close();
     throw error;
@@ -158,7 +160,9 @@ export function openDb(path: string): Database {
       contractor_sig TEXT,
       organization TEXT NOT NULL,
       payee_registered INTEGER,
-      frozen INTEGER NOT NULL DEFAULT 0
+      frozen INTEGER NOT NULL DEFAULT 0,
+      signing_recipient TEXT NOT NULL DEFAULT 'multiagency-paperwork'
+        CHECK (signing_recipient IN ('covenant', 'multiagency-paperwork'))
     );
     CREATE TABLE IF NOT EXISTS platform_agents (
       organization TEXT PRIMARY KEY,
@@ -256,6 +260,7 @@ export function openDb(path: string): Database {
       failure_code TEXT,
       tx_hash TEXT,
       refund_tx_hash TEXT,
+      refunded_amount TEXT,
       resolution TEXT,
       retry_at TEXT,
       auto_retry INTEGER NOT NULL DEFAULT 0,
@@ -289,9 +294,13 @@ export function openDb(path: string): Database {
       text TEXT NOT NULL
     );
   `);
+  const contractCols = new Set((db.query("SELECT name FROM pragma_table_info('contracts')").all() as { name: string }[]).map((c) => c.name));
+  // Additive only: existing signatures and partially signed drafts keep their original domain and exact bytes.
+  if (!contractCols.has("signing_recipient")) db.exec("ALTER TABLE contracts ADD COLUMN signing_recipient TEXT NOT NULL DEFAULT 'covenant' CHECK (signing_recipient IN ('covenant', 'multiagency-paperwork'))");
   const attemptCols = new Set((db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[]).map((c) => c.name));
   if (!attemptCols.has("platform_record")) db.exec("ALTER TABLE payout_attempts ADD COLUMN platform_record TEXT");
   if (!attemptCols.has("never_executed")) db.exec("ALTER TABLE payout_attempts ADD COLUMN never_executed INTEGER NOT NULL DEFAULT 0");
+  if (!attemptCols.has("refunded_amount")) db.exec("ALTER TABLE payout_attempts ADD COLUMN refunded_amount TEXT");
   const index = db.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'one_open_payout'").get() as { sql: string } | null;
   if (index && !index.sql.includes("'disputed'")) db.transaction(() => {
     // Preserve every row while extending the existing monetary lock to business reviews closed as disputed.
@@ -301,40 +310,50 @@ export function openDb(path: string): Database {
   return db;
 }
 
+/** A new deployment must never treat another deployment's retained request IDs as absent and resend them. */
+export function bindAppDeployment(db: Database, deployment: string): void {
+  db.transaction(() => {
+    const table = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'app_identity'").get();
+    const bound = table ? db.query("SELECT deployment FROM app_identity WHERE id = 1").get() as { deployment: string } | null : null;
+    if (bound) {
+      if (bound.deployment !== deployment) throw new Error(`This database belongs to deployment ${bound.deployment}, not ${deployment}. Preserve it and recover its original payment identities using the original deployment and credential.`);
+      return;
+    }
+    const oldJobs = db.query("SELECT 1 FROM contracts LIMIT 1").get();
+    const marketTable = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'market_agencies'").get();
+    const oldAgencies = marketTable ? db.query("SELECT 1 FROM market_agencies LIMIT 1").get() : null;
+    if (deployment === "multiagency-paperwork" && (oldJobs || oldAgencies))
+      throw new Error("This database has existing records without a deployment binding. Preserve it and use its original PLATFORM_DEPLOYMENT and credential for recovery; do not attach it to multiagency-paperwork.");
+    db.exec("CREATE TABLE IF NOT EXISTS app_identity (id INTEGER PRIMARY KEY CHECK (id = 1), deployment TEXT NOT NULL)");
+    db.query("INSERT INTO app_identity (id, deployment) VALUES (1, ?)").run(deployment);
+  })();
+}
+
 /** A database from the provider-adapter era can't be migrated: refuse it instead of guessing. */
 function refuseOldSchema(db: Database) {
   const cols = db.query("SELECT name FROM pragma_table_info('contracts')").all() as { name: string }[];
   if (cols.length === 0) return;
   const names = new Set(cols.map((c) => c.name));
   if (names.has("credential_enc") || !names.has("organization"))
-    throw new Error("This database was made by an older Covenant (provider adapter). Preserve it; recovery or migration needs review before this app can use it.");
+    throw new Error("This database was made by an older Paperwork (provider adapter). Preserve it; recovery or migration needs review before this app can use it.");
 }
 
-/** Older rejection inference was insufficient. Refuse it without rewriting history or freeing money. */
-function refuseUnprovenRejections(db: Database) {
+/** No workflow or missing parent record may silently import budget freed without consistent proof. */
+function refuseUnprovenBudgetReleases(db: Database) {
   const columns = db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[];
   if (!columns.length) return;
-  const hasProof = columns.some((c) => c.name === "never_executed");
-  const unproven = hasProof ? " AND COALESCE(never_executed, 0) != 1" : "";
-  const row = db.query(`SELECT request_id FROM payout_attempts WHERE kind = 'payout' AND state = 'rejected'${unproven} LIMIT 1`).get() as { request_id: string } | null;
-  if (row) throw new Error(`Payout ${row.request_id} was recorded as rejected without non-execution proof. Preserve this database and reconcile the original platform identities before continuing; no schema or records were changed.`);
-}
-
-/** A v3 manual resolution must not silently import budget freed by the earlier, weaker review rule. */
-function refuseUnprovenJobResolutions(db: Database) {
-  const columns = db.query("SELECT name FROM pragma_table_info('payout_attempts')").all() as { name: string }[];
-  if (!columns.length) return;
-  const proof = columns.some((c) => c.name === "never_executed") ? "p.never_executed" : "0";
-  const rows = db.query(`SELECT p.request_id, p.tx_hash, p.refund_tx_hash, ${proof} AS never_executed, c.terms
-    FROM payout_attempts p JOIN contracts c ON c.id = p.contract_id
-    WHERE p.kind = 'payout' AND p.state = 'failed' AND p.resolution IN ('reowe', 'rejected')`).all() as {
-      request_id: string; tx_hash: string | null; refund_tx_hash: string | null; never_executed: number; terms: string;
+  const proof = columns.some((c) => c.name === "never_executed") ? "never_executed" : "NULL";
+  const refunded = columns.some((c) => c.name === "refunded_amount") ? "refunded_amount" : "NULL";
+  // Do not join contracts or inspect terms: orphaned rows and unknown/invalid versions need the same proof.
+  const rows = db.query(`SELECT request_id, state, tx_hash, refund_tx_hash, ${refunded} AS refunded_amount, ${proof} AS never_executed
+    FROM payout_attempts
+    WHERE kind = 'payout' AND (state IN ('rejected', 'refused') OR (state = 'failed' AND resolution IN ('reowe', 'rejected')))`)
+    .all() as {
+      request_id: string; state: string; tx_hash: unknown; refund_tx_hash: unknown; refunded_amount: unknown; never_executed: unknown;
     }[];
   for (const row of rows) {
-    let version: unknown;
-    try { version = (JSON.parse(row.terms) as { v?: unknown }).v; } catch { continue; }
-    if (version !== 3) continue; // This compatibility rule applies only to identifiable v3 jobs.
-    if (row.never_executed === 1 && !row.tx_hash && !row.refund_tx_hash) continue;
-    throw new Error(`Payout ${row.request_id} has a manual budget-releasing resolution without verifiable non-execution proof. Preserve this database and reconcile the original platform identities before continuing; no schema or records were changed.`);
+    const noCounterevidence = row.tx_hash === null && row.refund_tx_hash === null && row.refunded_amount === null;
+    if (noCounterevidence && (row.state === "refused" || row.never_executed === 1)) continue;
+    throw new Error(`Payout ${row.request_id} has a budget-releasing outcome without consistent non-execution proof. Preserve this database and reconcile the original platform identities before continuing; no schema or records were changed.`);
   }
 }

@@ -1,8 +1,8 @@
 {
-  "name": "covenant",
+  "name": "multiagency-paperwork",
   "version": "0.1.0",
   "private": true,
-  "description": "Covenant: pay-on-merge contractor payroll on the MultiAgency platform. A signed scope becomes a platform agent's policy; a judge sizes each payout and the company approves it.",
+  "description": "MultiAgency Paperwork: signed builder jobs on the MultiAgency platform, with report and invoice submissions, bounded compensation and explicit agency payout approval.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -13,18 +13,30 @@
     "demo": "bun src/server/index.ts",
     "demo:job": "bun scripts/demo-job.ts",
     "demo:browser": "bun scripts/demo-browser.ts",
+    "demo:jobs": "bun scripts/demo-jobs.ts",
+    "demo:jobs:check": "bun scripts/demo-jobs.ts --check",
+    "demo:desk": "bun scripts/demo-jobs.ts",
+    "demo:desk:check": "bun scripts/demo-jobs.ts --check",
     "demo:job:restart": "bun scripts/demo-job-restart-local.ts",
     "demo:full": "bun scripts/demo-job-restart-local.ts --full",
     "demo:full:check": "bun scripts/demo-job-restart-local.ts --full-check",
     "demo:e2e": "bun scripts/demo-e2e.ts",
+    "demo:review": "bun --no-env-file scripts/demo-review.ts",
+    "demo:review:check": "bun --no-env-file scripts/demo-review.ts --check",
     "test": "bun test",
     "typecheck": "tsc --noEmit && tsc -p .railway",
     "demo:stack": "bun scripts/demo-stack.ts",
-    "demo:market": "bun scripts/demo-market.ts"
+    "demo:market": "bun scripts/demo-market.ts",
+    "demo:privacy:browser": "bun --no-env-file scripts/demo-privacy-browser.ts"
   },
   "dependencies": {
+    "@ag-ui/client": "1.0.4",
+    "@ag-ui/core": "1.0.4",
     "@better-auth/core": "1.7.14",
-    "@multiagency/sdk": "0.5.7",
+    "@copilotkit/core": "1.86.0",
+    "@copilotkit/runtime": "1.86.0",
+    "@multiagency/sdk": "./vendor/multiagency-sdk/multiagency-sdk-0.5.9-252cba1.tgz",
+    "@nearai/inference-sdk": "0.3.0",
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@scure/base": "^2.4.0",
@@ -33,7 +45,13 @@
     "hono": "4",
     "react": "19",
     "react-dom": "19",
+    "rxjs": "7.8.2",
     "zod": "4"
+  },
+  "overrides": {
+    "@ag-ui/client": "1.0.4",
+    "@ag-ui/core": "1.0.4",
+    "rxjs": "7.8.2"
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",

@@ -1,5 +1,5 @@
 // The agency as a worker: its listed agent's jobs arrive as `hire.*` webhooks (at least once, unordered) and are also
-// polled, because a webhook can be lost. A person at the agency writes and submits each deliverable: Covenant never
+// polled, because a webhook can be lost. A person at the agency writes and submits each deliverable: Paperwork never
 // hands a buyer's brief to a model or acts on what it says. An x402 job is accepted on delivery; the earnings land in
 // the market account, which the owner withdraws to the agency agent's deposit address.
 import type { Database } from "bun:sqlite";
@@ -248,9 +248,16 @@ export class Worker {
    * Submits the deliverable an agency member wrote. The text is saved first; an unanswered submit stays `unknown`
    * until a poll reads the assignment's deliverable versions. Recovery never resends automatically.
    */
-  async submit(assignmentId: string, markdown: string): Promise<AssignmentRow> {
+  async submit(assignmentId: string, markdown: string, retryAttemptId?: string): Promise<AssignmentRow> {
     const cfg = this.cfg();
     const r = this.row(assignmentId, cfg.agencyId);
+    if (retryAttemptId !== undefined) {
+      if (r.submit_attempt_id !== retryAttemptId) throw new UserError("This saved submission attempt changed. Check the job before retrying.", 409);
+      // A different tab may already have confirmed this exact attempt. A saved retry never becomes a new revision.
+      if (r.submit_state === "submitted") return r;
+      if (r.submit_state !== "none" || r.submit_phase !== "not_arrived")
+        throw new UserError("This saved submission is not ready to retry. Check its original outcome first.", 409);
+    }
     const text = markdown.trim();
     if (!text) throw new UserError("Write the deliverable first.");
     if (new TextEncoder().encode(text).length > MAX_TEXT) throw new UserError("A deliverable is at most 256 KiB.");
@@ -328,6 +335,8 @@ const assignmentView = (r: AssignmentRow): AssignmentView => ({
   deliverable: r.deliverable,
   submit_state: r.submit_state,
   submit_error: r.submit_error,
+  submit_attempt_id: r.submit_attempt_id,
+  submit_phase: r.submit_phase,
   deposit_address: r.deposit_address,
   accepted_at: r.accepted_at,
 });

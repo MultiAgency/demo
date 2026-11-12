@@ -95,7 +95,7 @@ describe("platform answer → attempt state (one per answer)", () => {
   test("thrown request_conflict → blocked, alert, never retried", () => {
     const t = fromFail({ ok: false, kind: "refused", code: "request_conflict" });
     expect(t.state).toBe("blocked");
-    expect(t.alert).toContain("Covenant bug");
+    expect(t.alert).toContain("Paperwork bug");
     expect(t.retryAfterMs).toBeUndefined();
   });
   test("unresolved / busy → waiting 60 s; rate_limited honours retryAfterSeconds", () => {

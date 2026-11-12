@@ -70,6 +70,7 @@ export const termsSchema = z.discriminatedUnion("v", [
   termsBase.extend({ v: z.literal(2), acceptance: z.literal("merged_to_default_branch_by_other") }),
   termsBase.extend({
     v: z.literal(3),
+    agency_owner: z.object({ type: z.literal("dao"), account_id: nearAccount }).strict().optional(),
     acceptance: z.literal("report_and_invoice"),
     payment_terms: z.object({
       calculation: z.literal(JOB_PAYMENT_TERMS.calculation),
@@ -107,13 +108,16 @@ export function termsHash(terms: Terms): string {
   return sha256Hex(canonicalJson(terms));
 }
 
-/** Legacy signing domain: retain these exact bytes for already accepted v2/v3 job signatures. */
-export function termsSigningMessage(hash: string): string {
-  return `Covenant work order sha256:${hash}`;
-}
-
 /** The NEP-413 recipient for term signatures. */
-export const TERMS_RECIPIENT = "covenant";
+export const TERMS_RECIPIENT = "multiagency-paperwork";
+export type TermsRecipient = typeof TERMS_RECIPIENT | "covenant";
+
+/** New jobs use Paperwork; each stored job pins its original signing domain across renames. */
+export function termsSigningMessage(hash: string, recipient: TermsRecipient = TERMS_RECIPIENT): string {
+  if (recipient === "covenant") return `Covenant work order sha256:${hash}`;
+  if (recipient !== TERMS_RECIPIENT) throw new Error("Unsupported job signing domain");
+  return `Paperwork terms sha256:${hash}`;
+}
 
 /** Contract end is inclusive: the last instant of the end date, UTC. */
 export function endInstant(terms: Pick<Terms, "end">): string {

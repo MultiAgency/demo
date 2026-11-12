@@ -1,14 +1,18 @@
+import { PUBLIC_VERIFICATION_CHECKS, type PublicVerificationView } from "../shared/views";
 import type { Database } from "bun:sqlite";
 import { clauseFor } from "../shared/clauses";
 import { canonicalJson, sha256Hex } from "../shared/canonical";
 import { fromAtomic, toAtomic } from "../shared/money";
 import { jobSubmissionSchema, type JobSubmissionView } from "../shared/jobs";
+import type { MyJob } from "../shared/my-jobs";
+import type { ReviewContext } from "../shared/review";
 import { expectations, largestAtomic, policyDifferences, policyProblem, totalAtomic } from "../shared/policy-request";
 import { endInstant, parseTerms, scopeTotal, startInstant, type Terms, TERMS_RECIPIENT, termsHash, termsSigningMessage, USDC_DECIMALS } from "../shared/terms";
 import type { AttemptState, ContractView, EventView, JudgmentOutcome, NextStep, PayoutView, PayoutResolution, ScopeRow, SetupStage, VerifyView } from "../shared/views";
 import type { Config } from "./config";
 import type { AttemptRow, ContractRow, EventRow, JudgmentRow, LineRow, OwnerStepRow, PlatformAgentRow, SignatureRecord, JobRow, JobInvoiceRow } from "./db";
 import { judgeJob } from "./job-judge";
+import { jobAttention } from "./jobs/attention";
 import { type EvidenceSource, injectedPullRequest } from "./evidence/github";
 import type { Judge, Judgment, Level } from "./judge";
 import { nonceFromString, nonceToString, randomNonce, verifyNep413 } from "./nep413";
@@ -33,7 +37,7 @@ import {
   sumLines,
   type Transition,
 } from "./payouts";
-import type { AgentHandle, ChainReader, Overview, PayoutAnswer, Platform, Res } from "./platform/port";
+import type { AgentHandle, ChainReader, Overview, PaymentStatus, PayoutAnswer, Platform, Res } from "./platform/port";
 
 export class UserError extends Error {
   constructor(
@@ -87,7 +91,7 @@ export interface AttackReport {
   pull_request?: unknown;
 }
 
-export class Covenant {
+export class Engine {
   readonly onboarding: Onboarding;
   private mutex = new KeyedMutex();
   private log: (msg: string) => void;
@@ -121,8 +125,8 @@ export class Covenant {
     const id = `c_${hash.slice(0, 12)}`;
     const contractorToken = sha256Hex(randomNonce()).slice(0, 32);
     this.d.db
-      .query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, organization) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, canonicalJson(terms), hash, this.nowIso(), sha256Hex(contractorToken), orgFor(id));
+      .query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, organization, signing_recipient) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(id, canonicalJson(terms), hash, this.nowIso(), sha256Hex(contractorToken), orgFor(id), TERMS_RECIPIENT);
     this.event(id, "draft", `Draft created: ${terms.company} funds ${terms.scope.length} deliverables worth $${scopeTotal(terms)} for ${terms.contractor.name}, until ${terms.end}.`);
     return { id, contractorToken };
   }
@@ -135,10 +139,6 @@ export class Covenant {
   parties(id: string): { representative: string; contractor: string } {
     const t = this.terms(this.row(id));
     return { representative: t.representative.near_account, contractor: t.contractor.near_account };
-  }
-
-  contractRequiresParty(id: string): boolean {
-    return this.terms(this.row(id)).v === 3;
   }
 
   requireContractorToken(id: string, token: unknown) {
@@ -184,6 +184,40 @@ export class Covenant {
       });
   }
 
+  /** Private discovery from local records only: no follow-up, signing preparation or platform reads. */
+  jobsFor(account: string): MyJob[] {
+    const rows = this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all() as ContractRow[];
+    return rows.flatMap<MyJob>((row) => {
+      const terms = this.terms(row);
+      const roles: MyJob["roles"] = [];
+      if (terms.representative.near_account === account) roles.push("agency");
+      if (terms.contractor.near_account === account) roles.push("builder");
+      if (!roles.length) return [];
+      const agent = this.onboarding.agentRow(row.organization);
+      const attention = jobAttention({
+        terms, roles, row, agent, latestSubmission: this.jobRows(row.id)[0] ?? null,
+        payouts: this.attempts(row.id),
+        openJudgmentId: this.openJudgment(row.id)?.id ?? null,
+        ownerSteps: this.d.db.query("SELECT * FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC").all(row.id, row.organization) as OwnerStepRow[],
+        now: this.d.now(),
+      });
+      return [{
+        id: row.id,
+        title: terms.scope[0]?.title || terms.company,
+        company: terms.company,
+        builder_name: terms.contractor.name,
+        scope_usd: scopeTotal(terms),
+        start: terms.start,
+        end: terms.end,
+        stage: this.stageOf(row, agent, null),
+        roles,
+        builder_accepted: !!row.contractor_sig,
+        workflow: terms.v === 3 ? "report_invoice" : "pay_on_merge",
+        attention,
+      }];
+    });
+  }
+
   /** The view only: no follow-up, so no payout is planned or sent. */
   async viewContract(id: string): Promise<ContractView> {
     this.row(id);
@@ -210,8 +244,8 @@ export class Covenant {
     return {
       role,
       account_id: role === "representative" ? terms.representative.near_account : terms.contractor.near_account,
-      message: termsSigningMessage(row.hash),
-      recipient: TERMS_RECIPIENT,
+      message: termsSigningMessage(row.hash, row.signing_recipient),
+      recipient: row.signing_recipient,
       nonce: nonceToString(randomNonce()),
     };
   }
@@ -223,7 +257,7 @@ export class Covenant {
     if (role === "contractor" && sha256Hex(contractorToken ?? "") !== row.contractor_link_hash) throw new UserError("This signing link is not valid for the contractor.", 403);
     if ((role === "representative" ? row.rep_sig : row.contractor_sig) !== null) throw new UserError(`The ${role} already signed.`, 409);
     if (signed.account_id.toLowerCase() !== expected) throw new UserError(`The ${role} must sign as ${expected}, not ${signed.account_id}.`, 403);
-    const ok = verifyNep413({ message: termsSigningMessage(row.hash), nonce: nonceFromString(signed.nonce), recipient: TERMS_RECIPIENT }, signed);
+    const ok = verifyNep413({ message: termsSigningMessage(row.hash, row.signing_recipient), nonce: nonceFromString(signed.nonce), recipient: row.signing_recipient }, signed);
     if (!ok) throw new UserError("The signature does not match these terms.", 400);
     if (!(await this.d.chain.isFullAccessKey(expected, signed.public_key))) throw new UserError(`${signed.public_key} is not a full-access key of ${expected}.`, 403);
     const record: SignatureRecord = { ...signed, account_id: expected, signed_at: this.nowIso() };
@@ -284,6 +318,33 @@ export class Covenant {
   jobSubmissions(id: string): JobSubmissionView[] {
     this.row(id);
     return this.jobRows(id).map((s) => this.jobView(s));
+  }
+
+  /** Stored review facts only: no platform reads, frozen-state synchronization or payout follow-up. */
+  reviewInput(submissionId: string) {
+    const s = this.job(submissionId);
+    const row = this.row(s.contract_id);
+    const terms = this.terms(row);
+    if (terms.v !== 3 || !row.rep_sig || !row.contractor_sig)
+      throw new UserError("Review requires an accepted report-and-invoice job.", 409);
+    if (s.terms_hash !== row.hash || termsHash(terms) !== row.hash)
+      throw new UserError("The submission's accepted terms do not match.", 409);
+    const payouts = s.judgment_id ? this.attempts(row.id).filter((a) => a.run_id === s.judgment_id) : [];
+    if ((s.state !== "submitted" && s.state !== "proposed") || s.changes || payouts.some((a) => a.vote === "approve" || a.state === "processing" || isPaid(a) || (a.state === "failed" && !a.resolution)))
+      throw new UserError("This submission is no longer available for a feedback draft. Refresh the job.", 409);
+    const invoice = this.jobInvoice(s.id);
+    const context: ReviewContext = {
+      submission_id: s.id, terms_hash: row.hash, revision: s.revision,
+      scope: terms.scope.map(({ id, title, criteria }) => ({ id, title, criteria })),
+      report: s.report, evidence: JSON.parse(s.evidence),
+      invoice: { number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
+    };
+    return {
+      context,
+      snapshot: { terms_hash: row.hash, revision: s.revision, state: s.state, judgment_id: s.judgment_id },
+      fingerprint: sha256Hex(canonicalJson({ context, state: s.state, changes: s.changes,
+        payouts: payouts.map((a) => ({ request_id: a.request_id, state: a.state, vote: a.vote, resolution: a.resolution })) })),
+    };
   }
 
   /** The proposal and its payment identity are committed together before the SDK sees any request. */
@@ -552,8 +613,8 @@ export class Covenant {
       const a = this.attempt(requestId);
       if (a.kind !== "payout" || a.state !== "failed" || (a.resolution !== null && a.resolution !== "disputed")) throw new UserError("Only an unresolved or disputed failed payout can be reviewed.", 409);
       if (outcome === "disputed" && a.resolution === "disputed") return this.view(a.contract_id);
-      if (this.terms(this.row(a.contract_id)).v === 3 && outcome !== "arrived" && outcome !== "disputed" &&
-          (a.never_executed !== 1 || !!a.tx_hash || !!a.refund_tx_hash)) {
+      if (outcome !== "arrived" && outcome !== "disputed" &&
+          (a.never_executed !== 1 || a.tx_hash !== null || a.refund_tx_hash !== null || a.refunded_amount !== null)) {
         throw new UserError("This job's failed payment remains committed until the platform proves it never executed. Manual review cannot authorize a replacement or release its budget.", 409);
       }
       this.d.db.transaction(() => {
@@ -600,7 +661,7 @@ export class Covenant {
       // A platform confirmation can be signed outside this app. Reconcile its original owner intent before deciding
       // whether a preparation is still signable, submitted, or positively expired without submission.
       let prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
-      for (const step of prior) if (step.confirm_url && ["prepared", "submitted", "unknown"].includes(step.state)) await this.onboarding.pollStep(step.correlation_id);
+      for (const step of prior) if ((step.confirm_url || step.standard === "dao") && ["prepared", "submitted", "unknown"].includes(step.state)) await this.onboarding.pollStep(step.correlation_id);
       prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
       if (prior.some((s) => s.state === "submitted" || s.state === "unknown"))
         throw new UserError("A vote for this payout is already submitted or uncertain. Follow its original identity before preparing another.", 409);
@@ -608,7 +669,7 @@ export class Covenant {
       if (pending.some((s) => !s.expires_at || !Number.isFinite(Date.parse(s.expires_at))))
         throw new UserError("The prepared vote has no verifiable expiry. Follow its original identity before preparing another.", 409);
       const same = pending.find((s) => s.verdict === verdict && s.action === JSON.stringify(action) && Date.parse(s.expires_at!) > this.d.now().getTime());
-      if (pending.some((s) => s.confirm_url && s !== same))
+      if (pending.some((s) => (s.confirm_url || s.standard === "dao") && s !== same))
         throw new UserError("A platform confirmation may already have been signed. Follow this payout's original identity before preparing another vote.", 409);
       // Only never-submitted preparations can be superseded; stale wallet prompts can no longer submit them here.
       for (const s of pending) if (s !== same)
@@ -631,6 +692,7 @@ export class Covenant {
         correlation_id: step.correlation_id,
         sign: view.kind === "owner_step" ? (view.sign ?? null) : null,
         confirm: view.kind === "owner_step" ? (view.confirm ?? null) : null,
+        dao: view.kind === "owner_step" ? (view.dao ?? null) : null,
         terms: t,
         flags: this.payoutView(this.attempt(requestId)).prs.filter((p) => p.flags.length > 0),
         summary: step.summary,
@@ -659,7 +721,7 @@ export class Covenant {
       }
       expected = pre.expected;
     } else {
-      // Attacks: a compromised server skips Covenant's checks; only the platform stands in the way.
+      // Attacks: a compromised server skips Paperwork's checks; only the platform stands in the way.
       const o = await this.onboarding.handle(a).overview();
       expected = o.ok && o.value.revision !== null && o.value.digest !== null ? { revision: o.value.revision, digest: o.value.digest } : { revision: a.policy_revision ?? 0, digest: a.policy_digest ?? "" };
     }
@@ -668,7 +730,7 @@ export class Covenant {
   }
 
   /**
-   * Before every payout request: active, not near the end, and the whole live policy matches what Covenant signed.
+   * Before every payout request: active, not near the end, and the whole live policy matches what Paperwork signed.
    * Any other policy, whichever revision it is, blocks the request (`policy_mismatch`) until it matches again.
    */
   private async preflight(row: ContractRow, terms: Terms, a: PlatformAgentRow): Promise<{ expected: { revision: number; digest: string } } | Transition> {
@@ -692,7 +754,7 @@ export class Covenant {
     if (o.value.revision !== a.policy_revision || o.value.digest !== a.policy_digest) {
       // A new revision that still matches the signed terms in full: record it as the reviewed one.
       this.onboarding.setAgent(a.organization, { policy_revision: o.value.revision, policy_digest: o.value.digest });
-      this.event(row.id, "policy", `Policy revision ${o.value.revision} still matches the signed terms in full; Covenant continues under it.`);
+      this.event(row.id, "policy", `Policy revision ${o.value.revision} still matches the signed terms in full; Paperwork continues under it.`);
     }
     return { expected: { revision: o.value.revision, digest: o.value.digest } };
   }
@@ -705,7 +767,7 @@ export class Covenant {
   }
 
   /** Record a transition, then fetch what the new state needs (approval id, evidence). */
-  private async transition(att: AttemptRow, t: Transition) {
+  private async transition(att: AttemptRow, t: Transition, observedPayment?: Res<PaymentStatus>) {
     const fields: Partial<AttemptRow> = {
       state: t.state,
       code: t.code,
@@ -714,24 +776,27 @@ export class Covenant {
     };
     if (t.correlationId) fields.correlation_id = t.correlationId;
     if (t.neverExecuted !== undefined) fields.never_executed = t.neverExecuted ? 1 : 0;
+    if (t.state === "paid") fields.never_executed = 0;
     if (t.failureCode !== undefined) fields.failure_code = t.failureCode;
     this.setAttempt(att.request_id, fields);
     let cur = this.attempt(att.request_id);
     const h = this.handleFor(cur);
     if (cur.state === "held" && !cur.approval_id) await this.fillHeld(cur);
     if ((cur.state === "paid" || cur.state === "failed") && cur.correlation_id && h) {
-      const ps = await h.paymentStatus(cur.correlation_id);
+      const ps = observedPayment ?? await h.paymentStatus(cur.correlation_id);
       const ev = ps.ok ? ps.value.evidence : null;
       const txHash = ev?.txHash ?? ev?.destinationTxHash ?? cur.tx_hash;
       const refundTxHash = ev?.refundTxHash ?? cur.refund_tx_hash;
-      const patch: Partial<AttemptRow> = { tx_hash: txHash, refund_tx_hash: refundTxHash, failure_code: (ps.ok ? ps.value.failureCode : null) ?? cur.failure_code };
+      // Once observed, refund counterevidence must survive omitted fields and unavailable later reads.
+      const refundedAmount = cur.refunded_amount ?? ev?.refundedAmount ?? null;
+      const patch: Partial<AttemptRow> = { tx_hash: txHash, refund_tx_hash: refundTxHash, refunded_amount: refundedAmount, failure_code: (ps.ok ? ps.value.failureCode : null) ?? cur.failure_code };
       if (cur.state === "failed") {
         if (ps.ok && ps.value.status === "SUCCESS") {
           patch.state = "paid";
           patch.never_executed = 0;
         } else {
           const consistent = !ps.ok || ps.value.status === "FAILED";
-          const proof = cur.never_executed === 1 && consistent && !txHash && !refundTxHash && !ev?.refundedAmount;
+          const proof = cur.never_executed === 1 && consistent && txHash === null && refundTxHash === null && refundedAmount === null;
           if (!proof) patch.never_executed = 0;
           // A disputed closure keeps its monetary hold until the agency explicitly reviews newly arrived
           // non-execution evidence. A later successful payment is handled above under the same original identity.
@@ -760,7 +825,7 @@ export class Covenant {
     const record = `${st.value.state}${st.value.status ? ` (${st.value.status})` : ""}`;
     if (record === att.platform_record) return;
     this.setAttempt(att.request_id, { platform_record: record });
-    this.event(att.contract_id, "payout", `The platform's own record under ${att.request_id} (other terms) reads ${record}. Covenant keeps its amount counted and never re-sends this id.`);
+    this.event(att.contract_id, "payout", `The platform's own record under ${att.request_id} (other terms) reads ${record}. Paperwork keeps its amount counted and never re-sends this id.`);
   }
 
   private async fillHeld(att: AttemptRow) {
@@ -789,6 +854,11 @@ export class Covenant {
   }
 
   private async followAttempt(att: AttemptRow) {
+    // A DAO signature may have been submitted outside this app or while its process was stopped.
+    const daoSteps = this.d.db.query("SELECT correlation_id FROM owner_steps WHERE request_id = ? AND standard = 'dao' AND state IN ('prepared','submitted','unknown')")
+      .all(att.request_id) as { correlation_id: string }[];
+    for (const step of daoSteps) await this.onboarding.pollStep(step.correlation_id);
+    att = this.attempt(att.request_id);
     const h = this.handleFor(att);
     if (!h) return;
     const now = this.d.now().getTime();
@@ -808,7 +878,13 @@ export class Covenant {
     }
     const st = await h.payoutStatus(att.request_id);
     if (st.ok) {
-      if (att.state === "failed" && st.value.state === "not_found") return; // A known recorded failure is observed, never replayed.
+      const changedBinding = st.value.requestId !== att.request_id ||
+        (att.correlation_id !== null && st.value.correlationId !== null && st.value.correlationId !== att.correlation_id);
+      if (att.state === "failed" && (changedBinding || (st.value.state !== "failed" && st.value.state !== "succeeded"))) {
+        // A recorded failure cannot regress to a pre-execution refusal or missing/live record and free its hold.
+        // Revoke stale proof and observe the original payment correlation; late success can still settle it.
+        return this.transition(att, { state: "failed", code: att.code, failKind: null, neverExecuted: false });
+      }
       if (st.value.state === "not_found") return this.send(att.request_id);
       const mapped = fromAnswer(st.value).state;
       if (mapped === att.state && (mapped === "held" || mapped === "processing" || mapped === "unknown")) {
@@ -821,8 +897,10 @@ export class Covenant {
     if (st.kind === "forbidden" && att.correlation_id) {
       const ps = await h.paymentStatus(att.correlation_id);
       if (!ps.ok) return;
-      if (ps.value.status === "SUCCESS") return this.transition(att, { state: "paid", code: null, failKind: null });
-      if (ps.value.status === "FAILED" || ps.value.status === "REFUNDED") return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null });
+      if (ps.value.status === "SUCCESS") return this.transition(att, { state: "paid", code: null, failKind: null }, ps);
+      if (att.state === "failed" && ps.value.status !== "FAILED")
+        return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null, neverExecuted: false }, ps);
+      if (ps.value.status === "FAILED" || ps.value.status === "REFUNDED") return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null }, ps);
     }
   }
 
@@ -860,7 +938,7 @@ export class Covenant {
           if (!(await this.newAttempt(j, last!.seq, last!.attempt + 1, false))) return;
           break;
         case "auto_retry":
-          this.event(id, "retry", `The platform refused with ${last!.code}; Covenant re-read the policy and retries once.`);
+          this.event(id, "retry", `The platform refused with ${last!.code}; Paperwork re-read the policy and retries once.`);
           if (!(await this.newAttempt(j, last!.seq, last!.attempt + 1, true))) return;
           break;
       }
@@ -943,6 +1021,17 @@ export class Covenant {
 
   // ================================================================ contractor verification
 
+  async publicVerification(id: string): Promise<PublicVerificationView> {
+    const row = this.row(id);
+    const result = await this.verify(id);
+    const checks: PublicVerificationView["checks"] = {};
+    for (const key of PUBLIC_VERIFICATION_CHECKS) {
+      const check = result.checks.find((item) => item.id === key);
+      if (check) checks[key] = check.ok;
+    }
+    return { terms_hash: row.hash, workflow_version: this.terms(row).v, overall: result.overall, checks, checked_at: this.d.now().toISOString() };
+  }
+
   async verify(id: string): Promise<VerifyView> {
     const row = this.row(id);
     const terms = this.terms(row);
@@ -951,7 +1040,7 @@ export class Covenant {
     checks.push({ id: "terms", label: "Terms hash matches the terms", ok: termsHash(terms) === row.hash });
     for (const role of ["representative", "contractor"] as const) {
       const s = sig(role === "representative" ? row.rep_sig : row.contractor_sig);
-      const ok = !!s && verifyNep413({ message: termsSigningMessage(row.hash), nonce: nonceFromString(s.nonce), recipient: TERMS_RECIPIENT }, s) && (await this.d.chain.isFullAccessKey(s.account_id, s.public_key));
+      const ok = !!s && verifyNep413({ message: termsSigningMessage(row.hash, row.signing_recipient), nonce: nonceFromString(s.nonce), recipient: row.signing_recipient }, s) && (await this.d.chain.isFullAccessKey(s.account_id, s.public_key));
       checks.push({ id: `sig-${role}`, label: `${role === "representative" ? "Representative" : "Contractor"} signature verifies with a full-access key`, ok, detail: s?.account_id });
     }
     const a = this.onboarding.agentRow(row.organization);
@@ -978,12 +1067,12 @@ export class Covenant {
       { id: "assets", label: "USDC is the only asset", ok: !!p && Array.isArray(p.assets) && p.assets.length === 1 && p.assets[0] === terms.asset },
       { id: "payee", label: `Withdrawals go only to ${terms.payee.address}`, ok: !!p && p.withdrawals.length === 1 && p.withdrawals[0]?.toLowerCase() === terms.payee.address, detail: p?.withdrawals.join(", ") },
       { id: "cap", label: "No single payment above the largest deliverable", ok: p?.limits.per_transaction?.[terms.asset] === largest, detail: p?.limits.per_transaction?.[terms.asset] },
-      { id: "approval", label: "Every payout waits for the representative's approval", ok: !!p?.owner_approval },
+      { id: "approval", label: terms.v === 3 && terms.agency_owner ? "Every payout waits for the DAO's approval" : "Every payout waits for the representative's approval", ok: !!p?.owner_approval },
       { id: "frozen", label: "The agent is not frozen", ok: !!p && !p.frozen },
       { id: "grant", label: "A live payout grant exists", ok: !!grant, detail: grant ? `The platform chose its expiry: ${grant.expiresAt}` : undefined },
       {
         id: "consent",
-        label: "Covenant's payout access ends at or before the contract end",
+        label: "Paperwork's payout access ends at or before the contract end",
         ok: !!payoutConsent && !payoutConsent.revoked && Date.parse(payoutConsent.expiresAt) > now && Date.parse(payoutConsent.expiresAt) <= Date.parse(endInstant(terms)),
         detail: payoutConsent?.expiresAt,
       },
@@ -993,7 +1082,7 @@ export class Covenant {
     checks.push(
       { id: "funded", label: "Paid plus balance against the scope total (information: the company could deposit more)", ok: paid + balance <= BigInt(totalAtomic(terms)), info: true, detail: `paid ${usdText(paid)} + balance ${usdText(balance)} of ${usdText(totalAtomic(terms))}` },
       { id: "signed", label: "The whole live policy matches what both parties signed (limits and USD budget included)", ok: !!p && policyDifferences(p, terms).length === 0, detail: p ? policyDifferences(p, terms).join("; ") || undefined : undefined },
-      { id: "relay", label: "Covenant relays the platform's read of the policy", ok: true, info: true },
+      { id: "relay", label: "Paperwork relays the platform's read of the policy", ok: true, info: true },
     );
     const real = checks.filter((c) => !c.info);
     return { overall: real.every((c) => c.ok) ? "green" : "red", checks, expected, observed, consents };
@@ -1111,11 +1200,14 @@ export class Covenant {
   private peekNext(a: PlatformAgentRow | null, stage: SetupStage): NextStep | null {
     if (!a || stage === "needs_signatures" || stage === "active" || stage === "needs_funding" || stage === "ended" || stage === "frozen") return null;
     if (a.pending_sign) {
+      const saved = JSON.parse(a.pending_sign);
+      if (saved.kind && saved.request) return { kind: "dao_vote", retry_ms: 2000, label: "Waiting for the DAO vote", request: saved.request };
+      if (saved.kind) return { kind: "wait", retry_ms: 2000, label: "Recovering the original DAO access request" };
       const p = JSON.parse(a.pending_sign) as { step: "setup" | "consent_payout" | "consent_owner"; message: string; nonce: string; recipient: string };
       return { kind: "sign", step: p.step, label: "Sign in your wallet", sign: { account_id: a.owner, message: p.message, recipient: p.recipient, nonce: p.nonce } };
     }
     const s = this.d.db.query("SELECT * FROM owner_steps WHERE organization = ? AND kind != 'approval_vote' ORDER BY created_at DESC, rowid DESC LIMIT 1").get(a.organization) as OwnerStepRow | null;
-    if (s && s.state === "prepared") return stepView(s, a.owner, "Sign in your wallet");
+    if (s && s.state === "prepared") return stepView(s, a.owner, s.standard === "dao" ? "Vote in the DAO" : "Sign in your wallet");
     return null;
   }
 
@@ -1357,7 +1449,7 @@ export class Covenant {
       case "failed":
         return `${what} failed${a.failure_code ? ` (${a.failure_code})` : ""}. It stays counted until the representative checks the evidence.`;
       case "unknown":
-        return `${what}: no answer from the platform. Covenant will ask for its status; it is never sent under a new id.`;
+        return `${what}: no answer from the platform. Paperwork will ask for its status; it is never sent under a new id.`;
       case "waiting":
         return `${what} waits (${a.code}); the same request id will be asked again.`;
       case "blocked":

@@ -28,7 +28,7 @@ export interface AgencyRow {
   updated_at: string;
 }
 
-/** A DAO vote Covenant filed: a setup, a consent, an owner action or a hire. */
+/** A DAO vote Paperwork filed: a setup, a consent, an owner action or a hire. */
 export interface DaoVoteRow {
   id: string;
   agency_id: string;

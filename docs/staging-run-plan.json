@@ -1,0 +1,61 @@
+{
+  "status": "LOCAL CODE COMMITTED; CLEANUP REVIEW, AUTHORIZED PUSH, REMOTE CI AND HOSTED APPROVAL REMAIN",
+  "accounts": {
+    "wallet_agency_owner": "multiagentic.near",
+    "dao_agency_owner": "agentic.sputnik-dao.near",
+    "dao_human_representative": "Pending policy/permission/quorum verification",
+    "builder_payee": "buildr.near",
+    "refusal_actor": "hackr.near"
+  },
+  "recommended_origin": "Staging service assigned HTTPS Railway domain; actual origin not supplied",
+  "proposed_limits_NOT_APPROVED": {
+    "wallet_job_usdc": "1",
+    "dao_job_usdc": "1",
+    "total_gross_payout_usdc": "2",
+    "total_provider_route_fee_usdc": "1",
+    "total_setup_storage_gas_near": "0.1",
+    "minimums_or_quotes_above_limits": "STOP; no automatic top-up or larger payment",
+    "ai": "Rules proposer; paid model services disabled"
+  },
+  "sequencing": [
+    "Final combined manifest and platform staging-ready handoff",
+    "Pin and verify exact SDK/gateway artifacts; rerun offline wallet/DAO acceptance and packaging",
+    "Freeze Paperwork source/frontend/container; confirm deployment scope and origin",
+    "Owner approves exact hosted actions and ceilings",
+    "Wallet-owned job first: sign-in, terms, setup/consent/grant/policy, funding, immutable submission, held payout, explicit approval, independently confirmed builder receipt",
+    "Review evidence, then separately approve DAO-owned run with exact proposal/quorum requirements",
+    "Observe original identities after refresh; hosted restart only with separate operational approval"
+  ],
+  "current_pins": {
+    "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+    "gateway_snapshot": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+    "gateway_source_head": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
+    "gateway_manifest_sha256": "8043058f5e55bf176597d70d3b83ebfebbef33eff436bb5739a602176d19b17a",
+    "handoff_sha256": "67d6a3fdd5b2858803485e29c4c6c29693b14bb47760f39c144992a5fb87c634"
+  },
+  "coordinator_evidence": {
+    "path": "vendor/multiagency-sdk/final-handoff-252cba1.json",
+    "sha256": "67d6a3fdd5b2858803485e29c4c6c29693b14bb47760f39c144992a5fb87c634",
+    "selectedFinalCommit": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
+    "selectedFinalCandidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+    "offline_consumer_repin_authorized": true,
+    "hosted_deployment_ready": false
+  },
+  "user_confirmed_blockers": [
+    "Market-route proof remains unverified; Market executor rollout held",
+    "Last coordinator handoff reports staging maintenance; obtain fresh staging-ready clearance before any restart",
+    "Configured provider-key/external authority and historical recovery limits remain",
+    "SDK publication is complete; no Paperwork push, deployment, live signatures or funds authorization"
+  ],
+  "pending_inputs": [
+    "Actual staging origin",
+    "Budget/fee ceiling approval",
+    "DAO representative/quorum signers",
+    "Exact deliverable/repository and run dates"
+  ],
+  "live_actions_performed": false,
+  "offline_consumer_results": "docs/final-consumer-252cba1.json",
+  "latest_local_review": "docs/local-release-review.json",
+  "latest_v2_acceptance": "docs/v2-acceptance.json",
+  "current_release_status": "docs/release-status.json"
+}

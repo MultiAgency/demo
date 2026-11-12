@@ -1,4 +1,4 @@
-// Shared test setup: a Covenant runtime on the StubPlatform, plus helpers that play the representative.
+// Shared test setup: a Paperwork runtime on the StubPlatform, plus helpers that play the representative.
 import { createRuntime, type Runtime } from "../../src/server/app";
 import { loadConfig } from "../../src/server/config";
 import { DEMO_TERMS } from "../../src/shared/demo";
@@ -22,21 +22,21 @@ export async function setup(overrides: Record<string, unknown> = {}, env: Record
   const logs: string[] = [];
   const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules", ...env }), { clockStart: START, kit: stub.kit(), log: (m) => logs.push(m) });
   now = rt.clock.now;
-  const { id, contractorToken } = rt.covenant.createContract({ ...DEMO_TERMS, ...overrides });
+  const { id, contractorToken } = rt.engine.createContract({ ...DEMO_TERMS, ...overrides });
   return { rt, stub, id, token: contractorToken, logs };
 }
 
 export async function signTerms(ctx: Ctx) {
   for (const role of ["representative", "contractor"] as const) {
-    const req = ctx.rt.covenant.signingRequest(ctx.id, role);
+    const req = ctx.rt.engine.signingRequest(ctx.id, role);
     const s = ctx.stub.sign(req);
-    await ctx.rt.covenant.addSignature(ctx.id, role, { account_id: req.account_id, public_key: s.publicKey, signature: s.signature, nonce: req.nonce }, ctx.token);
+    await ctx.rt.engine.addSignature(ctx.id, role, { account_id: req.account_id, public_key: s.publicKey, signature: s.signature, nonce: req.nonce }, ctx.token);
   }
 }
 
 /** Play one NextStep as the representative's wallet. */
 export async function play(ctx: Ctx, next: NextStep): Promise<NextStep> {
-  const c = ctx.rt.covenant;
+  const c = ctx.rt.engine;
   if (next.kind === "sign") {
     const s = ctx.stub.sign(next.sign);
     return c.signed(ctx.id, { step: next.step, nonce: next.sign.nonce, publicKey: s.publicKey, signature: s.signature });
@@ -50,7 +50,7 @@ export async function play(ctx: Ctx, next: NextStep): Promise<NextStep> {
 }
 
 export async function onboard(ctx: Ctx) {
-  let next = await ctx.rt.covenant.next(ctx.id);
+  let next = await ctx.rt.engine.next(ctx.id);
   for (let i = 0; i < 20 && next.kind !== "done"; i++) next = await play(ctx, next);
   if (next.kind !== "done") throw new Error(`onboarding stuck at ${JSON.stringify(next)}`);
 }
@@ -65,28 +65,28 @@ export async function activate(fund = "1000", overrides: Record<string, unknown>
 }
 
 export function agentId(ctx: Ctx): string {
-  return ctx.rt.covenant.onboarding.agentRow(ctx.id)!.agent_id!;
+  return ctx.rt.engine.onboarding.agentRow(ctx.id)!.agent_id!;
 }
 
 export async function castVote(ctx: Ctx, rid: string, verdict: "approve" | "reject") {
-  const v = await ctx.rt.covenant.vote(rid, verdict);
+  const v = await ctx.rt.engine.vote(rid, verdict);
   const s = ctx.stub.sign(v.sign!);
-  await ctx.rt.covenant.submitOwnerStep(v.correlation_id, s);
-  return ctx.rt.covenant.getContract(ctx.id);
+  await ctx.rt.engine.submitOwnerStep(v.correlation_id, s);
+  return ctx.rt.engine.getContract(ctx.id);
 }
 
 export async function approveAndSettle(ctx: Ctx, rid: string) {
   await castVote(ctx, rid, "approve");
-  ctx.stub.settle(ctx.rt.covenant.attempt(rid).correlation_id!);
-  return ctx.rt.covenant.getContract(ctx.id);
+  ctx.stub.settle(ctx.rt.engine.attempt(rid).correlation_id!);
+  return ctx.rt.engine.getContract(ctx.id);
 }
 
 export function attemptOf(ctx: Ctx, rid: string) {
-  return ctx.rt.covenant.attempt(rid);
+  return ctx.rt.engine.attempt(rid);
 }
 
 export async function livePayout(ctx: Ctx) {
-  const c = await ctx.rt.covenant.getContract(ctx.id);
+  const c = await ctx.rt.engine.getContract(ctx.id);
   return c.payouts.find((p) => p.kind === "payout" && ["pending", "blocked", "waiting", "unknown", "held", "processing", "failed"].includes(p.state)) ?? null;
 }
 

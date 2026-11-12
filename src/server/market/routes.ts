@@ -154,8 +154,8 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
   });
   app.post("/market/worker/jobs/:aid/submit", async (c) => {
     await member(workerAgency(), account(c), "propose");
-    const body = z.object({ markdown: z.string() }).parse(await c.req.json());
-    await m.worker.submit(c.req.param("aid"), body.markdown);
+    const body = z.object({ markdown: z.string(), retry_attempt_id: z.string().min(1).max(200).optional() }).parse(await c.req.json());
+    await m.worker.submit(c.req.param("aid"), body.markdown, body.retry_attempt_id);
     return c.json(await m.worker.view());
   });
   // The market's webhooks: authenticated by their signature, not a session.

@@ -1,3 +1,4 @@
+import { DaoProposal } from "./DaoProposal";
 import { useState } from "react";
 import { jobSubmissionSchema, type JobSubmissionView } from "../../shared/jobs";
 import { api, ApiError, prepareVote, submitVote } from "../api";
@@ -5,6 +6,7 @@ import type { AppConfig, ContractView, PayoutView, VoteAnswer } from "../types";
 import { SignInGate } from "./Account";
 import { type Act, ApprovalCard, ATTEMPT, StateNote } from "./Payouts";
 import { SignBox } from "./SignBox";
+import { ReviewAssistant } from "./ReviewAssistant";
 import { Alert, Badge, Button, Card, CardHeader, Disclosure, Mono, timeText, type Tone, usd } from "./ui";
 import { useSession } from "../session";
 
@@ -77,12 +79,15 @@ function CancelHeld({ p, config, act }: { p: PayoutView; config: AppConfig; act:
       setVote(v);
       if (config.demo_controls) await submitVote(config, v, session.signWorkflow);
     })}>Reject held payout for revision</Button>
-    {vote && !config.demo_controls ? vote.sign ? <SignBox config={config} req={vote.sign} label="Sign rejection" onSign={() => act(() => submitVote(config, vote, session.signWorkflow))} /> : vote.confirm ? <a className="btn btn-primary btn-md" href={vote.confirm.url} target="_blank" rel="noreferrer">Open the platform's confirm page</a> : null : null}
+    {vote && !config.demo_controls ? vote.dao ? <DaoProposal proposal={vote.dao} onCheck={() => act(() => api("GET", `/owner-steps/${vote.correlation_id}`))} /> : vote.sign ? <SignBox config={config} req={vote.sign} label="Sign rejection" onSign={() => act(() => submitVote(config, vote, session.signWorkflow))} /> : vote.confirm ? <a className="btn btn-primary btn-md" href={vote.confirm.url} target="_blank" rel="noreferrer">Open the platform's confirm page</a> : null : null}
   </div>;
 }
 
 export function AgencyJobWorkflow({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const session = useSession();
+  const reviewer = session.required ? session.account : "demo";
+  const reviewEnabled = config.review?.enabled ?? false;
   return <div className="stack">
     <Card>
       <CardHeader title="Submission and review" sub="Accepted job → builder report and invoice → proposal → agency approval → settlement" />
@@ -98,6 +103,15 @@ export function AgencyJobWorkflow({ c, config, act }: { c: ContractView; config:
         <div className="stack">
           <SubmissionDetails s={s} c={c} />
           {s.state === "submitted" ? <Button icon="bot" disabled={c.stage !== "active"} onClick={() => act(() => api("POST", `/submissions/${s.id}/propose`, {}))}>Propose compensation</Button> : null}
+          {reviewable ? <ReviewAssistant
+            key={`${reviewer}:${c.hash}:${s.id}:${s.state}:${s.judgment_id ?? ""}`}
+            c={c}
+            s={s}
+            enabled={reviewEnabled}
+            disabled={session.loading || (session.required && !session.account)}
+            existingFeedback={reasons[s.id] ?? ""}
+            onApply={(feedback) => setReasons((current) => ({ ...current, [s.id]: feedback }))}
+          /> : null}
           {reviewable ? <form className="job-change-form" onSubmit={(e) => { e.preventDefault(); void act(() => api("POST", `/submissions/${s.id}/changes`, { reason: reasons[s.id] ?? "" })); }}>
             <label className="field"><span className="field-label">Changes needed</span><textarea value={reasons[s.id] ?? ""} onChange={(e) => setReasons({ ...reasons, [s.id]: e.target.value })} rows={2} minLength={3} maxLength={2000} required /></label>
             <Button type="submit" variant="secondary" disabled={(reasons[s.id]?.trim().length ?? 0) < 3}>Request changes</Button>
@@ -130,10 +144,17 @@ function readPending(key: string): SubmissionPayload | null {
   } catch { return null; }
 }
 
+function forgetPending(keys: string[], requestId: string) {
+  for (const key of keys) {
+    if (readPending(key)?.client_request_id === requestId) localStorage.removeItem(key);
+  }
+}
+
 export function BuilderJobWorkflow({ c, token, config, reload }: { c: ContractView; token: string | null; config: AppConfig; reload: () => Promise<void> }) {
-  const key = `covenant.submission.${c.id}`;
+  const key = `paperwork.submission.${c.id}`;
+  const legacyKey = `covenant.submission.${c.id}`;
   const latest = [...c.submissions].sort((a, b) => b.revision - a.revision)[0];
-  const [pending, setPending] = useState<SubmissionPayload | null>(() => readPending(key));
+  const [pending, setPending] = useState<SubmissionPayload | null>(() => readPending(key) ?? readPending(legacyKey));
   const [report, setReport] = useState(pending?.report ?? "");
   const [number, setNumber] = useState(pending?.invoice.number ?? `INV-${String((latest?.revision ?? 0) + 1).padStart(3, "0")}`);
   const [amount, setAmount] = useState(pending?.invoice.amount_usd ?? c.total_usd);
@@ -160,12 +181,12 @@ export function BuilderJobWorkflow({ c, token, config, reload }: { c: ContractVi
         const validated = jobSubmissionSchema.safeParse(candidate);
         if (!validated.success) throw new Error(validated.error.issues.map((i) => i.message).join("; "));
         payload = validated.data;
-        // Persist the identity and exact contents before the request. A lost reply is retried unchanged.
-        localStorage.setItem(key, JSON.stringify(payload));
-        setPending(payload);
       }
+      // Migrate any legacy draft with its exact identity and contents before sending. Never replace its request id.
+      localStorage.setItem(key, JSON.stringify(payload));
+      setPending(payload);
       await api("POST", `/contracts/${c.id}/submissions`, { ...payload, ...(token ? { contractor_token: token } : {}) });
-      localStorage.removeItem(key);
+      forgetPending([key, legacyKey], payload.client_request_id);
       setPending(null);
       setReport("");
       setNumber(`INV-${String((latest?.revision ?? 0) + 2).padStart(3, "0")}`);
@@ -187,7 +208,7 @@ export function BuilderJobWorkflow({ c, token, config, reload }: { c: ContractVi
         <SignInGate account={c.terms.contractor.near_account} role="builder" />
         {pending ? <Alert tone="warning">A submission is saved in this browser awaiting confirmation. Retry sends the same identity and contents; the form stays locked until it is confirmed.</Alert> : null}
         {pending && rejected ? <Button variant="secondary" onClick={() => {
-          localStorage.removeItem(key);
+          forgetPending([key, legacyKey], pending.client_request_id);
           setPending(null);
           setRejected(false);
         }}>Edit submission after server rejection</Button> : null}

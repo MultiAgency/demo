@@ -75,3 +75,6 @@ Final public source/scripts/tests/build-config manifest: **109 files**, `/tmp/co
 ## Limits
 
 Every signature, provider/chain action, market delivery and settlement above is simulated. Actual wallet/hosted behavior remains unverified. G13 blocks SDK-simulator builder rework without positive cancellation proof; disputed closure retains the amount without pretending it was paid. G14 provider-response recovery remains unresolved. The simulator lacks directory and the full worker loop (M3), and DAO authority/provider windows have separate limits. Unbound historical worker records remain quarantined; lost DAO filing hashes have the supported same-request recovery described in the latest review record. See [platform-gaps.md](platform-gaps.md), [wallet-signing.md](wallet-signing.md), and [full-demo.md](full-demo.md).
+
+
+> **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).

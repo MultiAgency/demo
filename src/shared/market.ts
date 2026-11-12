@@ -19,7 +19,7 @@ export interface DaoVoteView {
   hash: string;
   description: string;
   voting_until: string;
-  /** A hire's approval: until when it may be paid, as the platform answered (it may be shorter than Covenant asked). */
+  /** A hire's approval: until when it may be paid, as the platform answered (it may be shorter than Paperwork asked). */
   valid_until: string | null;
   /** The platform's page showing the exact text the DAO signs and its hash, recomputed. */
   check_url: string;
@@ -119,6 +119,9 @@ export interface AssignmentView {
   deliverable: string | null;
   submit_state: "none" | "submitting" | "submitted" | "unknown";
   submit_error: string | null;
+  /** Optional for older app clients; retry uses the saved body and this existing attempt, never a new identity. */
+  submit_attempt_id?: string | null;
+  submit_phase?: "preflight" | "posting" | "not_arrived" | null;
   deposit_address: string | null;
   accepted_at: string | null;
 }

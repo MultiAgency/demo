@@ -26,7 +26,7 @@ import {
 } from "./port";
 
 /**
- * A platform stand-in for the keyless demo and the tests. It reproduces the MultiAgency rules Covenant depends on,
+ * A platform stand-in for the keyless demo and the tests. It reproduces the MultiAgency rules Paperwork depends on,
  * as read from platform 96a0bb6 and observed on its local stack: NEP-413 setup and consents checked
  * against the owner's full-access key, consent scopes and expiry on its own clock, one hosted agent per setup, owner
  * actions signed by the owner's key, the payout `authorize` rules (recorded refusals vs refusals thrown before
@@ -445,7 +445,7 @@ class FakeAgent implements AgentHandle {
     switch (action.type) {
       case "agent_create": {
         if (a.agentId !== null) return fail.refused("agent_exists");
-        if (action.owner.account_id !== a.owner) return fail.forbidden("not_owner");
+        if (!action.owner || action.owner.account_id !== a.owner) return fail.forbidden("not_owner");
         if (action.owner.public_key !== a.setupKey) return fail.forbidden("setup_key");
         const intent = intentFor({ type: "agent_create", owner: action.owner, role: action.role });
         store({ action, intent });
@@ -538,7 +538,7 @@ class FakeAgent implements AgentHandle {
     switch (action.type) {
       case "agent_create":
         a.agentId = hex(32);
-        a.ownerKey = action.owner.public_key;
+        a.ownerKey = action.owner!.public_key;
         a.policy = createdPolicy();
         a.revision = 1;
         a.status = "APPLIED";

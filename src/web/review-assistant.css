@@ -1,0 +1,137 @@
+.review-assistant {
+  border-block-start: 1px solid var(--border);
+  padding-block-start: 18px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-assistant-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.review-assistant-heading h3 {
+  margin: 0 0 4px;
+}
+
+.review-assistant-heading p,
+.review-assistant-summary {
+  max-width: 72ch;
+  margin: 0;
+}
+
+.review-assistant-heading .btn {
+  flex-shrink: 0;
+}
+
+.review-assistant-body {
+  display: grid;
+  gap: 16px;
+  margin-block-start: 16px;
+}
+
+.review-assistant-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.review-assistant-findings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-assistant-finding {
+  padding-block: 16px;
+  border-block-start: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.review-assistant-finding:first-child {
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+
+.review-assistant-finding header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-block-end: 8px;
+}
+
+.review-assistant-finding h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.review-assistant-finding p {
+  max-width: 72ch;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.review-assistant-criteria {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.review-assistant-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.review-assistant a {
+  text-underline-offset: 3px;
+}
+
+.review-assistant-draft {
+  display: grid;
+  gap: 8px;
+}
+
+.review-assistant-draft textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.6;
+  caret-color: var(--accent);
+}
+
+.review-assistant-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.review-assistant-actions p {
+  margin: 0;
+}
+
+.review-assistant ::selection {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+@media (max-width: 560px) {
+  .review-assistant-heading {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .review-assistant-heading .btn {
+    width: 100%;
+  }
+}

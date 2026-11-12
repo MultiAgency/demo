@@ -1,6 +1,6 @@
 // A scripted stand-in for the Platform port, smaller than FakePlatform.
-// It models only what Covenant's engine depends on: NEP-413 checks, consent scopes on its own clock,
-// owner steps, the authorize rules Covenant maps, requestId idempotency, held → vote → settle, and
+// It models only what Paperwork's engine depends on: NEP-413 checks, consent scopes on its own clock,
+// owner steps, the authorize rules Paperwork maps, requestId idempotency, held → vote → settle, and
 // hooks to script failures. It is not the platform; tests that need the real rules use FakePlatform.
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { base64 } from "@scure/base";
@@ -61,7 +61,7 @@ interface Step {
 export class StubPlatform implements Platform {
   readonly mode = "fake" as const;
   readonly host = "stub.multiagency.test";
-  readonly deployment = "covenant";
+  readonly deployment = "multiagency-paperwork";
   private sk = ed25519.utils.randomSecretKey();
   readonly publicKey = formatPublicKey(ed25519.getPublicKey(this.sk));
   agents = new Map<string, Agent>();

@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/server/db";
-import { DEMO_TERMS } from "../src/shared/demo";
+import { DEMO_TERMS, JOB_DEMO_TERMS } from "../src/shared/demo";
 import type { Judgment } from "../src/server/judge";
 import { type FCtx, fakeActivate, fakeApproveAndSettle, fakeVote } from "./support/fake-harness";
 import { type Ctx, activate, agentId, approveAndSettle, attemptOf, castVote, evidence, livePayout, setup, signTerms } from "./support/harness";
@@ -13,7 +13,7 @@ const M = (usd: number) => (BigInt(usd) * 1_000_000n).toString();
 
 /** Swap the judge for one that returns fixed completion levels. */
 function fixedJudge(ctx: Ctx, completion: Record<string, number>) {
-  (ctx.rt.covenant as unknown as { d: { judge: unknown } }).d.judge = {
+  (ctx.rt.engine as unknown as { d: { judge: unknown } }).d.judge = {
     kind: "rules",
     judge: async (terms: { scope: { id: string }[] }): Promise<Judgment> => ({
       judge: "rules",
@@ -24,29 +24,88 @@ function fixedJudge(ctx: Ctx, completion: Record<string, number>) {
     }),
   };
 }
-const run = (ctx: Ctx) => ctx.rt.covenant.run(ctx.id);
-const view = (ctx: Ctx) => ctx.rt.covenant.getContract(ctx.id);
+const run = (ctx: Ctx) => ctx.rt.engine.run(ctx.id);
+const view = (ctx: Ctx) => ctx.rt.engine.getContract(ctx.id);
 const tick = (ctx: Ctx, ms = 61_000) => ctx.rt.clock.advance(ms);
 const stubAgent = (ctx: Ctx) => ctx.stub.agents.get(`agt_${ctx.id}`)!;
 
 describe("term signatures", () => {
+  for (const terms of [DEMO_TERMS, JOB_DEMO_TERMS]) {
+    test(`new v${terms.v} jobs use the Paperwork domain and reject legacy signatures`, async () => {
+      const ctx = await setup(terms);
+      const c = ctx.rt.engine;
+      const offered = await c.viewContract(ctx.id);
+      for (const role of ["representative", "contractor"] as const) {
+        const request = c.signingRequest(ctx.id, role);
+        const current = { ...request, message: `Paperwork terms sha256:${offered.hash}`, recipient: "multiagency-paperwork" };
+        expect(request).toMatchObject({ message: current.message, recipient: current.recipient });
+        const legacy = ctx.stub.sign({ ...request, message: `Covenant work order sha256:${offered.hash}`, recipient: "covenant" });
+        await expect(c.addSignature(ctx.id, role, {
+          account_id: request.account_id, public_key: legacy.publicKey, signature: legacy.signature, nonce: request.nonce,
+        }, ctx.token)).rejects.toThrow("does not match");
+        const signed = ctx.stub.sign(current);
+        await c.addSignature(ctx.id, role, {
+          account_id: current.account_id, public_key: signed.publicKey, signature: signed.signature, nonce: current.nonce,
+        }, ctx.token);
+      }
+      const accepted = await c.viewContract(ctx.id);
+      expect(accepted.hash).toBe(offered.hash);
+      expect(accepted.terms).toEqual(offered.terms);
+      const verified = await c.verify(ctx.id);
+      for (const role of ["representative", "contractor"] as const)
+        expect(verified.checks.find((check) => check.id === `sig-${role}`)?.ok).toBe(true);
+      expect(ctx.stub.calls.requestPayout).toBe(0);
+    });
+
+    test(`legacy v${terms.v} jobs retain their pinned domain for verification and the remaining party`, async () => {
+      const ctx = await setup(terms);
+      const c = ctx.rt.engine;
+      const db = (c as unknown as { d: { db: Database } }).d.db;
+      // Model a pre-rename record. Production migration pins this column without changing signed terms.
+      db.query("UPDATE contracts SET signing_recipient = 'covenant' WHERE id = ?").run(ctx.id);
+      const offered = await c.viewContract(ctx.id);
+      for (const role of ["representative", "contractor"] as const) {
+        const request = c.signingRequest(ctx.id, role);
+        // Fixed historical bytes also cover a partially signed job: the builder still signs its original domain.
+        const legacy = { ...request, message: `Covenant work order sha256:${offered.hash}`, recipient: "covenant" };
+        expect(request).toMatchObject({ message: legacy.message, recipient: legacy.recipient });
+        const current = ctx.stub.sign({ ...request, message: `Paperwork terms sha256:${offered.hash}`, recipient: "multiagency-paperwork" });
+        await expect(c.addSignature(ctx.id, role, {
+          account_id: request.account_id, public_key: current.publicKey, signature: current.signature, nonce: request.nonce,
+        }, ctx.token)).rejects.toThrow("does not match");
+        const signed = ctx.stub.sign(legacy);
+        await c.addSignature(ctx.id, role, {
+          account_id: legacy.account_id, public_key: signed.publicKey, signature: signed.signature, nonce: legacy.nonce,
+        }, ctx.token);
+      }
+      const accepted = await c.viewContract(ctx.id);
+      expect(accepted.hash).toBe(offered.hash);
+      expect(accepted.terms).toEqual(offered.terms);
+      const verified = await c.verify(ctx.id);
+      for (const role of ["representative", "contractor"] as const) {
+        expect(accepted.signatures[role]?.account_id).toBe(role === "representative" ? terms.representative.near_account : terms.contractor.near_account);
+        expect(verified.checks.find((check) => check.id === `sig-${role}`)?.ok).toBe(true);
+      }
+      expect(ctx.stub.calls.requestPayout).toBe(0);
+    });
+  }
   test("the contractor needs the link token", async () => {
     const ctx = await setup();
-    const req = ctx.rt.covenant.signingRequest(ctx.id, "contractor");
+    const req = ctx.rt.engine.signingRequest(ctx.id, "contractor");
     const s = ctx.stub.sign(req);
-    await expect(ctx.rt.covenant.addSignature(ctx.id, "contractor", { account_id: req.account_id, public_key: s.publicKey, signature: s.signature, nonce: req.nonce }, "wrong")).rejects.toThrow("signing link");
+    await expect(ctx.rt.engine.addSignature(ctx.id, "contractor", { account_id: req.account_id, public_key: s.publicKey, signature: s.signature, nonce: req.nonce }, "wrong")).rejects.toThrow("signing link");
   });
   test("the wrong account cannot sign as the representative", async () => {
     const ctx = await setup();
-    const req = ctx.rt.covenant.signingRequest(ctx.id, "representative");
+    const req = ctx.rt.engine.signingRequest(ctx.id, "representative");
     const s = ctx.stub.sign(req);
-    await expect(ctx.rt.covenant.addSignature(ctx.id, "representative", { account_id: "maria.demo", public_key: s.publicKey, signature: s.signature, nonce: req.nonce })).rejects.toThrow("must sign as acme.demo");
+    await expect(ctx.rt.engine.addSignature(ctx.id, "representative", { account_id: "maria.demo", public_key: s.publicKey, signature: s.signature, nonce: req.nonce })).rejects.toThrow("must sign as acme.demo");
   });
   test("a signature over different terms is rejected", async () => {
     const ctx = await setup();
-    const req = ctx.rt.covenant.signingRequest(ctx.id, "representative");
-    const s = ctx.stub.sign({ ...req, message: "Covenant work order sha256:00" });
-    await expect(ctx.rt.covenant.addSignature(ctx.id, "representative", { account_id: "acme.demo", public_key: s.publicKey, signature: s.signature, nonce: req.nonce })).rejects.toThrow("does not match");
+    const req = ctx.rt.engine.signingRequest(ctx.id, "representative");
+    const s = ctx.stub.sign({ ...req, message: "Paperwork terms sha256:00" });
+    await expect(ctx.rt.engine.addSignature(ctx.id, "representative", { account_id: "acme.demo", public_key: s.publicKey, signature: s.signature, nonce: req.nonce })).rejects.toThrow("does not match");
   });
   test("an unregistered payee is flagged at signing", async () => {
     const ctx = await setup();
@@ -187,7 +246,7 @@ describe("state machine rows, end to end", () => {
     expect(c.committed_usd).toBe("0");
     expect(c.open_judgment).not.toBeNull();
     await ctx.rt.kit.controls!.fund(agentId(ctx), M(900));
-    c = await ctx.rt.covenant.retry(ctx.id);
+    c = await ctx.rt.engine.retry(ctx.id);
     const p = c.payouts.find((x) => x.state === "held")!;
     expect([p.seq, p.attempt, p.amount_usd]).toEqual([1, 2, "500"]);
   });
@@ -195,7 +254,7 @@ describe("state machine rows, end to end", () => {
   test("Drop closes the judgment; the next run judges the same PRs again", async () => {
     const ctx = await activate("100");
     await run(ctx);
-    await ctx.rt.covenant.drop(ctx.id);
+    await ctx.rt.engine.drop(ctx.id);
     const c = await view(ctx);
     expect(c.open_judgment).toBeNull();
     expect((c.judgment as { outcome: string }).outcome).toBe("dropped");
@@ -206,7 +265,7 @@ describe("state machine rows, end to end", () => {
   test("Drop is refused while a payout is live", async () => {
     const ctx = await activate();
     await run(ctx);
-    await expect(ctx.rt.covenant.drop(ctx.id)).rejects.toThrow("still live");
+    await expect(ctx.rt.engine.drop(ctx.id)).rejects.toThrow("still live");
   });
 
   test("unavailable → unknown → status not_found → the same id is re-asked → exactly one transfer (bug 2)", async () => {
@@ -233,21 +292,24 @@ describe("state machine rows, end to end", () => {
     expect(ctx.stub.calls.requestPayout).toBe(1);
   });
 
-  test("failed after approval stays committed until the representative resolves reowe (bug 3)", async () => {
+  test("failed after approval stays committed when reowe lacks non-execution proof", async () => {
     const ctx = await activate();
     const rid = (await run(ctx)).payouts[0]!.request_id;
     await castVote(ctx, rid, "approve");
     ctx.stub.script.failAfterApproval = "delivery_failed";
     ctx.stub.settle(attemptOf(ctx, rid).correlation_id!);
-    let c = await view(ctx);
+    const c = await view(ctx);
     expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("failed");
     expect(c.committed_usd).toBe("500");
     expect((await run(ctx)).outcome).toBe("deferred");
-    c = await ctx.rt.covenant.resolve(rid, "reowe");
-    expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("resolved");
-    const again = c.payouts.find((p) => p.state === "held")!;
-    expect([again.seq, again.attempt, again.amount_usd]).toEqual([1, 2, "500"]);
-    expect(c.committed_usd).toBe("500");
+    const original = attemptOf(ctx, rid);
+    const requests = ctx.stub.calls.requestPayout;
+    await expect(ctx.rt.engine.resolve(rid, "reowe")).rejects.toThrow("platform proves it never executed");
+    expect(attemptOf(ctx, rid)).toEqual(original);
+    const unchanged = await ctx.rt.engine.viewContract(ctx.id);
+    expect(unchanged.committed_usd).toBe("500");
+    expect(unchanged.payouts).toHaveLength(1);
+    expect(ctx.stub.calls.requestPayout).toBe(requests);
   });
 
   test("failed resolved arrived stays paid and the judgment moves on", async () => {
@@ -257,21 +319,26 @@ describe("state machine rows, end to end", () => {
     ctx.stub.script.failAfterApproval = "delivery_failed";
     ctx.stub.settle(attemptOf(ctx, rid).correlation_id!);
     await view(ctx);
-    const c = await ctx.rt.covenant.resolve(rid, "arrived");
+    const c = await ctx.rt.engine.resolve(rid, "arrived");
     expect(c.paid_usd).toBe("500");
     expect(c.payouts.find((p) => p.state === "held")!.seq).toBe(2);
   });
 
-  test("failed resolved rejected frees it and rejects the judgment", async () => {
+  test("failed manual rejection cannot free an uncertain payout or close its judgment", async () => {
     const ctx = await activate();
     const rid = (await run(ctx)).payouts[0]!.request_id;
     await castVote(ctx, rid, "approve");
     ctx.stub.script.failAfterApproval = "delivery_failed";
     ctx.stub.settle(attemptOf(ctx, rid).correlation_id!);
     await view(ctx);
-    const c = await ctx.rt.covenant.resolve(rid, "rejected");
-    expect([c.committed_usd, c.open_judgment]).toEqual(["0", null]);
-    expect((c.judgment as { outcome: string }).outcome).toBe("rejected");
+    const original = attemptOf(ctx, rid);
+    const requests = ctx.stub.calls.requestPayout;
+    await expect(ctx.rt.engine.resolve(rid, "rejected")).rejects.toThrow("platform proves it never executed");
+    expect(attemptOf(ctx, rid)).toEqual(original);
+    const c = await ctx.rt.engine.viewContract(ctx.id);
+    expect(c.committed_usd).toBe("500");
+    expect(c.open_judgment?.id).toBe(original.run_id!);
+    expect(ctx.stub.calls.requestPayout).toBe(requests);
   });
 
   test("thrown recipient_not_registered → blocked; the same id succeeds after registration (bug 4)", async () => {
@@ -298,7 +365,7 @@ describe("state machine rows, end to end", () => {
     expect(c.payouts[0]!.state).toBe("blocked");
     expect(ctx.stub.calls.requestPayout).toBe(1);
     expect(c.events.some((e) => e.kind === "alert" && e.text.includes("request_conflict"))).toBe(true);
-    await expect(ctx.rt.covenant.retry(ctx.id)).rejects.toThrow("nothing to retry");
+    await expect(ctx.rt.engine.retry(ctx.id)).rejects.toThrow("nothing to retry");
   });
 
   test("unresolved → waiting; the same id is re-asked only after the wait", async () => {
@@ -362,7 +429,7 @@ describe("state machine rows, end to end", () => {
     const ctx = await activate();
     const rid = (await run(ctx)).payouts[0]!.request_id;
     ctx.stub.script.tamperVoteTerms = true;
-    await expect(ctx.rt.covenant.vote(rid, "approve")).rejects.toThrow("don't match");
+    await expect(ctx.rt.engine.vote(rid, "approve")).rejects.toThrow("don't match");
     const c = await view(ctx);
     expect(c.events.some((e) => e.kind === "alert")).toBe(true);
     expect(attemptOf(ctx, rid).vote).toBeNull();
@@ -370,9 +437,9 @@ describe("state machine rows, end to end", () => {
 
   test("the timer and a run racing make one platform request", async () => {
     const ctx = await activate();
-    await Promise.all([run(ctx), ctx.rt.covenant.followUpAll(), run(ctx), view(ctx)]);
+    await Promise.all([run(ctx), ctx.rt.engine.followUpAll(), run(ctx), view(ctx)]);
     expect(ctx.stub.calls.requestPayout).toBe(1);
-    const pending = ctx.rt.covenant.followUpIds();
+    const pending = ctx.rt.engine.followUpIds();
     expect(pending).toEqual([ctx.id]);
   });
 });
@@ -406,7 +473,7 @@ describe("approval in place of the cancel window (#2)", () => {
     const rid = (await run(ctx)).payouts[0]!.request_id;
     ctx.rt.clock.set(new Date("2026-12-02T10:00:00Z"));
     await expect(run(ctx)).rejects.toThrow("ended");
-    const atk = await ctx.rt.covenant.attack(ctx.id, "after_end");
+    const atk = await ctx.rt.engine.attack(ctx.id, "after_end");
     expect([atk.outcome, atk.code]).toEqual(["forbidden", "scope"]);
     const c = await castVote(ctx, rid, "reject"); // [owner, read] consent lives until end + grace
     expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("rejected");
@@ -422,39 +489,39 @@ describe("approval in place of the cancel window (#2)", () => {
 describe("attacks (compromised server)", () => {
   test("redirect and overpay are refused by the policy; in-cap injected is held, then rejected", async () => {
     const ctx = await activate();
-    const redirect = await ctx.rt.covenant.attack(ctx.id, "redirect");
+    const redirect = await ctx.rt.engine.attack(ctx.id, "redirect");
     expect([redirect.outcome, redirect.code, redirect.request?.recipient]).toEqual(["refused", "payee_not_agreed", "attacker.demo"]);
-    const overpay = await ctx.rt.covenant.attack(ctx.id, "overpay");
+    const overpay = await ctx.rt.engine.attack(ctx.id, "overpay");
     expect([overpay.outcome, overpay.code, overpay.request?.amount_usd]).toEqual(["refused", "per_transaction_exceeded", "501"]);
-    const injected = await ctx.rt.covenant.attack(ctx.id, "injected");
+    const injected = await ctx.rt.engine.attack(ctx.id, "injected");
     expect(injected.outcome).toBe("held");
     expect(injected.note).toContain("NOT STOPPED by policy");
     expect(injected.payout!.request_id).toMatch(/^atk-injected-/);
     const c = await castVote(ctx, injected.payout!.request_id, "reject");
     expect(c.payouts.find((p) => p.request_id === injected.payout!.request_id)!.state).toBe("rejected");
     expect([c.committed_usd, c.open_judgment]).toEqual(["0", null]);
-    const notYet = await ctx.rt.covenant.attack(ctx.id, "after_end");
+    const notYet = await ctx.rt.engine.attack(ctx.id, "after_end");
     expect(notYet.ready).toBe(false);
   });
 
   test("attacks are refused against a real deployment", async () => {
     const ctx = await activate();
     (ctx.stub as unknown as { mode: string }).mode = "remote";
-    await expect(ctx.rt.covenant.attack(ctx.id, "redirect")).rejects.toThrow("never a real deployment");
+    await expect(ctx.rt.engine.attack(ctx.id, "redirect")).rejects.toThrow("never a real deployment");
   });
 });
 
 describe("Verify", () => {
   test("incomplete before setup, green after, red when the platform's policy drifts", async () => {
     const ctx = await setup();
-    expect((await ctx.rt.covenant.verify(ctx.id)).overall).toBe("incomplete");
+    expect((await ctx.rt.engine.verify(ctx.id)).overall).toBe("incomplete");
     const live = await activate();
-    const v = await live.rt.covenant.verify(live.id);
+    const v = await live.rt.engine.verify(live.id);
     expect(v.overall).toBe("green");
     expect(v.checks.filter((c) => !c.ok).map((c) => c.id)).toEqual([]);
     expect(v.expected.per_transaction).toBe(M(500));
     stubAgent(live).policy.withdrawals.push("attacker.demo");
-    const red = await live.rt.covenant.verify(live.id);
+    const red = await live.rt.engine.verify(live.id);
     expect(red.overall).toBe("red");
     expect(red.checks.filter((c) => !c.ok).map((c) => c.id)).toEqual(["payee", "signed"]);
   });
@@ -462,12 +529,12 @@ describe("Verify", () => {
   test("a payout consent longer than the contract turns Verify red", async () => {
     const live = await activate();
     for (const c of live.stub.consents) if (c.scopes.includes("payout")) c.expiresAt = "2027-01-31T00:00:00.000Z";
-    expect((await live.rt.covenant.verify(live.id)).checks.find((c) => c.id === "consent")!.ok).toBe(false);
+    expect((await live.rt.engine.verify(live.id)).checks.find((c) => c.id === "consent")!.ok).toBe(false);
   });
 
   test("paid + balance ≤ total is information, never red", async () => {
     const live = await activate("5000");
-    const v = await live.rt.covenant.verify(live.id);
+    const v = await live.rt.engine.verify(live.id);
     expect(v.overall).toBe("green");
     expect(v.checks.find((c) => c.id === "funded")).toMatchObject({ ok: false, info: true });
   });
@@ -495,7 +562,7 @@ describe("secrets and storage", () => {
   });
 
   test("an old provider-era database is refused", () => {
-    const dir = mkdtempSync(join(tmpdir(), "cov-"));
+    const dir = mkdtempSync(join(tmpdir(), "paperwork-"));
     const path = join(dir, "old.sqlite");
     const old = new Database(path);
     old.exec("CREATE TABLE contracts (id TEXT PRIMARY KEY, credential_enc TEXT)");
@@ -506,7 +573,7 @@ describe("secrets and storage", () => {
   test("one open payout per contract is enforced by the database", async () => {
     const ctx = await activate();
     await run(ctx);
-    const db = (ctx.rt.covenant as unknown as { d: { db: Database } }).d.db;
+    const db = (ctx.rt.engine as unknown as { d: { db: Database } }).d.db;
     expect(() =>
       db
         .query("INSERT INTO payout_attempts (request_id, kind, contract_id, seq, attempt, recipient, amount_atomic, state, created_at, updated_at) VALUES ('x', 'payout', ?, 9, 1, 'maria.demo', '1', 'held', 'now', 'now')")
@@ -518,18 +585,18 @@ describe("secrets and storage", () => {
     const ctx = await setup();
     expect((await view(ctx)).organization).toBe(ctx.id);
     expect(ctx.id).toMatch(/^c_[0-9a-f]{12}$/);
-    expect(() => ctx.rt.covenant.createContract(DEMO_TERMS)).toThrow("already exists");
+    expect(() => ctx.rt.engine.createContract(DEMO_TERMS)).toThrow("already exists");
   });
 });
 
 // ----------------------------------------------------------------------------------------------------------------
 // The same rules on the FakePlatform (the platform's authorize rules, consent scopes and requestId semantics).
 describe("on the FakePlatform", () => {
-  const live = async (ctx: FCtx) => (await ctx.rt.covenant.getContract(ctx.id)).payouts.find((p) => p.kind === "payout" && ["held", "processing", "unknown", "blocked", "waiting", "failed"].includes(p.state)) ?? null;
+  const live = async (ctx: FCtx) => (await ctx.rt.engine.getContract(ctx.id)).payouts.find((p) => p.kind === "payout" && ["held", "processing", "unknown", "blocked", "waiting", "failed"].includes(p.state)) ?? null;
 
   test("held → approved → settled; the remainder is seq 2 on the same judgment; then approved and carried forward", async () => {
     const ctx = await fakeActivate();
-    const r = await ctx.rt.covenant.run(ctx.id);
+    const r = await ctx.rt.engine.run(ctx.id);
     expect([r.payouts[0]!.state, r.payouts[0]!.amount_usd]).toEqual(["held", "500"]);
     let c = await fakeApproveAndSettle(ctx, r.payouts[0]!.request_id);
     const seq2 = (await live(ctx))!;
@@ -543,37 +610,37 @@ describe("on the FakePlatform", () => {
 
   test("reject → judgment rejected, its PRs excluded, the next run requests nothing", async () => {
     const ctx = await fakeActivate();
-    await fakeApproveAndSettle(ctx, (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id);
+    await fakeApproveAndSettle(ctx, (await ctx.rt.engine.run(ctx.id)).payouts[0]!.request_id);
     const c = await fakeVote(ctx, (await live(ctx))!.request_id, "reject");
     expect([c.paid_usd, c.committed_usd, c.open_judgment]).toEqual(["500", "500", null]);
-    expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("nothing");
+    expect((await ctx.rt.engine.run(ctx.id)).outcome).toBe("nothing");
   });
 
   test("a run while a payout is held is deferred: no request", async () => {
     const ctx = await fakeActivate();
-    await ctx.rt.covenant.run(ctx.id);
+    await ctx.rt.engine.run(ctx.id);
     const n = ctx.controls.requests().length;
-    expect((await ctx.rt.covenant.run(ctx.id)).outcome).toBe("deferred");
+    expect((await ctx.rt.engine.run(ctx.id)).outcome).toBe("deferred");
     expect(ctx.controls.requests().length).toBe(n);
   });
 
   test("insufficient_balance is refused by the platform; Retry after funding gets attempt 2 held", async () => {
     const ctx = await fakeActivate("100");
-    const r = await ctx.rt.covenant.run(ctx.id);
+    const r = await ctx.rt.engine.run(ctx.id);
     expect([r.payouts[0]!.state, r.payouts[0]!.code]).toEqual(["refused", "insufficient_balance"]);
-    await ctx.controls.fund(ctx.rt.covenant.onboarding.agentRow(ctx.id)!.agent_id!, M(900));
-    const c = await ctx.rt.covenant.retry(ctx.id);
+    await ctx.controls.fund(ctx.rt.engine.onboarding.agentRow(ctx.id)!.agent_id!, M(900));
+    const c = await ctx.rt.engine.retry(ctx.id);
     expect(c.payouts.find((p) => p.state === "held")!.attempt).toBe(2);
   });
 
   test("outage: the overview check fails first, so nothing is sent; the same id goes through after → one transfer", async () => {
     const ctx = await fakeActivate();
     ctx.controls.setUnavailable(true);
-    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
-    expect([ctx.rt.covenant.attempt(rid).state, ctx.controls.requests().length]).toEqual(["waiting", 0]);
+    const rid = (await ctx.rt.engine.run(ctx.id)).payouts[0]!.request_id;
+    expect([ctx.rt.engine.attempt(rid).state, ctx.controls.requests().length]).toEqual(["waiting", 0]);
     ctx.controls.setUnavailable(false);
     ctx.rt.clock.advance(61_000);
-    const c = await ctx.rt.covenant.getContract(ctx.id);
+    const c = await ctx.rt.engine.getContract(ctx.id);
     expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("held");
     await fakeApproveAndSettle(ctx, rid);
     expect((await ctx.controls.transfers()).filter((t) => t.status === "SUCCESS").length).toBe(1);
@@ -582,54 +649,60 @@ describe("on the FakePlatform", () => {
   test("a lost reply is followed by status, never sent under a new id", async () => {
     const ctx = await fakeActivate();
     ctx.controls.dropNextReply();
-    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
-    await ctx.rt.covenant.getContract(ctx.id);
-    expect(ctx.rt.covenant.attempt(rid).state).toBe("held");
+    const rid = (await ctx.rt.engine.run(ctx.id)).payouts[0]!.request_id;
+    await ctx.rt.engine.getContract(ctx.id);
+    expect(ctx.rt.engine.attempt(rid).state).toBe("held");
     expect(new Set(ctx.controls.requests().map((b) => b.requestId)).size).toBe(1);
   });
 
-  test("failed after approval stays committed until reowe, then attempt 2 on the same seq", async () => {
+  test("a FakePlatform delivery failure remains uncertain and cannot authorize another attempt", async () => {
     const ctx = await fakeActivate();
-    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+    const rid = (await ctx.rt.engine.run(ctx.id)).payouts[0]!.request_id;
     ctx.controls.failAfterApproval("delivery_failed");
     await fakeApproveAndSettle(ctx, rid);
-    let c = await ctx.rt.covenant.getContract(ctx.id);
+    const c = await ctx.rt.engine.getContract(ctx.id);
     expect([c.payouts.find((p) => p.request_id === rid)!.state, c.committed_usd]).toEqual(["failed", "500"]);
-    c = await ctx.rt.covenant.resolve(rid, "reowe");
-    const again = c.payouts.find((p) => p.state === "held")!;
-    expect([again.seq, again.attempt]).toEqual([1, 2]);
+    const original = ctx.rt.engine.attempt(rid);
+    const requests = ctx.controls.requests().length;
+    for (const outcome of ["reowe", "rejected"] as const)
+      await expect(ctx.rt.engine.resolve(rid, outcome)).rejects.toThrow("platform proves it never executed");
+    expect(ctx.rt.engine.attempt(rid)).toEqual(original);
+    const unchanged = await ctx.rt.engine.viewContract(ctx.id);
+    expect(unchanged.committed_usd).toBe("500");
+    expect(unchanged.payouts).toHaveLength(1);
+    expect(ctx.controls.requests()).toHaveLength(requests);
   });
 
   test("recipient_not_registered blocks; the same id goes through once the payee registers", async () => {
     const ctx = await fakeActivate();
     ctx.controls.chain.setRegistered("maria.demo", false);
-    const r = await ctx.rt.covenant.run(ctx.id);
+    const r = await ctx.rt.engine.run(ctx.id);
     const rid = r.payouts[0]!.request_id;
     expect([r.payouts[0]!.state, r.payouts[0]!.code]).toEqual(["blocked", "recipient_not_registered"]);
     ctx.controls.chain.setRegistered("maria.demo", true);
     ctx.rt.clock.advance(61_000);
-    await ctx.rt.covenant.getContract(ctx.id);
-    expect(ctx.rt.covenant.attempt(rid).state).toBe("held");
+    await ctx.rt.engine.getContract(ctx.id);
+    expect(ctx.rt.engine.attempt(rid).state).toBe("held");
   });
 
   test("Verify is green after onboarding and funding", async () => {
     const ctx = await fakeActivate();
-    const v = await ctx.rt.covenant.verify(ctx.id);
+    const v = await ctx.rt.engine.verify(ctx.id);
     expect(v.checks.filter((c) => !c.ok && !c.info).map((c) => c.id)).toEqual([]);
     expect(v.overall).toBe("green");
   });
 
   test("attacks: redirect and overpay refused, injected held then rejected; after the end forbidden, vote still works", async () => {
     const ctx = await fakeActivate();
-    expect((await ctx.rt.covenant.attack(ctx.id, "redirect")).code).toBe("payee_not_agreed");
-    expect((await ctx.rt.covenant.attack(ctx.id, "overpay")).code).toBe("per_transaction_exceeded");
-    const inj = await ctx.rt.covenant.attack(ctx.id, "injected");
+    expect((await ctx.rt.engine.attack(ctx.id, "redirect")).code).toBe("payee_not_agreed");
+    expect((await ctx.rt.engine.attack(ctx.id, "overpay")).code).toBe("per_transaction_exceeded");
+    const inj = await ctx.rt.engine.attack(ctx.id, "injected");
     expect(inj.outcome).toBe("held");
     const c0 = await fakeVote(ctx, inj.payout!.request_id, "reject");
     expect(c0.payouts.find((p) => p.request_id === inj.payout!.request_id)!.state).toBe("rejected");
-    const rid = (await ctx.rt.covenant.run(ctx.id)).payouts[0]!.request_id;
+    const rid = (await ctx.rt.engine.run(ctx.id)).payouts[0]!.request_id;
     ctx.rt.clock.set(new Date("2026-12-02T00:00:00Z"));
-    const atk = await ctx.rt.covenant.attack(ctx.id, "after_end");
+    const atk = await ctx.rt.engine.attack(ctx.id, "after_end");
     expect([atk.outcome, atk.code]).toEqual(["forbidden", "scope"]);
     const c = await fakeVote(ctx, rid, "reject");
     expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("rejected");

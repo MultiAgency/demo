@@ -139,9 +139,9 @@ describe("optional job AI assessor — injected unit fixtures", () => {
 
   test("assessment deadline configuration defaults to 30 seconds and rejects invalid timer durations", () => {
     expect(loadConfig({}).judge.assessmentTimeoutMs).toBe(30000);
-    expect(loadConfig({ JOB_ASSESSMENT_TIMEOUT_MS: "45" }).judge.assessmentTimeoutMs).toBe(45);
-    expect(loadConfig({ JOB_ASSESSMENT_TIMEOUT_MS: "2147483647" }).judge.assessmentTimeoutMs).toBe(2147483647);
+    expect(loadConfig({ PAPERWORK_ASSESSMENT_TIMEOUT_MS: "45" }).judge.assessmentTimeoutMs).toBe(45);
+    expect(loadConfig({ PAPERWORK_ASSESSMENT_TIMEOUT_MS: "2147483647" }).judge.assessmentTimeoutMs).toBe(2147483647);
     for (const value of ["", "0", "-1", "1.5", "NaN", "Infinity", "2147483648"])
-      expect(() => loadConfig({ JOB_ASSESSMENT_TIMEOUT_MS: value })).toThrow(/JOB_ASSESSMENT_TIMEOUT_MS/);
+      expect(() => loadConfig({ PAPERWORK_ASSESSMENT_TIMEOUT_MS: value })).toThrow(/PAPERWORK_ASSESSMENT_TIMEOUT_MS/);
   });
 });

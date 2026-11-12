@@ -11,8 +11,8 @@ const remote: AppConfig = {
 };
 const originalNonce = Buffer.from(Uint8Array.from({ length: 32 }, (_, i) => [0, 1, 127, 128, 255][i % 5]!)).toString("base64");
 const request: SignRequest = {
-  account_id: "agency.demo", message: "Covenant work order sha256:fixture\nKeep the exact message.",
-  recipient: "covenant", nonce: originalNonce,
+  account_id: "agency.demo", message: "Paperwork terms sha256:fixture\nKeep the exact message.",
+  recipient: "multiagency-paperwork", nonce: originalNonce,
 };
 const signed: Signed = { account_id: "agency.demo", public_key: "fixture-public-key", signature: "fixture-signature", nonce: originalNonce };
 const onboarding: NextStep = { kind: "sign", step: "consent_owner", label: "Consent", sign: { ...request, recipient: "platform.invalid" } };
@@ -54,7 +54,7 @@ describe("workflow API helpers — injected wallet and HTTP fixtures", () => {
     expect(await signMessage(remote, request, wallet.sign)).toEqual(signed);
     expect(wallet.requests).toEqual([request]);
     expect(wallet.requests[0]!.nonce).toBe(originalNonce);
-    expect(wallet.requests[0]!.recipient).toBe("covenant");
+    expect(wallet.requests[0]!.recipient).toBe("multiagency-paperwork");
     expect(wallet.requests[0]!.recipient).not.toBe(remote.auth.recipient);
     expect(calls).toEqual([]);
   });

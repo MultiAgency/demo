@@ -65,7 +65,7 @@ export class GitHubEvidence implements EvidenceSource {
     const res = await fetch(url, {
       headers: {
         accept: "application/vnd.github+json",
-        "user-agent": "covenant",
+        "user-agent": "multiagency-paperwork",
         ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
       },
     });

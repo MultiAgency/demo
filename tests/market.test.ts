@@ -49,7 +49,7 @@ describe("hires: one requestId per approval, followed and never replaced", () =>
     expect(() => m.hires.discard(q.request_id)).toThrow(/only an unapproved quote/);
   });
 
-  test("a DAO's hire waits for its vote, is never asked by Covenant, and an expired vote is filed again under the same requestId", async () => {
+  test("a DAO's hire waits for its vote, is never asked by Paperwork, and an expired vote is filed again under the same requestId", async () => {
     const { m, stub, agency } = marketWith({ signer: "dao" });
     const q = await m.hires.quote(agency.id, "writer", "Brief");
     const voting = await m.hires.approve(q.request_id, "member.near");

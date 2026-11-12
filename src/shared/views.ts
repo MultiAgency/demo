@@ -1,3 +1,4 @@
+import type { DaoRequest } from "../server/market/port";
 // API view types shared by the server and the web app.
 import type { Consent, Deposit, OwnerAction, Overview } from "../server/platform/port";
 import type { Clause } from "./clauses";
@@ -29,8 +30,9 @@ export interface SignRequest {
 }
 
 export type NextStep =
+  | { kind: "dao_vote"; retry_ms: number; label: string; request: DaoRequest }
   | { kind: "sign"; step: "setup" | "consent_payout" | "consent_owner"; label: string; sign: SignRequest }
-  | { kind: "owner_step"; correlation_id: string; action: OwnerAction["type"]; label: string; summary: string; sign?: SignRequest; confirm?: { url: string; expires_at: string } }
+  | { kind: "owner_step"; correlation_id: string; action: OwnerAction["type"]; label: string; summary: string; dao?: import("../server/platform/port").OwnerPrepared["dao"]; sign?: SignRequest; confirm?: { url: string; expires_at: string } }
   | { kind: "wait"; label: string; retry_ms: number }
   | { kind: "done" };
 
@@ -122,7 +124,7 @@ export interface Expectations {
   owner_approval: true;
   withdrawals: string[];
   payout_consent_expires_by: string; // ISO, = contract end
-  total: string; // atomic, = scope total (what funding caps)
+  total: string; // atomic scope total; funding is not a lifetime provider cap
 }
 
 export interface VerifyView {
@@ -142,6 +144,8 @@ export interface ConfigView {
   demo_accounts: { representative: string; contractor: string; attacker: string } | null;
   now: string;
   judge: { kind: "rules" | "near-ai"; model: string | null };
+  /** Availability only. Hermes URLs and credentials stay on the server. */
+  review?: { enabled: boolean };
   auth: { required: boolean; recipient: string; network: "mainnet" | "testnet" };
   /** The agent market: offered only against the platform (or its stack with `--market`). `owner`/`dao`: the stack's. */
   market: { enabled: boolean; worker: boolean; owner: string | null; dao: string | null };
@@ -163,7 +167,18 @@ REST:
   POST /api/contracts/:id/drop         (close the open judgment as dropped)
   POST /api/payouts/:rid/vote { verdict } -> { correlation_id, sign?, confirm?, terms, flags }
   POST /api/payouts/:rid/resolve { outcome: "arrived"|"reowe"|"rejected" }
-  GET  /api/contracts/:id/verify -> VerifyView
+  GET  /api/contracts/:id/verify -> VerifyView (named parties)
+  GET  /api/contracts/:id/verify/public -> PublicVerificationView
   POST /api/contracts/:id/attacks/:scenario
   Demo (fake; stack when PLATFORM_STACK_DIR): /api/sim/{sign,fund,settle,merge,advance,confirm}
 */
+
+/** Public app-relayed check status. No private evidence or dynamic labels. */
+export const PUBLIC_VERIFICATION_CHECKS = ["terms", "sig-representative", "sig-contractor", "platform", "applied", "actions", "assets", "payee", "cap", "approval", "frozen", "grant", "consent", "signed"] as const;
+export interface PublicVerificationView {
+  terms_hash: string;
+  workflow_version: number;
+  overall: "green" | "red" | "incomplete";
+  checks: Partial<Record<typeof PUBLIC_VERIFICATION_CHECKS[number], boolean>>;
+  checked_at: string;
+}

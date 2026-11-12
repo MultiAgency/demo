@@ -21,7 +21,7 @@ export class RpcChain implements ChainReader {
     const res = await this.send(this.rpcUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: `covenant-${++this.id}`, method: "query", params: { finality: "final", ...params } }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: `paperwork-${++this.id}`, method: "query", params: { finality: "final", ...params } }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`RPC answered ${res.status}`);

@@ -1,0 +1,64 @@
+{
+  "scope": "Local app review, Linux packaging and CI preparation; not full release or hosted clearance",
+  "base_commit": "80afa29264af9b037a5a93fb3aceb025710e23e4",
+  "reviewed_changes": [
+    "DAO integration commit relative to origin PR head",
+    "Uncommitted privacy/final artifact adoption and documentation",
+    "New frontend build/static-serving fix, integrity tests, Docker allowlist, offline CI and smoke tools"
+  ],
+  "fixed_defects": [
+    "Inactive artifacts could enter vendor COPY/build context",
+    "Runtime-bundled frontend asset URL failed after restart before HTML; image now serves manifest-verified build eagerly"
+  ],
+  "pins_unchanged": {
+    "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+    "gateway_candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+    "platform_commit": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1"
+  },
+  "local_results": {
+    "typecheck": "passed",
+    "unit_integration_tests": {
+      "passed": 1549,
+      "failed": 0,
+      "assertions": 10377
+    },
+    "workflow_lint": "actionlint passed",
+    "privacy_browser": "passed v2/v3 new/signed desktop/mobile with fixture sessions",
+    "v3_browser": "passed revision/refresh/approval/settlement with stand-in funds",
+    "job_security": "passed stand-in",
+    "linux_arm64_image": "sha256:4d03c667bb53885a4a97bc7cd65bf23108ee5bc42bc680a7f495ef2bc1cb9557",
+    "linux_amd64_image": "sha256:f3828c4f8da711e053d10eb2fa6f4d2338b9cf7ac36acec5269208ed4f4f5859",
+    "container_smoke": "both passed startup refusals, exact SDK, no inactive artifacts, network none, private/minimal-public routes, frontend-before-HTML and SQLite identity after restart",
+    "v2_final_gateway": "passed complete $1,000 simulated scope in four approved transfers; rejection continuation and no attacker payment",
+    "v2_browser_and_restart": "Passed; see docs/v2-acceptance.json"
+  },
+  "release_blockers": [],
+  "pending_remote_gates": [
+    "Reviewed commits/file set not yet staged or committed by this session",
+    "New CI has not run on GitHub; authorized push and reviewed head required",
+    "No current merge/deployment-trigger re-audit or operational approval"
+  ],
+  "hosted_limits": [
+    "Platform staging maintenance/shared/external-authority/Market-route gates remain; Market rollout held",
+    "Real wallet sign-in/signatures, DAO membership/quorum and confirmed builder receipt remain unverified",
+    "Local container restart is not hosted restart or cross-version backend rollback clearance"
+  ],
+  "retained_evidence": "/tmp/paperwork-v2-acceptance/verification.json",
+  "commit_plan": "/tmp/paperwork-v2-acceptance/commit-plan.json",
+  "publication": "SDK 0.5.9 published bytes match validated vendored pin; no repin done",
+  "actions_not_performed": [
+    "git add",
+    "commit",
+    "push",
+    "merge",
+    "deployment",
+    "staging restart",
+    "credential mutation",
+    "live signatures or funds"
+  ],
+  "closed_local_blockers": [
+    "Full v2 payment browser branch now passes",
+    "Independent v2 merge-judgment SIGKILL/restart now passes"
+  ],
+  "prior_packaging_evidence": "/tmp/paperwork-local-release/verification.json"
+}

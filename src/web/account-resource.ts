@@ -31,7 +31,13 @@ export class AccountResource<T> {
 
   invalidate() { this.generation++; }
 
-  async load(scope: string, read: () => Promise<T>): Promise<void> {
+  /** Automatic reads never overlap another read; explicit reloads can still supersede an older poll. */
+  async refresh(scope: string, read: () => Promise<T>): Promise<void> {
+    if (this.snapshot.loading) return;
+    await this.load(scope, read, { background: true });
+  }
+
+  async load(scope: string, read: () => Promise<T>, { background = false } = {}): Promise<void> {
     if (scope !== this.scope) return;
     const generation = ++this.generation;
     this.publish({ ...this.snapshot, scope, error: null, loading: true });
@@ -39,7 +45,12 @@ export class AccountResource<T> {
       const value = await read();
       if (scope === this.scope && generation === this.generation) this.publish({ scope, value, error: null, loading: false });
     } catch (error) {
-      if (scope === this.scope && generation === this.generation) this.publish({ scope, value: null, error: error instanceof Error ? error.message : String(error), loading: false });
+      if (scope === this.scope && generation === this.generation) this.publish({
+        scope,
+        // Keep unfinished forms mounted during a temporary outage. Access refusals always clear private data.
+        value: background && transientReadFailure(error) ? this.snapshot.value : null,
+        error: error instanceof Error ? error.message : String(error), loading: false,
+      });
     }
   }
 
@@ -47,4 +58,10 @@ export class AccountResource<T> {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
   }
+}
+
+function transientReadFailure(error: unknown): boolean {
+  const status = error && typeof error === "object" && "status" in error ? error.status : undefined;
+  if (typeof status === "number") return status === 408 || status === 429 || (status >= 500 && status < 600);
+  return error instanceof TypeError;
 }

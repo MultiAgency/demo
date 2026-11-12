@@ -1,3 +1,4 @@
+import type { DaoRequest, DaoState } from "../market/port";
 import { appClient, consentMessage, setupMessage } from "@multiagency/sdk";
 import {
   type AgentHandle,
@@ -115,6 +116,30 @@ export class SdkPlatform implements Platform {
     return map(await this.app.setup(s), (v) => ({ agent: v.agent, consent: toConsent(v.consent) }));
   }
 
+  private async daoFile(kind: "daoSetups" | "daoConsents", message: string): Promise<Res<DaoRequest>> {
+    const r = await this.app[kind].file(message);
+    if (!r.ok) return toFail(r);
+    const v = r.value;
+    return { ok: true, value: { id: v.request.id, hash: v.request.hash, description: v.request.description,
+      votingUntil: v.request.votingUntil, proposal: v.transactions?.proposal ?? null, proposalAndVote: v.transactions?.proposalAndVote ?? null } };
+  }
+  readonly daoSetup = {
+    file: (message: string) => this.daoFile("daoSetups", message),
+    state: async (id: string): Promise<Res<DaoState<{ agent: string; consent: Consent }>>> => {
+      const r = await this.app.daoSetups.state(id);
+      if (!r.ok && r.kind === "refused" && r.status === 410) return { ok: true, value: { state: "expired" } };
+      return map(r, v => v.state === "reserved" ? { state: "done" as const, agent: v.agent, consent: toConsent(v.consent) } : { state: "pending" as const });
+    },
+  };
+  readonly daoConsent = {
+    file: (message: string) => this.daoFile("daoConsents", message),
+    state: async (id: string): Promise<Res<DaoState<{ consent: Consent }>>> => {
+      const r = await this.app.daoConsents.state(id);
+      if (!r.ok && r.kind === "refused" && r.status === 410) return { ok: true, value: { state: "expired" } };
+      return map(r, v => v.state === "signed" ? { state: "done" as const, consent: toConsent(v.consent) } : { state: "pending" as const });
+    },
+  };
+
   async reservations(organization: string, owner: string) {
     const r = await this.app.reservations({ organization, owner, area: "payables" });
     return map(r, (v) => v.agents.filter((a) => a.area === "payables").map((a) => ({ agent: a.agent, owner: a.owner, released: a.released === true })));
@@ -156,9 +181,12 @@ class SdkAgent implements AgentHandle {
     this.call = agent.call.bind(agent) as unknown as Call;
   }
 
-  async ownerPrepare(a: OwnerAction): Promise<Res<OwnerPrepared>> {
-    const action = a.type === "grant_issue" ? { ...a, label: this.grantLabel } : a;
-    const r = await this.call("owner/prepare", { action, signer: "wallet" });
+  async ownerPrepare(a: OwnerAction, signer: "wallet" | "dao" = "wallet"): Promise<Res<OwnerPrepared>> {
+    if (signer === "wallet" && a.type === "agent_create" && !a.owner) return { ok: false, kind: "refused", code: "wallet_owner_required" };
+    // DAO ownership comes from setup; member wallet keys never become the provider owner.
+    const action = signer === "dao" && a.type === "agent_create" ? { type: a.type, role: "payout" }
+      : a.type === "grant_issue" ? { ...a, label: signer === "dao" ? "payout" : this.grantLabel } : a;
+    const r = await this.call("owner/prepare", { action, signer });
     if (!r.ok) return toFail(r);
     const v = r.value;
     const prepared: OwnerPrepared = {
@@ -166,7 +194,11 @@ class SdkAgent implements AgentHandle {
       expiresAt: v.expiresAt,
       summary: v.preview?.summary ?? "",
     };
-    if (v.intent?.standard === "nep413") {
+    if (signer === "dao") {
+      if (!v.dao || v.intent || v.confirm) return { ok: false, kind: "refused", code: "unreadable_intent" };
+      prepared.dao = v.dao;
+    } else if (v.dao) return { ok: false, kind: "refused", code: "unreadable_intent" };
+    else if (v.intent?.standard === "nep413") {
       const p = v.intent.payload as { message: string; recipient: string; nonce: string };
       prepared.intent = { standard: "nep413", payload: { message: p.message, recipient: p.recipient, nonce: p.nonce } };
     } else if (v.confirm) prepared.confirm = { url: v.confirm.url, expiresAt: v.confirm.expiresAt };
