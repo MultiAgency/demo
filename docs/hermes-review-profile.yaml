@@ -1,14 +1,16 @@
 # Proposed Paperwork review profile for Hermes Agent v0.23.1.
 # Prepared 2026-11-11 from the stable tag's config example, config_defaults.py,
 # tools_config.py, runtime_provider.py, auxiliary_client.py and api_server.py.
-# This is the target configuration for activation, not an active API profile.
+# This is the review configuration for Multi's shared multiplexed gateway.
 # The team's paperwork-review profile was prepared on its v0.23.0 dashboard
-# with the same restrictions and model, but platforms.api_server.enabled=false.
+# with the same restrictions and model. Its separate listener stays disabled.
+# Where supported/configured, an enabled primary listener can serve the named
+# /p/paperwork-review/ route; authenticated reachability on this host is unverified.
 # Its intended routing and restriction fields were read back; hosted inference,
 # effective runtime isolation and v0.23.1 activation remain unverified.
 #
-# Provision a NEW dedicated profile/runtime under the team account. Do not merge
-# this into the existing owner-connected Multi agent. Start with no inherited
+# Apply these restrictions to the existing prepared paperwork-review profile.
+# Do not merge this into the owner-connected Multi profile. Retain no inherited
 # plugins, project context, skills, hooks, MCP configuration, login state or
 # provider credentials. Supply only NEARAI_API_KEY and API_SERVER_KEY through
 # the host's secret manager; no credential values belong in this file.
@@ -105,16 +107,18 @@ gateway:
     max_concurrent_runs: 4
 platforms:
   api_server:
-    enabled: true
+    enabled: false
     extra:
       host: 127.0.0.1
       port: 8642
 # API_SERVER_KEY is required in the runtime environment. The operator must
 # choose private service binding and authenticated TLS ingress separately.
-# With shared gateway multiplexing, a named profile's key does not start the
-# listener: the primary profile must already have its API listener enabled and
-# its own startup key. Otherwise use a separately configured profile gateway;
-# this example alone does not activate a missing shared listener.
+# Where shared gateway multiplexing is supported and configured, this false flag
+# prevents a second listener while the primary can serve named-profile requests.
+# The primary needs an enabled listener and its own startup key; the named route
+# requires this profile's API_SERVER_KEY. Only a separately configured standalone
+# review gateway would enable its own listener. This file does not establish
+# effective routing or publish ingress; no live listener change is prescribed here.
 plugins:
   auto_update_check_hours: 0
   auto_apply: false

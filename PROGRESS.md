@@ -1,19 +1,19 @@
 # Progress
 
-Updated **2026-11-11** after the whole-database recovery rehearsal. The local milestone covers both Report and invoice (v3) and Pay on merge (v2).
+Updated **2026-11-11** after the offline Hermes/key-setup review. The local milestone covers both Report and invoice (v3) and Pay on merge (v2).
 
 ## Latest checks
 
-Bun **1.4.2**, TypeScript **7.0.2**, SDK **0.5.7**, isolated platform Node **v24.22.2**; base HEAD `974c88b` plus uncommitted export/rehearsal source, tests and docs. Separate Hermes/review-key setup work was preserved and is outside this checkpoint.
+Bun **1.4.2**, TypeScript **7.0.2**, SDK **0.5.7**; base HEAD `1833cb7` plus the reviewed Hermes/key-setup files and documentation updates. The recovery/export/rehearsal work is committed at that HEAD.
 
 - `bun --no-env-file run typecheck` passed.
-- `bun --no-env-file test` passed **1,351 tests**, 9,100 assertions across 57 files. Log: `/tmp/paperwork-recovery-handoff-final-tests.log`.
-- Focused compatibility/handoff/restoration/export checks passed **109 cases**, 971 assertions. New stand-in cases cover both-version full/partial/unknown handoff; compatibility tests aggregate all known gates, unrelated/orphaned releases and Market-only binding.
-- The isolated SDK rehearsal passed: mixed blockers **3 → 2** with actual unchanged startup refusal; clean blockers **1 → 0**, then two no-timer app processes retained a 300 USDC dispute and settled the original approved payment once. All nine resumed SDK attempts were reads; sources/bundles stayed unchanged and passed reuse. [Command and receipt](docs/recovery-acceptance.md#whole-database-rehearsal-checkpoint).
+- `bun --no-env-file test` passed **1,377 tests**, 9,240 assertions across 58 files. Log: `/tmp/paperwork-hermes-offline-review-tests.log`.
+- The checker/key-helper suites passed **34 cases**, 193 assertions. Regressions cover contradictory completion, escaped credential echoes, absolute origin binding and key-state changes during the prompt. YAML syntax/expected configuration fields and whitespace checks also passed.
+- No hosted request, key/profile read or write, browser run or runtime update was performed. Prior user-reported key-save/Chat results remain separate from authenticated Runs/provider/isolation evidence. [Offline review receipt](docs/hermes-review.md#offline-key-setup-review-checkpoint--2026-11-11).
 
-The historical release in this rehearsal is seeded only in closed disposable copies; the actual SDK payment remains processing until explicit simulated settlement. An unchanged mixed-history copy stays blocked, while a separate clean working copy is restarted. No real historical ledger, credential or money is used. Every recovery receipt retains `clearance: "none"`.
+The committed recovery rehearsal remains the latest independent SDK result: mixed blockers **3 → 2** stay blocked; a separate clean copy retains the original 300 USDC dispute across restart and settles once, with zero SDK mutation attempts and unchanged bundles. It was not rerun for the helper/checker review. Every recovery receipt retains `clearance: "none"`.
 
-Commands, source digests, process exits and limits are in the [whole-database rehearsal checkpoint](docs/recovery-acceptance.md#whole-database-rehearsal-checkpoint). Earlier receipts remain in [dated recovery evidence](docs/recovery-acceptance.md#dated-recovery-evidence), [Hermes validation](docs/hermes-review.md#validation) and the historical [documentation audit](docs/documentation-audit.json); they identify their recorded source states.
+Current commands, source fingerprints and limits are in the [Hermes review checkpoint](docs/hermes-review.md#offline-key-setup-review-checkpoint--2026-11-11). Earlier receipts remain in the [whole-database rehearsal checkpoint](docs/recovery-acceptance.md#whole-database-rehearsal-checkpoint), [dated recovery evidence](docs/recovery-acceptance.md#dated-recovery-evidence) and historical [documentation audit](docs/documentation-audit.json); they identify their recorded source states.
 
 ## Implemented
 
@@ -32,7 +32,7 @@ Commands, source digests, process exits and limits are in the [whole-database re
 | Privacy/Verify | V2 full-job reads remain public. Verify/signing routes expose excess identity/financial/consent metadata; anonymous v3 Verify also depends on a protected job read. Builder-safe/owner-only projections and the incorrect funded-total-cap wording remain to fix. |
 | Acceptance | Dedicated v2 browser, full-scope SDK and independent restart branches are missing. Recorded G13/G14 safe halts do not demonstrate continuation; later candidates need fresh checks. [Acceptance matrix](docs/recovery-acceptance.md#acceptance-matrix). |
 | V2 assessment | Cloud judging has no explicit timeout; GitHub evidence reads only the first 50 results per repository. |
-| Hermes | Offline drafting works; the hosted NEAR request/Runs connection, effective isolation and requested hosted-version update remain unverified. Saved profile settings do not establish these outcomes. |
+| Hermes | Authenticated profile Runs routing, actual NEAR provider execution, effective isolation and hosted-version update remain unverified. Prior user-reported Chat/key-save results are limited evidence. The key helper narrows the prompt race but lacks atomic server-side create-only/CAS. |
 | Market | Paid hires stop task observation; authority renewal is missing. Worker handles one agency, polls the latest 100 assignments without pagination, and has recorded simulator directory/worker gaps. |
 | Invitations | Lost creation replies or unavailable browser storage can strand the original link; creation has no durable client request identity. |
 | Discovery/UI | Listing-specific application-to-offer linkage and native internal-listing publication are absent. Some forms and directory/config/deposit reads have incomplete pending/error/supersession handling. |

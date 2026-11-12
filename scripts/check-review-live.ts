@@ -25,7 +25,7 @@ export const SYNTHETIC_REVIEW_CONTEXT: ReviewContext = {
 
 type CheckCode = "confirmation_required" | "invalid_configuration" | "review_failed" | "quote_missing" | "runtime_unverified" | "output_refused";
 export class HostedReviewCheckError extends Error {
-  constructor(readonly code: CheckCode) {
+  constructor(readonly code: CheckCode, readonly diagnostics?: HostedReviewDiagnostics) {
     super(`Hosted synthetic review did not pass (${code}). No retry was attempted.`);
     this.name = "HostedReviewCheckError";
   }
@@ -52,6 +52,30 @@ interface Calls {
   event_streams: number;
   run_status_reads: number;
   stop_requests: number;
+}
+
+type ReviewOperation = "capabilities" | "toolsets" | "run_submission" | "events" | "run_status";
+type ResponseFormat = "json" | "html" | "sse" | "other" | "missing";
+interface RequestObservation {
+  operation: ReviewOperation;
+  http_status?: number;
+  response_format?: ResponseFormat;
+}
+
+export interface HostedReviewDiagnostics {
+  last_request: RequestObservation | null;
+  // Attempts are client observations, not proof that the server received a call.
+  request_attempts: Calls;
+  run_id_observed: boolean;
+}
+
+function responseFormat(response: Response): ResponseFormat {
+  const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (!mediaType) return "missing";
+  if (mediaType === "application/json" || mediaType.endsWith("+json")) return "json";
+  if (mediaType === "text/html") return "html";
+  if (mediaType === "text/event-stream") return "sse";
+  return "other";
 }
 
 interface ServedRuntime {
@@ -119,9 +143,12 @@ function verifiedRuntime(value: unknown, runId: string, config: HermesReviewConf
   const status = record(value);
   const runtime = record(status?.runtime);
   const requested = record(runtime?.requested);
-  // Completion flags were validated on the SSE event. Durable status projections
-  // may omit those flags, so this observation verifies identity/status/runtime.
+  // Durable status projections may omit completion flags; any flags they do
+  // provide must agree with the complete SSE outcome already validated.
   if (status?.run_id !== runId || status.status !== "completed" ||
+      (status.completed !== undefined && status.completed !== true) ||
+      (status.partial !== undefined && status.partial !== false) ||
+      (status.interrupted !== undefined && status.interrupted !== false) ||
       runtime?.provider !== "custom" || runtime.model !== config.model || runtime.route_source !== "raw_request" ||
       requested?.provider !== "custom:near" || requested.model !== config.model)
     throw new HostedReviewCheckError("runtime_unverified");
@@ -136,22 +163,38 @@ export async function checkHostedReview(config: HermesReviewConfig, send: Review
   const calls: Calls = { capabilities: 0, toolsets: 0, run_submissions: 0, event_streams: 0, run_status_reads: 0, stop_requests: 0 };
   const base = config.url;
   let runId: string | undefined;
+  let lastRequest: RequestObservation | null = null;
   const observedSend: ReviewFetch = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
     const method = init?.method ?? "GET";
-    if (url === `${base}/v1/capabilities` && method === "GET") calls.capabilities++;
-    else if (url === `${base}/v1/toolsets` && method === "GET") calls.toolsets++;
+    let operation: ReviewOperation | null = null;
+    if (url === `${base}/v1/capabilities` && method === "GET") { calls.capabilities++; operation = "capabilities"; }
+    else if (url === `${base}/v1/toolsets` && method === "GET") { calls.toolsets++; operation = "toolsets"; }
     else if (url === `${base}/v1/runs` && method === "POST") {
       if (++calls.run_submissions > 1) throw new HostedReviewCheckError("review_failed");
+      operation = "run_submission";
     } else {
       const suffix = url.startsWith(`${base}/v1/runs/`) ? url.slice(`${base}/v1/runs/`.length) : "";
       const eventRun = /^(run_[A-Za-z0-9_-]{1,160})\/events$/.exec(suffix)?.[1];
-      if (eventRun && method === "GET" && !runId) { runId = eventRun; calls.event_streams++; }
-      else if (runId && suffix === runId && method === "GET") calls.run_status_reads++;
+      if (eventRun && method === "GET" && !runId) { runId = eventRun; calls.event_streams++; operation = "events"; }
+      else if (runId && suffix === runId && method === "GET") { calls.run_status_reads++; operation = "run_status"; }
       else if (/^run_[A-Za-z0-9_-]{1,160}\/stop$/.test(suffix) && method === "POST") calls.stop_requests++;
       else throw new HostedReviewCheckError("review_failed");
     }
-    return send(input, init);
+    // Cleanup must not replace evidence about the request that failed.
+    const observation: RequestObservation | null = operation ? { operation } : null;
+    if (observation) lastRequest = observation;
+    // Observe a preflight redirect as an HTTP refusal instead of losing its
+    // status to fetch's redirect error. Never follow it or forward the key.
+    // Run admission, streams, status and cleanup retain redirect: "error".
+    const response = await send(input, operation === "capabilities" || operation === "toolsets"
+      ? { ...init, redirect: "manual" } : init);
+    if (observation) {
+      if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599)
+        observation.http_status = response.status;
+      observation.response_format = responseFormat(response);
+    }
+    return response;
   };
   let review: ReviewResult | undefined;
   try {
@@ -164,12 +207,17 @@ export async function checkHostedReview(config: HermesReviewConfig, send: Review
     const runtime = verifiedRuntime(await statusJson(observedSend, `${base}/v1/runs/${runId}`, config.apiKey), runId, config);
     const receipt: HostedReviewReceipt = { outcome: "pass", synthetic: true, runtime, calls, review };
     const output = JSON.stringify(receipt);
-    if (new TextEncoder().encode(output).byteLength > MAX_RECEIPT_BYTES || output.includes(config.apiKey) || output.includes(config.url))
+    // Compare JSON representations so quotes/backslashes cannot hide an echoed credential.
+    const serializedKey = JSON.stringify(config.apiKey).slice(1, -1);
+    if (new TextEncoder().encode(output).byteLength > MAX_RECEIPT_BYTES || output.includes(serializedKey) || output.includes(config.url))
       throw new HostedReviewCheckError("output_refused");
     return receipt;
   } catch (error) {
-    if (error instanceof HostedReviewCheckError) throw error;
-    throw new HostedReviewCheckError("review_failed");
+    const diagnostics: HostedReviewDiagnostics = {
+      last_request: structuredClone(lastRequest),
+      request_attempts: { ...calls }, run_id_observed: !!runId,
+    };
+    throw new HostedReviewCheckError(error instanceof HostedReviewCheckError ? error.code : "review_failed", diagnostics);
   } finally { runId = undefined; }
 }
 
@@ -180,7 +228,8 @@ if (import.meta.main) {
   } catch (error) {
     // Never stringify arbitrary errors: HTTP libraries may put credentials in them.
     const safe = error instanceof HostedReviewCheckError ? error : new HostedReviewCheckError("review_failed");
-    console.error(JSON.stringify({ outcome: "fail", code: safe.code, message: safe.message }));
+    console.error(JSON.stringify({ outcome: "fail", code: safe.code, message: safe.message,
+      ...(safe.diagnostics ? { diagnostics: safe.diagnostics } : {}) }));
     process.exitCode = 1;
   }
 }

@@ -32,7 +32,8 @@ The user requested Hermes with NEAR AI Cloud, the MultiAgency team account and l
 - [x] Resolve latest stable dependencies; document team-profile setup and limits.
 - [x] Complete the isolated desktop/mobile browser check and final source checks.
 - [x] Prepare the inactive `paperwork-review` team profile and a one-request synthetic hosted check; verify saved restrictions without credentials.
-- [ ] Connect a restricted team review profile and verify an actual NEAR model request under the existing operational boundary.
+- [x] Review the local key-setup helper and hosted-check diagnostics offline; fix completion/escaped-key validation, pin the helper origin and recheck key state after its prompt. [Current review and remaining race](docs/hermes-review.md#offline-key-setup-review-checkpoint--2026-11-11).
+- [ ] Verify authenticated profile Runs connectivity and actual NEAR routing under the existing operational boundary. User-reported Chat output and a prior key-save acknowledgement do not establish this connection, provider origin, effective isolation or the requested hosted-version update.
 
 Offline implementation and the hosted connection have separate evidence. See [Hermes review](docs/hermes-review.md).
 

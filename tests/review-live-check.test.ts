@@ -45,6 +45,76 @@ function fixture(options: { runtime?: unknown; result?: ReviewResult; status?: P
 }
 
 describe("manual hosted synthetic review check (offline fixtures only)", () => {
+  test("identifies an HTML dashboard response before any run attempt without printing upstream content", async () => {
+    const calls: string[] = [];
+    const send: ReviewFetch = async (input, init) => {
+      calls.push(String(input));
+      expect(init?.redirect).toBe("manual");
+      return new Response(`<html>private ${ENV.PAPERWORK_HERMES_API_KEY}</html>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    };
+    let caught: unknown;
+    try { await checkHostedReview(hostedReviewConfig(ENV), send); } catch (error) { caught = error; }
+    expect(caught).toMatchObject({ code: "review_failed", diagnostics: {
+      last_request: { operation: "capabilities", http_status: 200, response_format: "html" },
+      request_attempts: { capabilities: 1, toolsets: 0, run_submissions: 0, event_streams: 0, run_status_reads: 0, stop_requests: 0 },
+      run_id_observed: false,
+    } });
+    expect(calls).toHaveLength(1);
+    expect(JSON.stringify(caught)).not.toContain(ENV.PAPERWORK_HERMES_API_KEY);
+    expect(JSON.stringify(caught)).not.toContain(ENV.PAPERWORK_HERMES_URL);
+    expect(JSON.stringify(caught)).not.toContain("<html>");
+  });
+
+  test("records preflight redirects without following them or admitting a run", async () => {
+    for (const stage of ["capabilities", "toolsets"] as const) {
+      const calls: string[] = [];
+      const send: ReviewFetch = async (input, init) => {
+        calls.push(String(input));
+        expect(init?.redirect).toBe("manual");
+        if (stage === "toolsets" && String(input).endsWith("/v1/capabilities"))
+          return Response.json({ auth: { required: true }, features: { run_submission: true, run_events_sse: true, run_stop: true } });
+        return new Response("private redirect body", { status: 302, headers: {
+          location: `https://sign-in.example.invalid/?secret=${ENV.PAPERWORK_HERMES_API_KEY}`,
+        } });
+      };
+      let caught: unknown;
+      try { await checkHostedReview(hostedReviewConfig(ENV), send); } catch (error) { caught = error; }
+      expect(caught).toMatchObject({ diagnostics: {
+        last_request: { operation: stage, http_status: 302, response_format: "missing" },
+        request_attempts: { capabilities: 1, toolsets: stage === "toolsets" ? 1 : 0, run_submissions: 0 },
+        run_id_observed: false,
+      } });
+      expect(calls).toHaveLength(stage === "toolsets" ? 2 : 1);
+      for (const privateText of [ENV.PAPERWORK_HERMES_API_KEY, "sign-in.example.invalid", "private redirect body"])
+        expect(JSON.stringify(caught)).not.toContain(privateText);
+    }
+  });
+
+  test("distinguishes auth refusal and enabled toolsets from run admission", async () => {
+    const auth: ReviewFetch = async () => Response.json({ error: ENV.PAPERWORK_HERMES_API_KEY }, { status: 401 });
+    await expect(checkHostedReview(hostedReviewConfig(ENV), auth)).rejects.toMatchObject({ diagnostics: {
+      last_request: { operation: "capabilities", http_status: 401, response_format: "json" },
+      request_attempts: { run_submissions: 0 },
+    } });
+    const f = fixture();
+    const tools: ReviewFetch = (input, init) => String(input).endsWith("/v1/toolsets")
+      ? Promise.resolve(Response.json({ object: "list", platform: "api_server", data: [{ name: "terminal", enabled: true, tools: ["terminal"] }] }))
+      : f.send(input, init);
+    await expect(checkHostedReview(hostedReviewConfig(ENV), tools)).rejects.toMatchObject({ diagnostics: {
+      last_request: { operation: "toolsets", http_status: 200, response_format: "json" },
+      request_attempts: { run_submissions: 0 },
+    } });
+    expect(f.calls.some((call) => call.path === "/v1/runs")).toBe(false);
+  });
+
+  test("never prints a raw Content-Type value supplied by upstream", async () => {
+    const send: ReviewFetch = async () => new Response("invalid", { headers: { "content-type": `private/${ENV.PAPERWORK_HERMES_API_KEY}` } });
+    let caught: unknown;
+    try { await checkHostedReview(hostedReviewConfig(ENV), send); } catch (error) { caught = error; }
+    expect(caught).toMatchObject({ diagnostics: { last_request: { operation: "capabilities", response_format: "other" } } });
+    expect(JSON.stringify(caught)).not.toContain(ENV.PAPERWORK_HERMES_API_KEY);
+  });
+
   test("submits only fixed synthetic data once and reports validated result plus served custom metadata", async () => {
     const f = fixture();
     const receipt = await checkHostedReview(hostedReviewConfig(ENV), f.send);
@@ -96,11 +166,30 @@ describe("manual hosted synthetic review check (offline fixtures only)", () => {
     expect(partial.calls.filter((call) => call.path === `/v1/runs/${RUN}`)).toHaveLength(0);
   });
 
+  for (const [flag, values] of [
+    ["completed", [false, null, "true", 1]],
+    ["partial", [true, null, "false", 0]],
+    ["interrupted", [true, null, "false", 0]],
+  ] as const) test(`present durable ${flag} must agree with the complete SSE outcome`, async () => {
+    for (const value of values) {
+      const f = fixture({ status: { [flag]: value } });
+      let returned = false, caught: unknown;
+      try { await checkHostedReview(hostedReviewConfig(ENV), f.send); returned = true; }
+      catch (error) { caught = error; }
+      expect(returned).toBe(false);
+      expect(caught).toMatchObject({ code: "runtime_unverified" });
+      expect(f.calls.filter(call => call.path === "/v1/runs")).toHaveLength(1);
+    }
+  });
+
   test("invented citations fail existing validation and stop the admitted run without a status read", async () => {
     const result = structuredClone(RESULT);
     result.findings[0]!.report_quotes = ["The real agency approved payment."];
     const f = fixture({ result });
-    await expect(checkHostedReview(hostedReviewConfig(ENV), f.send)).rejects.toMatchObject({ code: "review_failed" });
+    await expect(checkHostedReview(hostedReviewConfig(ENV), f.send)).rejects.toMatchObject({ code: "review_failed", diagnostics: {
+      last_request: { operation: "events", http_status: 200, response_format: "sse" },
+      request_attempts: { run_submissions: 1, stop_requests: 1 }, run_id_observed: true,
+    } });
     expect(f.calls.filter((call) => call.path.endsWith("/stop"))).toHaveLength(1);
     expect(f.calls.filter((call) => call.path === `/v1/runs/${RUN}`)).toHaveLength(0);
   });
@@ -135,8 +224,28 @@ describe("manual hosted synthetic review check (offline fixtures only)", () => {
     expect(caught).toBeInstanceOf(HostedReviewCheckError);
     expect(String(caught)).not.toContain(ENV.PAPERWORK_HERMES_API_KEY);
     expect(String(caught)).not.toContain(ENV.PAPERWORK_HERMES_URL);
+    expect(JSON.stringify(caught)).not.toContain(ENV.PAPERWORK_HERMES_API_KEY);
+    expect(JSON.stringify(caught)).not.toContain(ENV.PAPERWORK_HERMES_URL);
+    expect(caught).toMatchObject({ diagnostics: {
+      last_request: { operation: "run_submission" },
+      request_attempts: { run_submissions: 1 }, run_id_observed: false,
+    } });
     expect(f.calls.filter((call) => call.path === "/v1/runs")).toHaveLength(1);
     const result = { ...RESULT, summary: ENV.PAPERWORK_HERMES_API_KEY };
     await expect(checkHostedReview(hostedReviewConfig(ENV), fixture({ result }).send)).rejects.toMatchObject({ code: "output_refused" });
+  });
+
+  for (const characters of [[34], [92], [34, 92]]) test(`JSON escaping of ${characters.join("+")} cannot hide a credential echo`, async () => {
+    const syntheticKey = `synthetic-probe-only${String.fromCharCode(...characters)}not-a-live-key`;
+    const config = hostedReviewConfig({ ...ENV, PAPERWORK_HERMES_API_KEY: syntheticKey });
+    const f = fixture({ result: { ...RESULT, summary: syntheticKey } });
+    let returned = false, caught: unknown;
+    try { await checkHostedReview(config, f.send); returned = true; }
+    catch (error) { caught = error; }
+    // The red regression prints booleans, never the fixture receipt or its credential-like text.
+    expect(returned).toBe(false);
+    expect(caught).toMatchObject({ code: "output_refused" });
+    expect(JSON.stringify(caught)).not.toContain(syntheticKey);
+    expect(f.calls.filter(call => call.path === "/v1/runs")).toHaveLength(1);
   });
 });
