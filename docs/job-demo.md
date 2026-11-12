@@ -103,3 +103,28 @@ Historical local platform integration evidence in [evidence.md](evidence.md) rem
 
 
 > **Renamed 2026-11-11:** The app is now **MultiAgency Paperwork** (UI **Paperwork**), deployment `multiagency-paperwork`. Historical text, identifiers, commands and artifact paths above remain as recorded; they do not verify the renamed candidate. Current instructions are in the [README](../README.md).
+
+## DAO-owned v3 jobs with the local SDK 0.5.9 candidate
+
+The optional signed `agency_owner: {type: "dao", account_id: "<dao>"}` separates DAO ownership from the named human representative. Existing wallet terms are unchanged. The representative and builder sign the job terms; those signatures alone do not authorize DAO spending or prove membership. The DAO separately authorizes setup, `read,payout` consent ending at the job deadline, a later-expiring read-only consent for settlement observation, creation, the payout grant, policy and each held-payout decision. `owner` consent and member-wallet submission of owner signatures are not used.
+
+The New job form exposes an optional DAO owner for Report and invoice. Paperwork displays the platform-returned proposal transactions for a member to file and vote through their DAO wallet, then offers a status check. The application does not automatically submit those transactions. Provider-verified payment terms are still compared with the immutable job before a proposal is shown. A passed approval vote remains separate from settlement.
+
+The repository-relative SDK tarball and provenance are under `vendor/multiagency-sdk`; `gateway-pin.json` identifies the matching frozen local gateway. This is an unpublished local candidate, not a hosted capability claim. The pinned snapshot uses Node 24.22.3. Verify it and launch its existing offline stack with the Paperwork namespace:
+
+```sh
+/Users/jlwaugh/.nvm/versions/node/v24.22.3/bin/node ../sdk/.test-artifacts/dao-payout-freeze/verify.mjs
+/Users/jlwaugh/.nvm/versions/node/v24.22.3/bin/node ../sdk/.test-artifacts/dao-payout-freeze/start-stack.mjs --app multiagency-paperwork --dao-treasury --no-browser
+```
+
+In another terminal, set `PLATFORM_STACK_DIR` to the actual printed stack directory. Run one independent fixture at a time:
+
+```sh
+PAPERWORK_JOB_DAO=1 PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_FIXTURE_NAME=dao-rework-check bun --no-env-file scripts/demo-job.ts
+PAPERWORK_JOB_DAO=1 PAPERWORK_JOB_DAO_RESTART=1 PAPERWORK_JOB_FIXTURE_NAME=dao-restart-check bun --no-env-file scripts/demo-job.ts
+PAPERWORK_JOB_FIXTURE_NAME=wallet-regression-check bun --no-env-file scripts/demo-job.ts
+```
+
+All are simulated. DAO fixture databases are retained in the printed temporary artifact directory, including on failure. Setup/consent filing messages and returned IDs, owner-action correlations/proposals and original payment IDs are durable. Unknown filing responses retry the same saved body, but the gateway assigns a fresh nonce/hash to each setup/consent filing: this does not recover the lost request or establish same-request idempotence. It may leave additional unsigned requests and consume filing quota. The app never received the lost proposal transactions, so this is not demonstrated duplicate-payout behavior. Once an ID is known, it is persisted and observed without replacement. Local deadlines do not prove non-execution. The test control casts one simulated vote per proposal and polls thereafter.
+
+The restart recipe closes the first app runtime's database after the simulated DAO signature is available but before Paperwork observes it. A separate OS process opens that database, observes the original approval and request, confirms processing with zero paid, then settles the same simulated payment. It records both process identities and the retained job/request/owner-action IDs. The supervising first process remains alive; this is a clean runtime handoff to a second process, not a SIGKILL or provider-response-loss proof. The gateway supplies no settlement transaction hash; none is fabricated. Hosted sign-in, member wallet submission, quorum behavior and real payment remain separate gates.

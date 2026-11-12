@@ -1,3 +1,4 @@
+import type { DaoRequest } from "../server/market/port";
 // API view types shared by the server and the web app.
 import type { Consent, Deposit, OwnerAction, Overview } from "../server/platform/port";
 import type { Clause } from "./clauses";
@@ -29,8 +30,9 @@ export interface SignRequest {
 }
 
 export type NextStep =
+  | { kind: "dao_vote"; retry_ms: number; label: string; request: DaoRequest }
   | { kind: "sign"; step: "setup" | "consent_payout" | "consent_owner"; label: string; sign: SignRequest }
-  | { kind: "owner_step"; correlation_id: string; action: OwnerAction["type"]; label: string; summary: string; sign?: SignRequest; confirm?: { url: string; expires_at: string } }
+  | { kind: "owner_step"; correlation_id: string; action: OwnerAction["type"]; label: string; summary: string; dao?: import("../server/platform/port").OwnerPrepared["dao"]; sign?: SignRequest; confirm?: { url: string; expires_at: string } }
   | { kind: "wait"; label: string; retry_ms: number }
   | { kind: "done" };
 

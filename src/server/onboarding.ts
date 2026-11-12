@@ -1,3 +1,4 @@
+import type { DaoRequest } from "./market/port";
 // Onboarding: what the representative does next (setup, create, consents, grant, policy), and the owner steps every owner action goes
 // through (prepare → store a row before returning → wallet signs or confirm link → submit → status).
 import type { Database } from "bun:sqlite";
@@ -48,7 +49,7 @@ export class Onboarding {
     const now = this.iso();
     this.d.db
       .query("INSERT INTO platform_agents (organization, owner, stage, created_at, updated_at) VALUES (?, ?, 'needs_setup', ?, ?)")
-      .run(row.organization, terms.representative.near_account, now, now);
+      .run(row.organization, terms.v === 3 && terms.agency_owner ? terms.agency_owner.account_id : terms.representative.near_account, now, now);
     return this.agentRow(row.organization)!;
   }
 
@@ -79,6 +80,8 @@ export class Onboarding {
     return this.d.platform.agent(a.organization, a.agent);
   }
 
+  private isDao(id: string): boolean { const t = this.d.contract(id).terms; return t.v === 3 && t.agency_owner?.type === "dao"; }
+
   // ---------------------------------------------------------------- next step
 
   async next(id: string): Promise<NextStep> {
@@ -89,6 +92,7 @@ export class Onboarding {
     const now = this.d.now();
     switch (a.stage) {
       case "needs_setup": {
+        if (this.isDao(id)) return this.daoAccess(id, a, "setup");
         const expiresAt = new Date(now.getTime() + SETUP_TTL_MS).toISOString();
         return this.signRequest(a, "setup", (expiry) => this.d.platform.setupMessage({ organization: a.organization, owner: a.owner, expiresAt: expiry }), expiresAt, "Set up the job's platform agent");
       }
@@ -105,11 +109,12 @@ export class Onboarding {
         }
         return this.ownerStepFor(id, a, "agent_create", "Create the job's agent", () => ({
           type: "agent_create",
-          owner: { type: "near", account_id: a.owner, public_key: a.owner_public_key! },
+          ...(!this.isDao(id) && { owner: { type: "near" as const, account_id: a.owner, public_key: a.owner_public_key! } }),
           role: "payout",
         }));
       }
       case "needs_consent": {
+        if (this.isDao(id)) return this.daoAccess(id, a, "consent");
         const end = Date.parse(endInstant(terms));
         if (end <= now.getTime() + 2 * 60_000) throw new UserError("The job ends too soon to give Paperwork access.");
         const cap = now.getTime() + MAX_CONSENT_MS;
@@ -157,6 +162,43 @@ export class Onboarding {
     }
   }
 
+  private async daoAccess(id: string, a: PlatformAgentRow, kind: "setup" | "consent"): Promise<NextStep> {
+    const platform = this.d.platform;
+    if (!platform.daoSetup || !platform.daoConsent) throw new UserError("This platform does not support DAO payout access.", 409);
+    const terms = this.d.contract(id).terms;
+    const readOnly = kind === "consent" && !!a.payout_consent_id;
+    const expiresAt = kind === "setup" ? new Date(this.d.now().getTime() + SETUP_TTL_MS).toISOString()
+      : new Date(Math.min(Date.parse(endInstant(terms)) + (readOnly ? this.d.graceDays * 86_400_000 : 0), this.d.now().getTime() + MAX_CONSENT_MS)).toISOString();
+    if (Date.parse(expiresAt) <= this.d.now().getTime() + 120_000) throw new UserError("The job ends too soon for DAO consent.", 409);
+    let saved = a.pending_sign ? JSON.parse(a.pending_sign) as { kind: string; request?: DaoRequest; message: string } : null;
+    const api = kind === "setup" ? platform.daoSetup : platform.daoConsent;
+    if (saved && saved.kind !== kind) throw new UserError("A different DAO access request is unresolved.", 409);
+    if (!saved) {
+      const message = kind === "setup" ? platform.setupMessage({ organization: a.organization, owner: a.owner, expiresAt })
+        : platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: readOnly ? ["read"] : ["read", "payout"], expiresAt });
+      saved = { kind, message };
+      this.setAgent(a.organization, { pending_sign: JSON.stringify(saved) });
+    }
+    if (!saved.request) {
+      const filed = await api.file(saved.message);
+      if (!filed.ok) throw failError(filed, "dao_" + kind);
+      saved.request = filed.value;
+      this.setAgent(a.organization, { pending_sign: JSON.stringify(saved) });
+    }
+    const observed = kind === "setup" ? await platform.daoSetup.state(saved.request.id) : await platform.daoConsent.state(saved.request.id);
+    if (!observed.ok) throw failError(observed, "dao_" + kind);
+    if (observed.value.state === "expired") {
+      this.setAgent(a.organization, { pending_sign: null });
+      return wait("The original DAO access vote expired; prepare a fresh vote.");
+    }
+    if (observed.value.state === "pending") return { kind: "dao_vote", retry_ms: WAIT_MS, label: kind === "setup" ? "Vote to set up the job agent" : readOnly ? "Vote to retain read access after payout consent ends" : "Vote to consent to job payouts", request: saved.request };
+    const result = observed.value;
+    if (kind === "setup" && "agent" in result && typeof result.agent === "string") this.setAgent(a.organization, { agent: result.agent, setup_consent_id: result.consent.id, stage: "needs_create", pending_sign: null });
+    else if (readOnly) this.setAgent(a.organization, { owner_consent_id: result.consent.id, owner_consent_expires_at: result.consent.expiresAt, stage: "needs_grant", pending_sign: null });
+    else this.setAgent(a.organization, { payout_consent_id: result.consent.id, payout_consent_expires_at: result.consent.expiresAt, stage: "needs_consent", pending_sign: null });
+    return this.next(id);
+  }
+
   private signRequest(a: PlatformAgentRow, step: SignStep, messageFor: (expiresAt: string) => string, expiresAt: string, label: string): NextStep {
     const saved = a.pending_sign ? JSON.parse(a.pending_sign) as PendingSign : null;
     const reuse = saved && saved.step === step && saved.recipient === this.d.platform.host &&
@@ -168,6 +210,7 @@ export class Onboarding {
   }
 
   async signed(id: string, body: { step: SignStep; nonce: string; publicKey: string; signature: string }): Promise<NextStep> {
+    if (this.isDao(id)) throw new UserError("DAO access is authorized by its proposal, not a member signature.", 409);
     const { row } = this.d.contract(id);
     const a = this.agentRow(row.organization);
     const pending = a?.pending_sign ? (JSON.parse(a.pending_sign) as PendingSign) : null;
@@ -224,11 +267,11 @@ export class Onboarding {
 
   private async ownerStepFor(id: string, a: PlatformAgentRow, kind: "agent_create" | "grant_issue" | "policy_update", label: string, build: () => OwnerAction | null | Promise<OwnerAction | null>): Promise<NextStep> {
     let s = this.latestStep(a.organization, kind);
-    if (s && s.state === "prepared" && s.expires_at && Date.parse(s.expires_at) <= this.d.now().getTime() && !s.confirm_url) {
+    if (s && s.state === "prepared" && s.expires_at && Date.parse(s.expires_at) <= this.d.now().getTime() && !s.confirm_url && s.standard !== "dao") {
       this.setStep(s.correlation_id, { state: "expired" });
       s = this.step(s.correlation_id);
     }
-    if (s && (s.state === "submitted" || s.state === "unknown" || (s.state === "prepared" && s.confirm_url))) s = await this.pollStep(s.correlation_id);
+    if (s && (s.state === "submitted" || s.state === "unknown" || (s.state === "prepared" && (s.confirm_url || s.standard === "dao")))) s = await this.pollStep(s.correlation_id);
     if (s?.state === "success") {
       await this.applySuccess(s);
       return this.agentRow(a.organization)!.stage === a.stage ? wait("Waiting for the platform to show the change") : this.next(id);
@@ -248,7 +291,7 @@ export class Onboarding {
 
   /** ownerPrepare, then store the row before anything is returned. */
   async prepare(contractId: string, a: PlatformAgentRow, action: OwnerAction, extra: { request_id?: string; verdict?: string } = {}): Promise<OwnerStepRow> {
-    const res = await this.handle(a).ownerPrepare(action);
+    const res = await this.handle(a).ownerPrepare(action, this.isDao(contractId) ? "dao" : "wallet");
     if (!res.ok) throw failError(res, action.type);
     const p: OwnerPrepared = res.value;
     const now = this.iso();
@@ -263,8 +306,8 @@ export class Onboarding {
         contractId,
         action.type,
         JSON.stringify(action),
-        p.intent ? "nep413" : "nep366",
-        p.intent ? JSON.stringify(p.intent) : null,
+        p.dao ? "dao" : p.intent ? "nep413" : "nep366",
+        p.dao ? JSON.stringify({ dao: p.dao }) : p.intent ? JSON.stringify(p.intent) : null,
         p.confirm?.url ?? null,
         p.confirm?.expiresAt ?? p.expiresAt,
         p.summary,
@@ -284,7 +327,7 @@ export class Onboarding {
   async submitStep(correlationId: string, sig: { publicKey: string; signature: string }): Promise<OwnerStepRow> {
     const s = this.step(correlationId);
     if (s.state !== "prepared") throw new UserError(`This step is already ${s.state}.`, 409);
-    if (!s.intent) throw new UserError("This step is confirmed on the platform's page, not signed here.");
+    if (s.standard === "dao" || !s.intent) throw new UserError("This step is confirmed on the platform's page, not signed here.");
     const a = this.agentRow(s.organization);
     if (!a) throw new UserError("Unknown organization.", 404);
     // Claim before external I/O. A crash, a thrown transport error or a lost reply must never leave this signable.
@@ -334,8 +377,8 @@ export class Onboarding {
   /** Read owner/status for a submitted (or confirm-link) step and apply its effect on success. */
   async pollStep(correlationId: string): Promise<OwnerStepRow> {
     const s = this.step(correlationId);
-    const live = s.state === "submitted" || s.state === "unknown" || (s.state === "prepared" && !!s.confirm_url);
-    if (!live || (s.kind === "approval_vote" && !s.confirm_url)) return s;
+    const live = s.state === "submitted" || s.state === "unknown" || (s.state === "prepared" && (!!s.confirm_url || s.standard === "dao"));
+    if (!live || (s.kind === "approval_vote" && !s.confirm_url && s.standard !== "dao")) return s;
     const a = this.agentRow(s.organization);
     if (!a) return s;
     const res = await this.handle(a).ownerStatus(correlationId);
@@ -365,7 +408,7 @@ export class Onboarding {
       await this.applySuccess(this.step(correlationId));
     } else if (status === "FAILED" || status === "REFUNDED" || stage === "failed") {
       this.setStep(correlationId, { state: "failed", failure_code: failureCode });
-    } else if (stage === "expired") {
+    } else if (stage === "expired" || res.value.phase === "expired") {
       this.setStep(correlationId, { state: "expired", failure_code: failureCode });
     }
     return this.step(correlationId);
@@ -431,13 +474,14 @@ function wait(label: string): NextStep {
 }
 
 export function stepView(s: OwnerStepRow, owner: string, label: string): NextStep {
-  const intent = s.intent ? (JSON.parse(s.intent) as { payload: { message: string; recipient: string; nonce: string } }) : null;
+  const intent = s.standard !== "dao" && s.intent ? (JSON.parse(s.intent) as { payload: { message: string; recipient: string; nonce: string } }) : null;
   return {
     kind: "owner_step",
     correlation_id: s.correlation_id,
     action: s.kind as NextStep extends { action: infer A } ? A : never,
     label,
     summary: s.summary ?? "",
+    ...(s.standard === "dao" && s.intent ? { dao: JSON.parse(s.intent).dao } : {}),
     ...(intent ? { sign: { account_id: owner, message: intent.payload.message, recipient: intent.payload.recipient, nonce: intent.payload.nonce } } : {}),
     ...(s.confirm_url ? { confirm: { url: s.confirm_url, expires_at: s.expires_at ?? "" } } : {}),
   };

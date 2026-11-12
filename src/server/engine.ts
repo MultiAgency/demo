@@ -664,7 +664,7 @@ export class Engine {
       // A platform confirmation can be signed outside this app. Reconcile its original owner intent before deciding
       // whether a preparation is still signable, submitted, or positively expired without submission.
       let prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
-      for (const step of prior) if (step.confirm_url && ["prepared", "submitted", "unknown"].includes(step.state)) await this.onboarding.pollStep(step.correlation_id);
+      for (const step of prior) if ((step.confirm_url || step.standard === "dao") && ["prepared", "submitted", "unknown"].includes(step.state)) await this.onboarding.pollStep(step.correlation_id);
       prior = this.d.db.query("SELECT * FROM owner_steps WHERE request_id = ? AND kind = 'approval_vote' ORDER BY created_at DESC, rowid DESC").all(requestId) as OwnerStepRow[];
       if (prior.some((s) => s.state === "submitted" || s.state === "unknown"))
         throw new UserError("A vote for this payout is already submitted or uncertain. Follow its original identity before preparing another.", 409);
@@ -672,7 +672,7 @@ export class Engine {
       if (pending.some((s) => !s.expires_at || !Number.isFinite(Date.parse(s.expires_at))))
         throw new UserError("The prepared vote has no verifiable expiry. Follow its original identity before preparing another.", 409);
       const same = pending.find((s) => s.verdict === verdict && s.action === JSON.stringify(action) && Date.parse(s.expires_at!) > this.d.now().getTime());
-      if (pending.some((s) => s.confirm_url && s !== same))
+      if (pending.some((s) => (s.confirm_url || s.standard === "dao") && s !== same))
         throw new UserError("A platform confirmation may already have been signed. Follow this payout's original identity before preparing another vote.", 409);
       // Only never-submitted preparations can be superseded; stale wallet prompts can no longer submit them here.
       for (const s of pending) if (s !== same)
@@ -695,6 +695,7 @@ export class Engine {
         correlation_id: step.correlation_id,
         sign: view.kind === "owner_step" ? (view.sign ?? null) : null,
         confirm: view.kind === "owner_step" ? (view.confirm ?? null) : null,
+        dao: view.kind === "owner_step" ? (view.dao ?? null) : null,
         terms: t,
         flags: this.payoutView(this.attempt(requestId)).prs.filter((p) => p.flags.length > 0),
         summary: step.summary,
@@ -856,6 +857,11 @@ export class Engine {
   }
 
   private async followAttempt(att: AttemptRow) {
+    // A DAO signature may have been submitted outside this app or while its process was stopped.
+    const daoSteps = this.d.db.query("SELECT correlation_id FROM owner_steps WHERE request_id = ? AND standard = 'dao' AND state IN ('prepared','submitted','unknown')")
+      .all(att.request_id) as { correlation_id: string }[];
+    for (const step of daoSteps) await this.onboarding.pollStep(step.correlation_id);
+    att = this.attempt(att.request_id);
     const h = this.handleFor(att);
     if (!h) return;
     const now = this.d.now().getTime();
@@ -1053,7 +1059,7 @@ export class Engine {
       { id: "assets", label: "USDC is the only asset", ok: !!p && Array.isArray(p.assets) && p.assets.length === 1 && p.assets[0] === terms.asset },
       { id: "payee", label: `Withdrawals go only to ${terms.payee.address}`, ok: !!p && p.withdrawals.length === 1 && p.withdrawals[0]?.toLowerCase() === terms.payee.address, detail: p?.withdrawals.join(", ") },
       { id: "cap", label: "No single payment above the largest deliverable", ok: p?.limits.per_transaction?.[terms.asset] === largest, detail: p?.limits.per_transaction?.[terms.asset] },
-      { id: "approval", label: "Every payout waits for the representative's approval", ok: !!p?.owner_approval },
+      { id: "approval", label: terms.v === 3 && terms.agency_owner ? "Every payout waits for the DAO's approval" : "Every payout waits for the representative's approval", ok: !!p?.owner_approval },
       { id: "frozen", label: "The agent is not frozen", ok: !!p && !p.frozen },
       { id: "grant", label: "A live payout grant exists", ok: !!grant, detail: grant ? `The platform chose its expiry: ${grant.expiresAt}` : undefined },
       {
@@ -1186,11 +1192,14 @@ export class Engine {
   private peekNext(a: PlatformAgentRow | null, stage: SetupStage): NextStep | null {
     if (!a || stage === "needs_signatures" || stage === "active" || stage === "needs_funding" || stage === "ended" || stage === "frozen") return null;
     if (a.pending_sign) {
+      const saved = JSON.parse(a.pending_sign);
+      if (saved.kind && saved.request) return { kind: "dao_vote", retry_ms: 2000, label: "Waiting for the DAO vote", request: saved.request };
+      if (saved.kind) return { kind: "wait", retry_ms: 2000, label: "Recovering the original DAO access request" };
       const p = JSON.parse(a.pending_sign) as { step: "setup" | "consent_payout" | "consent_owner"; message: string; nonce: string; recipient: string };
       return { kind: "sign", step: p.step, label: "Sign in your wallet", sign: { account_id: a.owner, message: p.message, recipient: p.recipient, nonce: p.nonce } };
     }
     const s = this.d.db.query("SELECT * FROM owner_steps WHERE organization = ? AND kind != 'approval_vote' ORDER BY created_at DESC, rowid DESC LIMIT 1").get(a.organization) as OwnerStepRow | null;
-    if (s && s.state === "prepared") return stepView(s, a.owner, "Sign in your wallet");
+    if (s && s.state === "prepared") return stepView(s, a.owner, s.standard === "dao" ? "Vote in the DAO" : "Sign in your wallet");
     return null;
   }
 

@@ -1,3 +1,4 @@
+import { contractPackage } from "@multiagency/sdk";
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -91,7 +92,7 @@ test("actual CLI/installed SDK emits only an advisory report without touching so
   expect(result.exit).toBe(2);
   expect(result.stderr).toBe("");
   const report = JSON.parse(result.stdout);
-  expect(report.collection).toMatchObject({ clearance: "none", complete: true, unmatched_held_count: 1, snapshot: f.inspection.snapshot, sdk_version: "0.5.7" });
+  expect(report.collection).toMatchObject({ clearance: "none", complete: true, unmatched_held_count: 1, snapshot: f.inspection.snapshot, sdk_version: contractPackage.version });
   expect(report.preview).toMatchObject({ clearance: "none", requires_review: true });
   for (const privateValue of [credential, "PRIVATE-REQUEST-NOTES", "PRIVATE-REPORT", "PRIVATE-ERROR", "PRIVATE-CONFIRMATION", "PRIVATE-UNRELATED", "PRIVATE-OWNER-ERROR", "PRIVATE-SIGNING-MATERIAL"])
     expect(result.stdout + result.stderr).not.toContain(privateValue);

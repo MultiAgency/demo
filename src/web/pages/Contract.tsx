@@ -1,3 +1,4 @@
+import { DaoProposal } from "../components/DaoProposal";
 import { useCallback, useEffect, useState } from "react";
 import { fromAtomic } from "../../shared/money";
 import { api, completeStep, links, signMessage } from "../api";
@@ -154,7 +155,7 @@ function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Ac
             start={c.terms.start}
             end={c.terms.end}
             repos={c.terms.repos}
-            approver={c.terms.representative.near_account}
+            approver={c.terms.v === 3 && c.terms.agency_owner ? c.terms.agency_owner.account_id : c.terms.representative.near_account}
             status={c.platform.policy?.applied ? "live" : "draft"}
             agentId={c.platform.agent_id}
             standIn={c.platform.mode === "fake"}
@@ -302,17 +303,20 @@ function NextStepAction({ c, config, act }: { c: ContractView; config: AppConfig
           <SignBox config={config} req={step.sign} label="Sign" onSign={() => run(step)} />
         </div>
       );
+    case "dao_vote":
+      return <DaoProposal proposal={step.request} onCheck={fetchNext} />;
     case "owner_step":
       return (
         <div className="check-action col">
           <span className="small">
             <strong>{step.label}.</strong> {step.summary}
           </span>
+          {step.dao ? <DaoProposal proposal={step.dao} onCheck={fetchNext} /> : null}
           {step.sign ? <SignBox config={config} req={step.sign} label="Sign" onSign={() => run(step)} /> : null}
           {step.confirm ? <ConfirmLink config={config} url={step.confirm.url} expiresAt={step.confirm.expires_at} onDemoComplete={() => run(step)} /> : null}
           {!config.demo_controls ? (
             <Button variant="secondary" size="sm" onClick={fetchNext}>
-              I've signed it
+              Check action
             </Button>
           ) : null}
         </div>
@@ -637,7 +641,7 @@ function PolicyTab({ c, verify }: { c: ContractView; verify: VerifyView | null }
           start={c.terms.start}
           end={c.terms.end}
           repos={c.terms.repos}
-          approver={c.terms.representative.near_account}
+          approver={c.terms.v === 3 && c.terms.agency_owner ? c.terms.agency_owner.account_id : c.terms.representative.near_account}
           status={c.stage === "frozen" ? "frozen" : c.stage === "ended" ? "ended" : "live"}
           agentId={c.platform.agent_id}
           standIn={c.platform.mode === "fake"}

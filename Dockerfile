@@ -3,6 +3,7 @@
 FROM oven/bun:1.4.2-slim
 WORKDIR /app
 COPY package.json bun.lock ./
+COPY vendor/multiagency-sdk ./vendor/multiagency-sdk
 RUN bun install --frozen-lockfile --production
 COPY tsconfig.json ./
 COPY src ./src

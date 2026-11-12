@@ -70,6 +70,7 @@ export const termsSchema = z.discriminatedUnion("v", [
   termsBase.extend({ v: z.literal(2), acceptance: z.literal("merged_to_default_branch_by_other") }),
   termsBase.extend({
     v: z.literal(3),
+    agency_owner: z.object({ type: z.literal("dao"), account_id: nearAccount }).strict().optional(),
     acceptance: z.literal("report_and_invoice"),
     payment_terms: z.object({
       calculation: z.literal(JOB_PAYMENT_TERMS.calculation),

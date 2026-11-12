@@ -1,3 +1,4 @@
+import { DaoProposal } from "./DaoProposal";
 import { useState } from "react";
 import { jobSubmissionSchema, type JobSubmissionView } from "../../shared/jobs";
 import { api, ApiError, prepareVote, submitVote } from "../api";
@@ -78,7 +79,7 @@ function CancelHeld({ p, config, act }: { p: PayoutView; config: AppConfig; act:
       setVote(v);
       if (config.demo_controls) await submitVote(config, v, session.signWorkflow);
     })}>Reject held payout for revision</Button>
-    {vote && !config.demo_controls ? vote.sign ? <SignBox config={config} req={vote.sign} label="Sign rejection" onSign={() => act(() => submitVote(config, vote, session.signWorkflow))} /> : vote.confirm ? <a className="btn btn-primary btn-md" href={vote.confirm.url} target="_blank" rel="noreferrer">Open the platform's confirm page</a> : null : null}
+    {vote && !config.demo_controls ? vote.dao ? <DaoProposal proposal={vote.dao} onCheck={() => act(() => api("GET", `/owner-steps/${vote.correlation_id}`))} /> : vote.sign ? <SignBox config={config} req={vote.sign} label="Sign rejection" onSign={() => act(() => submitVote(config, vote, session.signWorkflow))} /> : vote.confirm ? <a className="btn btn-primary btn-md" href={vote.confirm.url} target="_blank" rel="noreferrer">Open the platform's confirm page</a> : null : null}
   </div>;
 }
 

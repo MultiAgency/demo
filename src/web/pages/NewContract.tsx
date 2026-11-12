@@ -12,6 +12,7 @@ interface Form {
   workflow: "report_and_invoice" | "merged_to_default_branch_by_other";
   company: string;
   rep: string;
+  dao: string;
   contractorName: string;
   github: string;
   contractorAccount: string;
@@ -36,6 +37,7 @@ const initial: Form = {
   workflow: "report_and_invoice",
   company: DEMO_TERMS.company,
   rep: DEMO_TERMS.representative.near_account,
+  dao: "",
   contractorName: DEMO_TERMS.contractor.name,
   github: DEMO_TERMS.contractor.github,
   contractorAccount: DEMO_TERMS.contractor.near_account,
@@ -83,6 +85,7 @@ export function NewContract({ config }: { config: AppConfig }) {
         v: f.workflow === "report_and_invoice" ? 3 : 2,
         company: f.company,
         representative: { near_account: f.rep },
+        ...(f.workflow === "report_and_invoice" && f.dao.trim() && { agency_owner: { type: "dao", account_id: f.dao.trim() } }),
         contractor: { name: f.contractorName, github: f.github, near_account: f.contractorAccount },
         payee: { chain: "near", address: f.payee },
         asset: DEMO_TERMS.asset,
@@ -142,7 +145,8 @@ export function NewContract({ config }: { config: AppConfig }) {
               <Field label="Company">
                 <input value={f.company} onChange={set("company")} required />
               </Field>
-              <Field label="Representative" hint="NEAR account that signs, owns the agent and approves payouts">
+              {f.workflow === "report_and_invoice" ? <Field label="DAO owner (optional)" hint="Leave blank for wallet ownership. A DAO owner votes on setup and every payout."><input value={f.dao} onChange={set("dao")} placeholder="agency.sputnik-dao.near" /></Field> : null}
+              <Field label="Representative" hint="NEAR account that signs the job terms; the owner separately approves payment">
                 <input value={f.rep} onChange={set("rep")} required />
               </Field>
               <Field label="Builder">
@@ -232,7 +236,7 @@ export function NewContract({ config }: { config: AppConfig }) {
         <aside className="split-side">
           <div className="sticky">
             <div className="side-label">Live preview</div>
-            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.rep} standIn={config.platform === "fake"} reportWorkflow={f.workflow === "report_and_invoice"} />
+            <PolicyCard payee={f.payee} scope={f.scope} start={f.start} end={f.end} repos={repos} approver={f.workflow === "report_and_invoice" && f.dao.trim() ? f.dao.trim() : f.rep} standIn={config.platform === "fake"} reportWorkflow={f.workflow === "report_and_invoice"} />
             <p className="side-note">
               <Icon name="info" size={14} /> {config.platform === "fake" ? "On the platform stand-in the locked rows are simulated." : "Locked rows become the MultiAgency platform's policy."} The platform agent is created after both parties sign.
             </p>

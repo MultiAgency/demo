@@ -1,4 +1,6 @@
 // The interface between Paperwork and the MultiAgency platform: the SDK client (client.ts) and the stand-in (fake.ts).
+import type { DaoRequest, DaoState } from "../market/port";
+import type { AppDaoPrepared } from "@multiagency/sdk";
 import { USDC_NEAR } from "../../shared/terms";
 import type { MarketControls, MarketPlatform } from "../market/port";
 export const USDC = USDC_NEAR;
@@ -38,7 +40,7 @@ export interface PolicyChanges {
   budget?: Budget;
 }
 export type OwnerAction =
-  | { type: "agent_create"; owner: { type: "near"; account_id: string; public_key: string }; role: "payout" }
+  | { type: "agent_create"; owner?: { type: "near"; account_id: string; public_key: string }; role: "payout" }
   | { type: "grant_issue"; label: "payout" }
   | { type: "policy_update"; expectedPolicy: Reviewed; changes: PolicyChanges }
   | { type: "approval_vote"; approvalId: string; verdict: "approve" | "reject"; correlationId: string }
@@ -53,6 +55,7 @@ export interface OwnerPrepared {
   summary: string;
   intent?: Intent413;
   confirm?: { url: string; expiresAt: string };
+  dao?: AppDaoPrepared["dao"];
   payment?: {
     correlationId: string;
     verdict: "approve" | "reject";
@@ -129,7 +132,7 @@ export interface Consent {
   revoked: boolean;
 }
 export interface AgentHandle {
-  ownerPrepare(a: OwnerAction): Promise<Res<OwnerPrepared>>; // always signer:"wallet"
+  ownerPrepare(a: OwnerAction, signer?: "wallet" | "dao"): Promise<Res<OwnerPrepared>>;
   ownerSubmit(correlationId: string, intent: Intent413, s: { publicKey: string; signature: string }): Promise<Res<{ status: string; failureCode: string | null }>>;
   ownerStatus(correlationId: string): Promise<Res<OwnerStatus>>;
   overview(): Promise<Res<Overview>>;
@@ -147,6 +150,8 @@ export interface Platform {
   consentMessage(i: { organization: string; owner: string; agent: string; agentId: string; scopes: ("owner" | "payout" | "read")[]; expiresAt: string }): string;
   identity(agent: string): Promise<Res<{ agentId: string | null; created: boolean; owner: string }>>;
   setup(s: Signed413): Promise<Res<{ agent: string; consent: Consent }>>;
+  daoSetup?: { file(message: string): Promise<Res<DaoRequest>>; state(id: string): Promise<Res<DaoState<{ agent: string; consent: Consent }>>> };
+  daoConsent?: { file(message: string): Promise<Res<DaoRequest>>; state(id: string): Promise<Res<DaoState<{ consent: Consent }>>> };
   /** The agents this deployment's setups reserved for an Organization and owner (area "payables"): a lost setup reply's agent. Platforms before 0.5.5 answer refused. */
   reservations(organization: string, owner: string): Promise<Res<{ agent: string; owner: string; released: boolean }[]>>;
   submitConsent(s: Signed413): Promise<Res<Consent>>;

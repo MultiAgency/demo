@@ -99,6 +99,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           </li>
         </ul>
 
+        {t.v === 3 && t.agency_owner ? <p className="small">DAO owner: {t.agency_owner.account_id}. The representative signs these terms; the DAO separately votes on agent setup and payouts.</p> : null}
         {t.v === 3 ? <p className="small">Payment terms: completed scope value less amounts already committed, capped by your invoice. {t.company} explicitly approves each payout. USDC payment to {t.payee.address} follows approval; confirmation appears below after settlement.</p> : null}
 
         <Disclosure label="Scope and details">

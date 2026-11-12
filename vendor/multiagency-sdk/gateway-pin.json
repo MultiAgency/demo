@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "runDigest": "8f65066e6013f0c9f7fd68717f3bd11103b35d216034c329f002212fb3c6c0a7",
+  "sourceHead": "0e5568c469c7b4256a19af3ae42605571752c633",
+  "overlayDiffSha256": "41f87d088a5bedcaaf87b13eb19c0e45195b4da95446345160986dc0c5cab6ef",
+  "dependencyTree": "eb9728c521ebb5d31d352941e3d3e20eaa33d9d08e8c3cb4567e4ce08f05c9eb",
+  "node": "v24.22.3",
+  "sdkTarballSha256": "68a9924c224a3c7969c72243cefeb4e37864e0973f61e9c671bb39bd2759600b",
+  "manifestSha256": "7925194718659da325c3ade52284d95b79ec81ec08e0549e7d40f0feb3e7931d",
+  "snapshot": "/Users/jlwaugh/agencies/dao/sdk/.test-artifacts/stack-snapshots/8f65066e6013f0c9f7fd68717f3bd11103b35d216034c329f002212fb3c6c0a7",
+  "scope": "Local immutable gateway fixture; not hosted evidence"
+}

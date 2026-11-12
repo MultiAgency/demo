@@ -2,7 +2,7 @@
 
 **The signed terms set the spending limit.**
 
-Paperwork is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Paperwork uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.7: an agent for this job, a fixed payee, bounded payments and explicit agency approval.
+Paperwork is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Paperwork uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.9 (verified local candidate): an agent for this job, a fixed payee, bounded payments and explicit agency approval.
 
 The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. The **Pay on merge** workflow remains available for v2 jobs; new v3 jobs explicitly sign the report/invoice and payment clauses.
 
@@ -72,7 +72,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Paperwork pins published `@multiagency/sdk` 0.5.7. The dated [staging record committed at `764197a`](https://github.com/MultiAgency/platform/blob/764197a/docs/platform-staging.md) reports platform 0.5.7 deployed from source `cc90604`; its older production record reports 0.5.4. The recorded public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
+Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Paperwork pins the verified local `@multiagency/sdk` 0.5.9 candidate in `vendor/multiagency-sdk`; this artifact is not a published release. The dated [staging record committed at `764197a`](https://github.com/MultiAgency/platform/blob/764197a/docs/platform-staging.md) reports platform 0.5.7 deployed from source `cc90604`; its older production record reports 0.5.4. The recorded public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
 
 ## Hire and work on the agent market
 
@@ -205,7 +205,7 @@ Optional AI report assessment has a **30-second** deadline covering the request 
 
 ## Built with
 
-Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.7, Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
+Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.9 (verified local candidate), Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
 
 Written with AI assistance.
 

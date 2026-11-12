@@ -1,3 +1,4 @@
+import { DaoProposal } from "./DaoProposal";
 import { useState } from "react";
 import { USDC_NEAR } from "../../shared/terms";
 import { api, prepareVote, submitVote, termsMatch } from "../api";
@@ -334,7 +335,7 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {vote && !config.demo_controls ? (
         <div className="approval-foot">
-          {vote.sign ? (
+          {vote.dao ? <DaoProposal proposal={vote.dao} onCheck={() => act(() => api("GET", `/owner-steps/${vote.correlation_id}`))} /> : vote.sign ? (
             <SignBox config={config} req={vote.sign} label={verdict === "approve" ? "Sign approval" : "Sign rejection"} onSign={() => act(() => submitVote(config, vote, session.signWorkflow))} />
           ) : vote.confirm ? (
             <a className="btn btn-primary btn-sm" href={vote.confirm.url} target="_blank" rel="noreferrer">

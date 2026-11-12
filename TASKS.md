@@ -47,9 +47,23 @@ Offline implementation and the hosted connection have separate evidence. See [He
 
 Done when the public view exposes only the approved fields, party/representative access follows the matrix, existing signatures/invitations remain valid, and the funding explanation matches the accounting boundary. The current defects are recorded in [PROGRESS.md](PROGRESS.md).
 
+## Required before accepting both agency ownership modes
+
+User requirement, 2026-11-12: builder jobs must work for wallet owner `multiagentic.near` and DAO owner `agentic.sputnik-dao.near`, with builder/payee `buildr.near` and attacker fixture role `hackr.near`. These are planned account roles, not permission to sign or spend. DAO representative authority remains to be verified from the DAO policy.
+
+- [x] Review the platform-owned DAO payout action contract supplied in the local SDK 0.5.9 handoff. Verified tarball SHA-256 `68a9924c224a3c7969c72243cefeb4e37864e0973f61e9c671bb39bd2759600b`: `payout` is a DAO consent scope; payout-agent creation, payout grants and approval votes are admitted; `read,payout` covers requests while a consent containing `owner` is refused. Earlier 0.5.7/0.5.8 refusals are superseded by this candidate contract, not by a hosted rollout. Do not substitute treasury/Market authority or wallet credentials.
+- [x] Adopt the SDK 0.5.9 candidate reproducibly and obtain an immutable matching gateway snapshot. The verified local/unpublished tarball is pinned under `vendor/multiagency-sdk` with checksum/provenance; the Docker build copies it before dependency installation. Matching snapshot `8f65066e6013f0c9f7fd68717f3bd11103b35d216034c329f002212fb3c6c0a7` is pinned in `gateway-pin.json` and verified with the platform-owned verifier. Extend the payout port/client to retain DAO proposal replies, omit wallet ownership on DAO creation, use the `payout` grant label and never call wallet `owner/submit` for DAO actions. Follow the platform handoff in `sdk/docs/app-access.md`.
+- [x] Add explicitly signed optional DAO ownership to v3 report/invoice terms, distinct from the human representative; retain existing jobs' original terms, hashes, recipients and wallet ownership without reinterpretation.
+- [x] Route DAO setup, consents, creation, grant, policy and exact payout approval through supported platform proposals. Platform and chain checks retain membership, action permission, quorum, expiry and revocation authority; representative authentication alone cannot authorize spending. The human signs job terms, while each DAO action requires its own passed proposal. Actual hosted membership/quorum and wallet filing remain unverified.
+- [ ] Prove wallet and DAO workflows with simulated funds, including rejected/expired votes, unrelated actors, lost replies, restart and same-payment observation. Keep live budgets, fee limits, signatures and deployment separately authorized.
+
+The local implementation now supports v3 DAO-owned builder jobs. Terms signatures belong to the named human representative and builder; they do not prove membership or grant spending authority. DAO action authority remains enforced by the platform and on-chain proposals. Simulated rejection/revision/settlement and original-approval recovery in a second app process pass; this does not establish SIGKILL recovery for the new DAO path, hosted wallet voting or mainnet settlement. See the DAO recipe in docs/job-demo.md.
+
 ## Short backlog
 
 - Separate Market task observation from payment completion and address authority renewal/worker pagination.
 - Define recovery for lost job-creation replies and invitations.
 
 These are candidates, not agreed priorities. Additional source/application and platform dependencies remain in PROGRESS. Split a candidate into executable steps when it is selected.
+
+Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent filing with saved text can create a new gateway request hash. Saved-body reuse is not recovery of that unknown request; only known IDs are polled. The paired release review records quota/unsigned-request impact, with no demonstrated duplicate payout. Fresh committed platform/SDK release artifacts and Paperwork Linux/container packaging remain separate release gates.
