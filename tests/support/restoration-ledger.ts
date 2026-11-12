@@ -7,7 +7,7 @@ import { collectRecoveryEvidence, evidenceDigest } from "../../src/server/recove
 import type { EvidenceCollection, ReadResult, RecoveryReader } from "../../src/server/recovery/evidence";
 import { inspectLedger } from "../../src/server/recovery/inspect";
 import { DEMO_TERMS, JOB_DEMO_TERMS } from "../../src/shared/demo";
-import { USDC_NEAR } from "../../src/shared/terms";
+import { scopeTotal, USDC_NEAR } from "../../src/shared/terms";
 import { activate, castVote, START } from "./harness";
 
 export const RESTORATION_NOW = new Date(START + 1000);
@@ -63,11 +63,11 @@ export async function restorationLedger(version: 2 | 3 = 3, options: { partial?:
   const runtimeDirectory = join(directory, "runtime"), backupDirectory = join(directory, "backup");
   mkdirSync(runtimeDirectory); mkdirSync(backupDirectory);
   const runtimePath = join(runtimeDirectory, "paperwork.sqlite"), backup = join(backupDirectory, "paperwork.sqlite"), path = join(directory, "snapshot.sqlite");
-  const terms = version === 2 ? { ...DEMO_TERMS, scope: [DEMO_TERMS.scope[0]!] } : options.partial ? { ...JOB_DEMO_TERMS, scope: [
+  const terms = version === 2 ? options.partial ? DEMO_TERMS : { ...DEMO_TERMS, scope: [DEMO_TERMS.scope[0]!] } : options.partial ? { ...JOB_DEMO_TERMS, scope: [
     { ...JOB_DEMO_TERMS.scope[0]!, value_usd: "150" },
     { ...JOB_DEMO_TERMS.scope[0]!, id: "d2", title: "CSV documentation", value_usd: "150" },
   ] } : JOB_DEMO_TERMS;
-  const ctx = await activate("300", terms, { DB_PATH: runtimePath }).catch(error => {
+  const ctx = await activate(scopeTotal(terms), terms, { DB_PATH: runtimePath }).catch(error => {
     rmSync(directory, { recursive: true, force: true });
     throw error;
   });

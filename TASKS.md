@@ -16,11 +16,11 @@ Selected 2026-11-11 for the local milestone covering both Report and invoice and
 - [x] Verify one collector journey against an isolated SDK stack: original request/correlation retained, all four read procedures complete, snapshot/source unchanged, provider payment count unchanged and owned processes stopped. [Receipt and limits](docs/recovery-acceptance.md#sdk-collector-integration-checkpoint).
 - [x] Define one restoration-only correction contract with explicit before/after accounting, evidence/verification limits and refusal cases. [First correction contract](docs/recovery-acceptance.md#first-correction-contract-restore-one-commitment).
 - [x] Implement that reviewed correction transaction in memory against disposable fixtures; preserve prior records/evidence and test refusal without source mutation, exact replay and stale/conflicting observations.
-- [ ] Define and implement the operational persistence/handoff procedure, including filesystem durability, process interruption and recovery from a lost returned result. The in-memory prototype has no import CLI or external idempotency registry.
-- [ ] Verify whole-database compatibility and supervised local resumption, including unrelated startup blockers; a one-job correction cannot clear the shared database by itself.
+- [x] Add a restoration-only private export command with durable completion, verified completed-bundle reuse and disposable process-interruption/lost-result tests. [Usage and handoff limits](docs/recovery-acceptance.md#export-a-restoration-bundle).
+- [x] Rehearse whole-database blocker inventory and supervised handoff on disposable exports: both-version stand-in full/partial/unknown cases and v3 SDK processing/restart/original full settlement. The mixed-history copy remains blocked. [Scope and evidence](docs/recovery-acceptance.md#whole-database-recovery-rehearsal).
 - [ ] Complete the acceptance matrix, including missing v2 browser, clean SDK happy-path and independent process-restart branches.
 
-The proof/startup guard, read-only collector/preview and in-memory restoration are implemented. Payment/recovery work remains open until operational historical correction/resumption and the remaining acceptance branches are implemented and verified. Existing Hermes work remains recorded below.
+The proof/startup guard, collector/preview, restoration/export and scoped disposable handoff rehearsal are verified. Real historical provenance and unsupported recovery cases remain unresolved; the remaining acceptance branches stay open. Implement the approved privacy boundary below before the final browser acceptance work. Existing Hermes work remains recorded below.
 
 ## Hermes report-review assistant
 
@@ -36,7 +36,7 @@ The user requested Hermes with NEAR AI Cloud, the MultiAgency team account and l
 
 Offline implementation and the hosted connection have separate evidence. See [Hermes review](docs/hermes-review.md).
 
-## After payment and recovery: private jobs and limited public verification
+## Next: private jobs and limited public verification
 
 - [x] Approve private full details for new and existing v2 jobs, with limited public verification; [access contract](docs/recovery-acceptance.md#v2-privacy--approved).
 - [ ] Enforce named-party full-job/detailed-verification reads and own-role signing requests. Authorize protected reads before SDK work, remove owner-only fields from builder views and use generic refusals/no-cache responses.

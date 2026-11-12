@@ -1,6 +1,6 @@
 # Recovery and local acceptance
 
-Prepared **2026-11-11** for the milestone in [PRD](../PRD.md): complete Report and invoice and Pay on merge jobs in local simulation. Read-only inventory, evidence collection/review preview and both-version proof/startup guards are implemented. Correction/import, resumption and remaining acceptance work below are still planned. Hosted operations remain subject to workspace authorization.
+Updated **2026-11-11** for the milestone in [PRD](../PRD.md): complete Report and invoice and Pay on merge jobs in local simulation. Inventory, evidence collection/preview, both-version proof guards, restoration/export and the scoped disposable handoff rehearsal are implemented and checked. Real historical provenance and remaining acceptance cases stay unresolved. Hosted operations remain subject to workspace authorization.
 
 ## Historical reconciliation
 
@@ -8,7 +8,7 @@ The enforced rule covers new and existing v2/v3 jobs: failed-payment budget rele
 
 Runtime observations retain the original failed-payment binding, revoke proof when status regresses or conflicts, and preserve the first observed non-null refund amount in `refunded_amount`. A later missing field or unavailable read cannot erase that evidence. Compatible databases receive the nullable column additively; unsafe databases refuse before migration. Older refund observations that were never stored cannot be reconstructed by this change and still need authoritative collection/reconciliation.
 
-The standalone inspector and SDK evidence collector exist. The historical correction importer does **not** exist yet. Ordinary app startup, representative job-detail reads and timers are unsuitable for inspection: they may migrate records or advance payments. Already-resolved historical rows also cannot be repaired through the current `Engine.resolve()` action.
+The standalone inspector, SDK evidence collector and narrow restoration/export tools exist, with a separate disposable handoff rehearsal below. Unsupported historical cases remain blocked. Ordinary app startup, representative job-detail reads and timers are unsuitable for inspection: they may migrate records or advance payments. Already-resolved historical rows also cannot be repaired through the current `Engine.resolve()` action.
 
 ### Inspect a snapshot
 
@@ -52,13 +52,13 @@ The accounting section exposes `matched_status_report_subtotal_atomic`, `all_rep
 
 Exit codes: **0** help; **2** review-only report, even when every read succeeds; **1** input/collection failure without a report. `complete: true` means all selected reads succeeded, not that reconciliation is safe. HTTP response hashes identify received bytes, not platform signatures. Keep successive reports and original provenance in protected operator records; a later report cannot erase prior counterevidence. Correction/import must recheck fresh evidence and all relevant history separately.
 
-### Procedure to implement
+### Procedure and operational boundaries
 
 1. **Preserve a consistent snapshot.** Coordinate writers/runs before any money-path change. An authorized operator creates a coherent SQLite backup including committed WAL contents, records its digest/schema/candidate, and retains the original. Production state stays in the operator's protected location; it must not enter this workspace.
 2. **Inventory read-only.** Use the inspector above; schema introspection and SELECTs run against its in-memory read-only database. It never calls `openDb()`, `createRuntime()`, auth, HTTP handlers or timers. Report terms/version/hash, deployment, Organization/agent, original request/correlation/approval/owner-step IDs, payout lines, historical resolution and related attempts. Same-judgment/sequence peers and other attempts in that job remain separate; amount/payee similarity never establishes a replacement. Missing proof columns mean missing evidence.
 3. **Bind observations to the original platform.** Establish original host, deployment, Organization and agent from trusted records; the database alone does not establish the host. Use the original approved server credential outside reports/logs. Never substitute another deployment or infer a binding from matching amount/payee.
 4. **Collect evidence through a read allowlist.** Use the collector above with the original binding. Payout and owner-step correlations are separate identities; retain their recorded associations. Never prepare/submit owner actions, approve, retry or request payouts. Retain successive observations with binding, IDs, timestamps, SDK version and response hashes. Hashes identify observations; they are not cryptographic platform attestations.
-5. **Prepare an audited correction on a disposable copy.** The proposed importer must re-read authoritative status, validate binding/terms and inspect original/replacement attempts plus live owner intents. Append evidence and a correction record preserving prior values; update effective accounting transactionally under an explicit correction ID. Reject hand-authored proof flags, stale snapshots and conflicting observations. Do not use direct SQL edits or a force-start option.
+5. **Prepare an audited correction on a disposable copy.** The restoration-only export below validates the original snapshot, reviewed request and bound observations, then saves a separate corrected bundle. It retains the original identities and missing evidence; it makes no new platform reads. Broader corrections still need authoritative status, original/replacement and owner-intent review through a supported route. Reject hand-authored proof flags, stale initial observations and conflicting bindings. Do not use direct SQL edits or a force-start option.
 6. **Validate and resume deliberately.** Rehearse against fixtures first. Before an authorized application, recheck the snapshot and fresh evidence. Confirm all startup blockers are addressed, uncertain amounts remain committed, and no original/replacement pair can silently authorize another send. Resume with one writer and supervised observation. Ordinary startup can advance existing workflows; it is not read-only. Preserve the before/after evidence and compatible recovery artifacts.
 
 ### Evidence decisions
@@ -78,13 +78,13 @@ Exit codes: **0** help; **2** review-only report, even when every read succeeds;
 1. Read-only inspection is implemented and checked against disposable fixtures; use its report to scope later work.
 2. Both-version proof/startup guards are implemented; fixture checks cover refusal without mutation, safe reopening and retention of original identities/counterevidence.
 3. The allowlisted one-job collector and review-only correction preview are implemented; they cannot clear a ledger or resume payments.
-4. The first restoration transaction now runs only in memory against disposable snapshots. A filesystem importer and supervised resumption remain separate work.
+4. The first restoration transaction runs in memory and can be saved as a new private, durable export bundle. Installation into an application database and supervised resumption remain separate work.
 
-Required recovery tests: no schema/record changes or send-capable calls during inspection; missing-column handling; wrong binding; absent/contradictory/valid proof; success and uncertainty; multiple replacements; repeated startup refusal; safe reopen; failed/repeated corrections. Real historical repair remains unavailable without an operational import and verification procedure.
+Required recovery tests: no schema/record changes or send-capable calls during inspection; missing-column handling; wrong binding; absent/contradictory/valid proof; success and uncertainty; multiple replacements; repeated startup refusal; safe reopen; failed/repeated corrections; interrupted export and lost results. Real historical resumption remains unavailable without whole-database verification and a supervised handoff procedure.
 
 ### First correction contract: restore one commitment
 
-**Implemented as an in-memory prototype:** [`restoreCommitment()`](../src/server/recovery/restore.ts) returns separate private SQLite bytes and a sanitized receipt. It never writes a file, starts the app or contacts the platform. The first case is limited to one unproven `failed/reowe` payout becoming `failed/disputed` on a disposable copy. It restores a monetary hold; it grants no budget release, payment claim, replacement, proof flag or startup/resumption clearance. There is no operational import CLI.
+**Implemented:** [`restoreCommitment()`](../src/server/recovery/restore.ts) returns separate private SQLite bytes and a sanitized receipt. The core never writes a file, starts the app or contacts the platform; the [export command below](#export-a-restoration-bundle) saves its result. The first case is limited to one unproven `failed/reowe` payout becoming `failed/disputed` on a disposable copy. It restores a monetary hold; it grants no budget release, payment claim, replacement, proof flag or startup/resumption clearance. The exporter does not install a database into the application.
 
 Accept only an unchanged standalone snapshot with a reviewed original binding and an explicit correction ID. The selected v2/v3 job must have exactly one payout attempt at sequence/attempt `1/1`, no replacement, and one sole, intact pending judgment linked to that original request. Non-execution proof is absent or false. Recipient, positive atomic amount, allocations and job/judgment associations must be consistent; request conflicts and reported payout/payment success are unsupported. For v3, the linked submission must be the latest, still `proposed`, with its original invoice and no pending changes or later revision. Additional closed judgments, already-rejected historical judgments and other released outcomes are outside this first case. Unsupported schemas or open-work index semantics, custom triggers and generated/virtual tables refuse without migration. The output must remain within the same standalone 64 MiB snapshot and 10,000-row-per-table limits.
 
@@ -107,7 +107,7 @@ Closing the pending judgment is required along with restoring the payout hold: a
 
 Replay uses the returned corrected snapshot containing its audit, rather than the unchanged original. For the same correction ID, matching recorded inputs and the expected corrected context return the exact input bytes as already applied, without another update, audit or event. Evidence may have aged for this no-op; it grants no new authority. A logical digest covers schema, ordinary-table contents and row identities, including unrelated auth/Market context, without putting their private contents in the receipt. Reused IDs with different inputs, stale initial evidence, changed prior values or divergent corrected context refuse. Reprocessing the original snapshot produces a separate result; there is no external idempotency registry.
 
-The changes and audit share one in-memory transaction. Failure before a successful return exposes no partial corrected snapshot and leaves the source unchanged. This does not test process crashes, filesystem durability or lost replies from an operational importer; those require the later persistence procedure. Tests reject pre-existing failure triggers as unsupported schema rather than claiming an injected transaction-interruption result.
+The changes and audit share one in-memory transaction. Failure before a successful return exposes no partial corrected snapshot and leaves the source unchanged. The export layer separately tests process interruption and loss of its returned result. These checks do not establish application-database installation, whole-database recovery or physical power-loss behavior. Tests reject pre-existing failure triggers as unsupported schema rather than claiming an injected transaction-interruption result.
 
 Local checks verify canonical terms and their hash, both signatures' NEP-413 cryptography/account/domain binding, immutable v3 submission content and the original payout plan. They cannot attest historical on-chain key ownership, original provider provenance or authoritative deployment/agent binding. Restoring a conservative hold does not settle those dependencies or fabricate missing historical evidence. Any later release, replacement or supervised resumption requires separate verification of fresh evidence, all related attempts and whole-database startup blockers.
 
@@ -119,6 +119,56 @@ Fixture acceptance must cover:
 - Refusal without writes for replacements, a competing slot/judgment, already-rejected judgments, unsupported outcomes/schema/indexes, mismatched terms/allocations/binding, reported success, stale inputs and correction-ID conflicts.
 - An unrelated unsafe release still blocks whole-database startup. Every correction receipt retains `clearance: "none"`; neither fixture compatibility nor one corrected job certifies resumption.
 
+### Export a restoration bundle
+
+```sh
+mkdir -m 700 /protected/recovery-exports
+bun --no-env-file scripts/export-restoration.ts /protected/standalone-snapshot.sqlite /protected/restoration-request.json /protected/recovery-exports/restore-job-001
+```
+
+These are operator-path examples; development tests use disposable synthetic snapshots only. The [standalone command](../scripts/export-restoration.ts) reads no dotenv, creates no application runtime and makes no platform request. The destination's existing parent must be an operator-owned directory with mode `0700`. Parent aliases are resolved once, then directory identities are checked; a symlink at the final parent, bundle or payload is refused. The bundle name starts with an ASCII letter/digit and contains at most 128 ASCII letters, digits, dots, underscores or hyphens. The command creates a new bundle directory with mode `0700` and files with mode `0600`.
+
+The request file, at most 4 MiB, is a complete [`RestorationRequest`](../src/server/recovery/restore.ts): `correction_id`, original `request_id`, `binding`, `collection` and `collection_sha256`. Copy the reviewed binding/collection and its canonical digest from the collector report; choosing an ID supplies no proof or authority. The saved `request.json` is a canonical JSON copy of those original values, rather than a byte-for-byte copy of whitespace in the input file. Initial observations must still satisfy the five-minute freshness boundary.
+
+| Bundle file | Contents |
+| --- | --- |
+| `snapshot.sqlite` | Corrected standalone database, including the original private auth/Market/job records |
+| `request.json` | Original restoration request, including its bound observations |
+| `receipt.json` | Original applied receipt with `clearance: "none"` |
+| `manifest.json` | Completion marker: fixed operation/identities, exact payload lengths/hashes, source/request/binding/collection/output/receipt hashes and selected audit-row hash |
+
+The [exporter](../src/server/recovery/export.ts) exclusively creates the destination and never overwrites a source, bundle or conflicting file. It flushes the payload files and bundle directory, then publishes the completed manifest with an exclusive hard link from a flushed private staging file in the same parent. It flushes the bundle and parent before acknowledging success. Interrupted attempts may leave an incomplete bundle and a private parent-side manifest staging file; these are retained, never automatically deleted or repaired. An existing destination without a valid completion manifest refuses. Review retained artifacts before a separate attempt; switching destinations is not automatic recovery.
+
+Retry with the same source, request and destination after a lost result. Reuse requires the exact four-file bundle, private regular files, matching original source and canonical inputs, every payload length/digest, the saved receipt and selected audit digest, and a successful byte-identical `already_applied` check against the corrected snapshot. The exporter flushes verified files and both directories again before acknowledging reuse, covering interruption after the manifest link but before directory flush. Evidence may have aged for this verified no-op. Incomplete, changed or conflicting bundles refuse without overwrite. Retain the untouched bundle: ordinary auth/job/event activity changes its audited context and prevents reuse.
+
+Exit **0** means completed export, verified reuse or help; exit **1** means failure without a success summary. Stdout contains only a sanitized result and hashes, never source paths, the request or database contents. A failed/lost response can still leave a completed bundle; retry the same command to verify it. `fsync` and process-kill tests establish the supported filesystem protocol, not a hardware power-loss guarantee. The manifest/audit hashes identify bytes and consistency, not authoritative historical provenance or permission to resume the app.
+
+### Whole-database recovery rehearsal
+
+```sh
+env -u PLATFORM_STACK_DIR -u PAPERWORK_RESTART_COLLECT -u PAPERWORK_RESTART_DROP_WITHDRAW PAPERWORK_RECOVERY_REHEARSAL=1 bun --no-env-file scripts/demo-job-restart-local.ts
+```
+
+The opt-in mode uses the existing pinned isolated SDK stack and fresh synthetic app. It cannot be combined with collector, combined-demo or provider-response-drop modes. The normal/manual launch modes retain their behavior. `--preflight` checks and copies the pinned platform/public dependencies without starting a stack or job. The full command retains a transcript, provenance, compatibility inventories, sources, export bundles, working copies and process/SDK traces under its printed private artifact directory; it stops only its owned processes.
+
+The [read-only compatibility inventory](../src/server/recovery/compatibility.ts) uses the secure snapshot loader and in-memory queries to list every recognized database compatibility blocker: legacy provider-adapter schema, all unsafe budget releases (including unrelated jobs, unknown workflows and orphaned rows), and wrong/unbound deployment (including Market-only records). `complete` means these three known gates could be read; missing/unsupported input refuses or reports incomplete. It does not certify migrations, auth initialization, external availability or financial clearance. Reports always retain `clearance: "none"`.
+
+Preflight precedes any candidate startup. The runtime's legacy-schema and unsafe-release guards run before migration, but deployment binding currently follows `openDb()` and its possible WAL/additive migrations. Do not treat a direct deployment-mismatch failure as a byte-preserving probe; reject it in the read-only preflight instead.
+
+The recipe's stages are:
+
+1. Create, sign and approve the original v3 job through supported app/SDK paths. Stop the owned app while its one original payment is still processing.
+2. Preserve the original stopped ledger and sidecars. Checkpoint only a separate backup, then seed the old `failed/reowe`, proof-absent/false local record there. This is explicitly fabricated historical app state; the actual platform payment remains the original approved processing payment. No platform failure or proof is fabricated.
+3. Derive two independent sources and export bundles. The clean branch restores its sole commitment. The mixed branch additionally contains a synthetic unrelated release and an orphan release; correcting the selected job must leave both blockers. Its separate working copy must exit with the known unsafe-release refusal, no listener/SDK calls and unchanged database bytes. It remains blocked; no rows are removed to make it start.
+4. Copy the clean bundle's database into another private working directory. Start a no-timer app process, require successful fresh original payout/payment reads, verify the 300 USDC dispute remains committed/unpaid, kill it, and start a different OS process on that same working database. Recheck all job, submission, invoice, judgment, request, correlation, approval, recipient, amount and sequence identities. Neither the source nor retained bundle is opened for startup.
+5. Invoke only the existing simulated settlement control for the already-approved original payment. Require one original 300 USDC settlement, no additional payout sequence and zero SDK mutation attempts in either resumed process. Hash every retained source and all four bundle files again and verify unchanged completed-bundle reuse.
+
+The [observer child](../scripts/recovery-observer.ts) uses the actual app runtime/API and installed SDK with timers omitted, Market/discovery disabled and SDK transport restricted to the bound agent's read procedures. It records attempts before dispatch and sanitized parsed payout/payment observations afterward. A forbidden attempt makes the rehearsal fail even if platform deduplication prevented a second payment. The settlement control is an explicit simulated-provider operation, separate from the zero-SDK-mutation claim. [Preparation support](../scripts/recovery-rehearsal.ts) and the observer are copied and hashed along with the frozen app source.
+
+V2/v3 full/partial and unknown-outcome handoff cases also run against exported bundles in controlled stand-in tests. Those retain the stand-in provider across in-process runtime replacement; they do not prove independent SDK/process behavior for v2, partial settlement or UNKNOWN. The SDK recipe covers v3 processing, restart and original full settlement. G13/G14 and the other missing acceptance branches remain separate. Successful simulated rehearsal supplies no authority to install a real historical database or resume production.
+
+For a short terminal recording, show the preserved sources/bundle, the mixed inventory and refusal, both clean working-copy PIDs with the same committed amount/IDs, then the original settlement and unchanged bundle hashes. Use the saved receipt rather than exposing raw database or signing contents.
+
 ## Acceptance matrix
 
 Use **both layers** for each workflow: controlled app/stand-in tests for failures and UI, and an independent isolated SDK/gateway/provider simulation for integration and process replacement. All money, signatures and provider actions remain simulated. Pin the actual app/SDK/platform source for integration runs; leave peer processes and frozen artifacts intact.
@@ -129,7 +179,7 @@ Use **both layers** for each workflow: controlled app/stand-in tests for failure
 | V3 complete report/invoice journey | Stand-in, `bun --no-env-file run demo:job` | Immutable submission/invoice, bounded proposal, approval before settlement and one correct simulated payment |
 | V3 revision and lost payout reply | Stand-in, `PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_LOST_REPLY=1 bun --no-env-file run demo:job` | Original attempt recovered; proven cancellation precedes revision; no duplicate transfer |
 | Both-version proof and historical records | Controlled fixtures; `failed-payment-proof.test.ts`, `failed-payment-observation.test.ts`, `engine.test.ts`, `job-finalization.test.ts`, `db-rejection-compat.test.ts`, `sdk-payout-proof.test.ts` | Implemented engine/authenticated HTTP refusals without writes/sends, valid proof, retained counterevidence, unchanged unsafe-ledger refusal and safe reopen. Independent SDK process recovery remains a separate case below |
-| Recovery tools | Disposable database fixtures, injected SDK HTTP responses and scripted readers | Inspector, collector, review-only preview and in-memory restoration are implemented. Filesystem import/resumption remain missing; fixture checks do not establish real historical repair |
+| Recovery tools | Disposable fixtures plus opt-in independent SDK stack | Inventory, restoration/export and separate-copy handoff are verified for the stated stand-in/v3 SDK cases. Real historical provenance, unsupported cases and remaining SDK branches stay unresolved |
 | Both-version access and ownership | Auth-enabled HTTP fixtures | Anonymous/unrelated refusals, party reads and representative-only mutations; no unauthorized platform work. Extend tests to the selected privacy policy |
 | V3 desktop/mobile browser journey | Stand-in, `bun --no-env-file run demo:browser` | Both party views, supported rework, held/processing/paid distinction, preserved IDs and no horizontal overflow |
 | V2 desktop/mobile browser journey | Stand-in browser | Missing branch: extend the existing browser runner for Pay on merge, including ineligible/self-merged PR exclusion and rejected-work exclusion |
@@ -268,3 +318,59 @@ These checks do not establish filesystem durability, process-crash recovery, aut
 A subsequent **2026-11-11** disposable-fixture probe confirmed that the explicit `request_conflict` code was already rejected upstream, but a retained foreign-request `platform_record` with a missing code could still be restored. The selected attempt now requires that field to be null; unrelated jobs remain outside this check. Five new regressions cover the existing code refusal and retained JSON/empty-string records in both workflows. Pre-fix probes left source bytes unchanged.
 
 On the same base/toolchain, fresh typecheck, whitespace and full-suite checks passed **1,289 tests**, 8,477 assertions across 53 files. The restoration suite now has **47 cases**, 348 assertions. Full log: `/tmp/paperwork-restoration-conflict-final-tests.log`. Updated SHA-256 fingerprints: `restore.ts` = `70789e79d4c9b6f41ed875c6234572be501bb4d8fc98f9d1ef54acf787012281`; `recovery-restoration.test.ts` = `c24a504b5e6bf4c168de70791370f5ed8f543588ffba187d8abd422526084877`. Inspector/helper fingerprints and the operational limits above remain unchanged.
+
+### Durable export checkpoint
+
+Fresh **2026-11-11** checks used Bun **1.4.2**, TypeScript **7.0.2** and installed SDK **0.5.7**, based on committed restoration checkpoint `974c88b2e797211973c6b45cbd978664f7d2a9c9` plus the new exporter/CLI, three test files and accompanying docs. The two pre-existing Hermes documentation/profile edits were preserved.
+
+`bun --no-env-file run typecheck`, `git diff --check` and `bun --no-env-file test` passed **1,332 tests**, 8,859 assertions across 55 files. Full log: `/tmp/paperwork-recovery-export-final-tests.log`. The focused command `bun --no-env-file test tests/recovery-export.test.ts tests/recovery-export-cli.test.ts` passed **43 cases**, 382 assertions; `bun --no-env-file scripts/export-restoration.ts --help` also exited 0 without loading inputs.
+
+Actual child processes were killed with `SIGKILL` before completion publication and after durable publication but before a returned result. The first retained an incomplete private destination that refused reuse; the second reused the fully verified bundle without changing its file identities, modification times or bytes. A separate fixture-seeded link/unlink window verified reuse of the exact retained parent-side staging inode; it was not presented as another process-kill experiment. Tests also cover edited/rehashed payloads, an incorrect audit hash, missing/extra files, private ownership/modes, symlinks, sidecars and source/input preservation. Three original-source sidecar regressions failed before correction in `/tmp/paperwork-recovery-export-initial-tests.log`; the final guard checks them on both fresh export and reuse. A post-publication payload removal also refuses acknowledgment.
+
+SHA-256 fingerprints of the tested new files:
+
+| File | Digest |
+| --- | --- |
+| `src/server/recovery/export.ts` | `2650e7e5c210289d0bad7964d3425b2ddfe0379fc55ecd8449b527e94c43dcbd` |
+| `scripts/export-restoration.ts` | `f1028ee1010643acd72b5a525cc1fdde3210c65d771f2d9e70416ee6c7750bae` |
+| `tests/recovery-export.test.ts` | `63e092dd3b9511f13875349ee7ffd29e1b25b539a7e6b2ab8adfd2770e04eb7c` |
+| `tests/recovery-export-cli.test.ts` | `a040c74f2ab903e0eb1b172ffdf3de092a68cf5852399f8f924891bb703d8f3f` |
+| `tests/support/recovery-export-child.ts` | `9ec277e89f1db8b20a29e69c7dd0c4a965c2e3f88380ad9c5e1488c5da8b78aa` |
+
+Only new disposable signed fixtures were used. The command itself imports no application runtime, starts no listener and performs no platform operation; fixture setup creates its own signed stand-in records. Existing manual demos, secrets, live state and real funds were not used. These results establish the local export protocol and process-interruption behavior, not physical power-loss durability, authoritative historical provenance, application-database installation or supervised resumption. SDK-stack/browser/hosted acceptance was not rerun, and no stage, commit or deployment was performed.
+
+### Whole-database rehearsal checkpoint
+
+The **2026-11-11 local / 2026-11-12 UTC** SDK run passed the exact [rehearsal command above](#whole-database-recovery-rehearsal). It used Bun **1.4.2**, TypeScript **7.0.2**, SDK **0.5.7**, Node **v24.22.2**, frozen platform source `f7caad4537e982190094e2654a064b25e7725f8a` and snapshot digest `36a66cb4212faef9d651a342baead7203238eb19d866acf9a8b2ec6ef1e76518`. App source/package/helper digest: `33b37f74115522bcc01d51316f5f160989e64481e1c033b62dbc21ef5f612cee`; copied public dependency digest: `98483c3373616d210e548ffa75399473a0d763f40f9772f65040c38aef8c12eb`. Base HEAD was `974c88b` plus the preceding uncommitted export work and this rehearsal's source/tests/docs; pre-existing Hermes edits were preserved.
+
+Fresh checks passed `bun --no-env-file run typecheck`, `git diff --check` and `bun --no-env-file test`: **1,351 tests**, 9,100 assertions across 57 files. Full log: `/tmp/paperwork-recovery-handoff-final-tests.log`. The focused command `bun --no-env-file test tests/recovery-compatibility.test.ts tests/recovery-handoff.test.ts tests/recovery-restoration.test.ts tests/recovery-export.test.ts tests/recovery-export-cli.test.ts` passed **109 cases**, 971 assertions. The 13 new compatibility cases cover every recognized gate and incomplete input; six handoff cases cover v2/v3 full/partial/UNKNOWN through retained stand-in runtimes.
+
+Concurrent `scripts/configure-review-key.browser.js` and `tests/review-key-setup.test.ts` appeared after that full-suite checkpoint and were left untouched, along with the separate Hermes files. Their coverage is outside the recorded recovery run; the frozen executed-source fingerprints below still match the current recovery files.
+
+The actual SDK job retained request `ad063b7dc50ff8aa-p1-1`, payment correlation `a1ed32b1-31e9-49db-ba11-3c9e58ca9c45`, judgment `r_3f0d79a702eba225a5d50dc7`, submission `s_45b89656a5aed03f0d9cacbd` and invoice `i_45b89656a5aed03f0d9cacbd`. Terms hash: `ad063b7dc50ff8aac8631ff0542f155bfd1c95b18c8c737b22ed04f96b2e6011`. Original explicit approval: `b09031f5-43ee-4522-985b-339be313a9b0`. These IDs belong to this fresh isolated run, not another same-terms simulator receipt.
+
+The clean export's known blockers changed **1 → 0**. Its working copy initially matched output SHA-256 `952153a9b3ed7c8100be865eb78ecdaf210c53d00a39d2aae14cff78e201dc93`. The mixed export changed **3 → 2**, retaining `fixture-unrelated-release` and orphan `fixture-orphan-release`. Its startup probe exited **1** with the exact `unsafe_budget_release` marker, no listener, an empty SDK trace and unchanged standalone database bytes. Both synthetic unrelated rows remain present and blocked; the mixed branch was never resumed or presented as repaired.
+
+| App process | PID | Recorded termination |
+| --- | --- | --- |
+| Initial proposal | 22770 | Expected `SIGKILL`, awaited exit 137 |
+| Original approval | 23205 | `SIGTERM`, awaited exit 143 |
+| Mixed-history refusal | 23768 | Expected startup exit 1, no SDK call |
+| Clean working copy | 23985 | Expected `SIGKILL`, awaited exit 137 |
+| Same working DB after restart | 24284 | `SIGTERM`, awaited exit 0 |
+
+Both clean working-copy processes successfully observed the bound original payout/payment as `PROCESSING`, keeping **300 USDC committed / 0 paid**. After the existing simulated settlement control, the second observed the same IDs as `SUCCESS`: one **300000000-atomic** payment, one successful settlement and zero provider errors. Its SDK trace contains nine read attempts and **zero SDK mutation attempts**. The simulated settlement control is separate from that read-only SDK assertion. Original stopped database/WAL/SHM, historical source copies and all four files in both bundles stayed unchanged; completed-bundle reuse still passed. Both launcher-owned stack/runner processes exited 0 after cleanup.
+
+Retained artifacts: `/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-restart-launch-JqJKKo/launcher-receipt.json`; under `jobs/paperwork-job-restart-DjSAJ0/`, `receipt.json`, `app-source-manifest.json`, `processes.json` and `recovery/` contain the inventories, sources, bundles, blocked probe and traces. Child receipt SHA-256: `7f49343dd75eefbece98fd78ab258f3278514b343026e1aedbf2e623b9fbed3c`. Command transcript: `/tmp/paperwork-recovery-rehearsal-sdk.log`. An independent session passed `--preflight` with no owned process/job (`paperwork-restart-launch-hMh07G`) and independently verified the retained frozen bundle/compatibility APIs and traces with network disabled; this was not a second SDK job.
+
+Executed-code fingerprints match the retained SDK manifests:
+
+| File | SHA-256 |
+| --- | --- |
+| `src/server/recovery/compatibility.ts` | `45f35e0a1fd1810f0062e4efd0107f0822d3ca9b071c46970398686213081e66` |
+| `scripts/recovery-rehearsal.ts` | `0446dab6ee5099f969c223149e132f0dc5a38cb6e121645005f3b1cc2a838724` |
+| `scripts/recovery-observer.ts` | `0d2563478095dc66dbef3d0bc74930db9ab0db3391d0d458a3b1f7bc3545c307` |
+| `scripts/demo-job-restart.ts` | `f6ff2bc74b2598b1bc5bf100050bcb97d66f8df99e7ddf127504c7103f2dde99` |
+| `scripts/demo-job-restart-local.ts` | `6affba6f73707bcaf420372f9f268e1519c494b12ae0b441521866038b37f843` |
+
+The old local release and unrelated/orphaned history were explicitly seeded on closed disposable copies; no SDK failure, non-execution proof or real historical recovery was fabricated. V2 SDK restart, SDK UNKNOWN/partial cases, provider-response-loss G13/G14 and other uncompleted acceptance branches remain unproven by this run. Historical key authorization/provenance, unsupported correction cases, physical power loss and actual production installation/resumption remain separate. Manual demos, peer state, secrets, real funds and hosted services were not used; no stage, commit or deployment was performed. All recovery artifacts retain `clearance: "none"`.

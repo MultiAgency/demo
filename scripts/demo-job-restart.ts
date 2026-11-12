@@ -3,6 +3,7 @@
  * Default fault: the local proxy suppresses the completed proposal's app HTTP response.
  * PAPERWORK_RESTART_DROP_WITHDRAW=1 additionally uses the existing stack's provider-response-loss control.
  * PAPERWORK_RESTART_COLLECT=1 also checks the read-only collector after stopping the synthetic app.
+ * PAPERWORK_RECOVERY_REHEARSAL=1 restores a seeded historical fixture and observes a separate working copy.
  * PLATFORM_STACK_DIR=<fresh loopback stack directory> bun scripts/demo-job-restart.ts
  */
 import { Database } from "bun:sqlite";
@@ -18,7 +19,10 @@ import { readStack, StackControls } from "../src/server/platform/stack";
 
 const root = resolve(import.meta.dir, "..");
 const collect = process.env.PAPERWORK_RESTART_COLLECT === "1";
+const recovery = process.env.PAPERWORK_RECOVERY_REHEARSAL === "1";
 const dropWithdrawResponse = process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1";
+if (recovery && (collect || dropWithdrawResponse || process.argv.some(value => value === "--full" || value === "--full-check")))
+  throw new Error("Recovery rehearsal cannot be combined with collector, full-demo or provider-response-drop modes.");
 if (collect && (dropWithdrawResponse || process.argv.some(value => value === "--full" || value === "--full-check")))
   throw new Error("Collector proof cannot be combined with full-demo or provider-response-drop modes.");
 const stackDir = process.env.PLATFORM_STACK_DIR;
@@ -32,7 +36,7 @@ const initialState = JSON.parse(readFileSync(stack.stateFile, "utf8")) as StackS
 if (initialState.transfers.length || initialState.createdAgents.length) throw new Error("Use a fresh stack with no created Organization agents or payments; do not replay this job in a used stack.");
 const artifactDir = mkdtempSync(join(process.env.PAPERWORK_RESTART_ARTIFACTS ?? "/tmp", "paperwork-job-restart-"));
 const appSnapshot = join(artifactDir, "app");
-const databasePath = join(artifactDir, "state", "paperwork.sqlite");
+let databasePath = join(artifactDir, "state", "paperwork.sqlite");
 mkdirSync(appSnapshot);
 mkdirSync(dirname(databasePath));
 const hash = (contents: string | Uint8Array) => createHash("sha256").update(contents).digest("hex");
@@ -50,6 +54,10 @@ function manifest(directory: string) {
   };
   scan(join(directory, "src"), "src");
   for (const name of ["package.json", "bun.lock", "tsconfig.json"]) files.push({ path: name, sha256: hash(readFileSync(join(directory, name))) });
+  if (recovery) for (const name of ["recovery-rehearsal.ts", "recovery-observer.ts"]) {
+    const path = `scripts/${name}`;
+    files.push({ path, sha256: hash(readFileSync(join(directory, path))) });
+  }
   return { sha256: hash(JSON.stringify(files)), files };
 }
 function dependencyManifest(directory: string) {
@@ -73,6 +81,10 @@ function dependencyManifest(directory: string) {
 }
 const sourceBefore = manifest(root);
 for (const name of ["src", "package.json", "bun.lock", "tsconfig.json"]) cpSync(join(root, name), join(appSnapshot, name), { recursive: true });
+if (recovery) {
+  mkdirSync(join(appSnapshot, "scripts"));
+  for (const name of ["recovery-rehearsal.ts", "recovery-observer.ts"]) cpSync(join(root, "scripts", name), join(appSnapshot, "scripts", name));
+}
 if (manifest(root).sha256 !== sourceBefore.sha256 || manifest(appSnapshot).sha256 !== sourceBefore.sha256) throw new Error("The app source changed during snapshotting. No server or job was started; take a stable source snapshot first.");
 const dependenciesBefore = dependencyManifest(join(root, "node_modules"));
 cpSync(join(root, "node_modules"), join(appSnapshot, "node_modules"), { recursive: true, dereference: false, verbatimSymlinks: true });
@@ -94,7 +106,25 @@ interface ChildApp {
   origin: string;
   pid: number;
   generation: number;
+  trace_path?: string;
   termination?: { requested_signal: "SIGKILL" | "SIGTERM"; requested_signals: ("SIGKILL" | "SIGTERM")[]; awaited_exit_result: number | null; observed_at: string; wait_timed_out?: boolean };
+}
+interface RecoveryTrace {
+  event: "attempt" | "observation"; procedure: string; at: string; method?: string; violation?: boolean;
+  ok?: boolean; request_id?: string; correlation_id?: string; state?: string; status?: string | null;
+}
+function recoveryTrace(app: ChildApp): RecoveryTrace[] {
+  check(app.trace_path, "The supervised process did not retain an SDK trace.");
+  return readFileSync(app.trace_path, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line) as RecoveryTrace);
+}
+function assertFreshRecoveryReads(app: ChildApp, requestId: string, correlationId: string) {
+  const trace = recoveryTrace(app), attempts = trace.filter(row => row.event === "attempt");
+  check(trace.every(row => row.event === "attempt" || row.event === "observation") && attempts.length > 0 &&
+    attempts.every(row => row.violation === false && row.method === "POST") &&
+    trace.some(row => row.event === "observation" && row.ok === true && row.procedure === "payouts/status" && row.request_id === requestId && row.state === "processing") &&
+    trace.some(row => row.event === "observation" && row.ok === true && row.procedure === "paymentStatus" && row.correlation_id === correlationId && row.status !== "SUCCESS"),
+    "Each supervised process must successfully observe the original unsettled payout and payment without an SDK mutation attempt.");
+  return trace;
 }
 const processes: ChildApp[] = [];
 let active: ChildApp | null = null;
@@ -104,9 +134,10 @@ const HTTP_TIMEOUT_MS = 30_000;
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
-async function startApp(generation: number): Promise<ChildApp> {
+async function startApp(generation: number, observation?: { directory: string; organization: string; agent: string; requestId: string; correlationId: string }): Promise<ChildApp> {
   const logPath = join(artifactDir, `app-${generation}.log`);
-  const child = Bun.spawn([process.execPath, "--no-env-file", "src/server/index.ts"], {
+  const tracePath = observation ? join(observation.directory, `app-${generation}-trace.jsonl`) : undefined;
+  const child = Bun.spawn([process.execPath, "--no-env-file", observation ? "scripts/recovery-observer.ts" : "src/server/index.ts"], {
     cwd: appSnapshot,
     env: {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -114,6 +145,10 @@ async function startApp(generation: number): Promise<ChildApp> {
       PLATFORM: "remote", PLATFORM_STACK_DIR: stackDir!, PLATFORM_DEPLOYMENT: stack.deployment,
       DB_PATH: databasePath, PORT: "0", GITHUB: "fake", JUDGE: "rules", AGENT_POLL_MS: "0", STATUS_POLL_MS: "3600000",
       BETTER_AUTH_SECRET: "paperwork-process-restart-fixture-secret-only-not-for-hosting",
+      ...(recovery && { COPILOTKIT_TELEMETRY_DISABLED: "true" }),
+      ...(observation && { PAPERWORK_RECOVERY_TRACE: tracePath!, PAPERWORK_RECOVERY_ORGANIZATION: observation.organization,
+        PAPERWORK_RECOVERY_AGENT: observation.agent, PAPERWORK_RECOVERY_REQUEST_ID: observation.requestId,
+        PAPERWORK_RECOVERY_CORRELATION_ID: observation.correlationId }),
     },
     stdout: "pipe", stderr: "pipe",
   });
@@ -129,7 +164,7 @@ async function startApp(generation: number): Promise<ChildApp> {
   };
   void capture(child.stdout as ReadableStream<Uint8Array>);
   void capture(child.stderr as ReadableStream<Uint8Array>);
-  const candidate: ChildApp = { process: child, origin: "", pid: child.pid, generation };
+  const candidate: ChildApp = { process: child, origin: "", pid: child.pid, generation, ...(tracePath && { trace_path: tracePath }) };
   processes.push(candidate);
   for (const until = Date.now() + 30_000; Date.now() < until; await pause(100)) {
     if (child.exitCode !== null) throw new Error(`App generation ${generation} exited (${child.exitCode}); inspect ${logPath}.`);
@@ -191,7 +226,7 @@ async function bounded<T>(promise: Promise<T>, ms: number, label: string): Promi
 function paymentIdentity(requestId: string, requireCorrelation = true) {
   const db = new Database(databasePath, { readonly: true, strict: true });
   try {
-    const row = db.query("SELECT request_id, contract_id, run_id, correlation_id, amount_atomic, state FROM payout_attempts WHERE request_id = ?").get(requestId) as { request_id: string; contract_id: string; run_id: string; correlation_id: string | null; amount_atomic: string; state: string } | null;
+    const row = db.query("SELECT request_id, contract_id, run_id, correlation_id, approval_id, vote_correlation_id, recipient, amount_atomic, seq, attempt, state FROM payout_attempts WHERE request_id = ?").get(requestId) as { request_id: string; contract_id: string; run_id: string; correlation_id: string | null; approval_id: string | null; vote_correlation_id: string | null; recipient: string; amount_atomic: string; seq: number; attempt: number; state: string } | null;
     check(row && (!requireCorrelation || row.correlation_id), "The existing payout must have its durable request identity and, once known, its platform correlation.");
     return row;
   } finally { db.close(); }
@@ -208,6 +243,7 @@ const receipt: Record<string, unknown> = {
   fault_boundary: dropWithdrawResponse ? "Provider accepts withdrawal and its response is dropped by existing stack control; app HTTP proposal response also suppressed" : "Completed proposal app HTTP response suppressed by local proxy; not a lost gateway/provider response",
   provider_response_drop: dropWithdrawResponse,
   ...(collect && { collector_requested: true }),
+  ...(recovery && { recovery_rehearsal_requested: true }),
   started_at: new Date().toISOString(), sdk: sdkVersion, bun: Bun.version, platform_node: nodeVersion,
   app_source_sha256: sourceBefore.sha256,
   dependencies_sha256: dependenciesCopied.sha256,
@@ -424,6 +460,52 @@ try {
   await request("POST", `/owner-steps/${vote.correlation_id}/submit`, { publicKey: signed.publicKey, signature: signed.signature });
   const approved = await observe(id, (v) => v.payouts.find((p) => p.request_id === requestId)?.state === "processing", "explicit approval");
   check(approved.paid_usd === "0", "Approval must not be treated as settlement.");
+  let rehearsal: Awaited<ReturnType<typeof import("./recovery-rehearsal")["prepareRecoveryRehearsal"]>> | null = null;
+  let resumedBefore: ContractView | null = null;
+  if (recovery) {
+    const stoppedDatabasePath = databasePath, approvedIdentity = paymentIdentity(requestId);
+    await stopApp(active, "SIGTERM"); active = null;
+    report("06a. Stopped the synthetic app before settlement; only separate backups will receive historical fixture seeding.");
+    const module = await import(join(appSnapshot, "scripts/recovery-rehearsal.ts")) as typeof import("./recovery-rehearsal");
+    rehearsal = await module.prepareRecoveryRehearsal({ artifactDirectory: artifactDir, stoppedDatabasePath, appSnapshot,
+      stackDirectory: stackDir!, environment: { PATH: process.env.PATH ?? "/usr/bin:/bin", PLATFORM: "remote", PLATFORM_STACK_DIR: stackDir!,
+        PLATFORM_DEPLOYMENT: stack.deployment, PORT: "0", GITHUB: "fake", JUDGE: "rules", AGENT_POLL_MS: "0", STATUS_POLL_MS: "3600000",
+        COPILOTKIT_TELEMETRY_DISABLED: "true",
+        BETTER_AUTH_SECRET: "paperwork-process-restart-fixture-secret-only-not-for-hosting" },
+      job: id, requestId, correlationId: afterIdentity.correlation_id!, judgmentId: recoveredSubmission.judgment_id!,
+      appSourceSha256: sourceBefore.sha256, dependenciesSha256: dependenciesCopied.sha256 });
+    receipt.recovery = { ...rehearsal.preparation, stage: "exported_and_inventoried", clearance: "none" };
+    databasePath = rehearsal.workingDatabasePath;
+    const observation = { directory: rehearsal.directory, organization: rehearsal.binding.organization, agent: rehearsal.binding.agent,
+      requestId, correlationId: afterIdentity.correlation_id! };
+    active = await startApp(3, observation);
+    resumedBefore = await observe(id, view => view.payouts.some(p => p.request_id === requestId && p.state === "disputed"), "restored hold through fresh SDK observation");
+    check(resumedBefore.committed_usd === "300" && resumedBefore.paid_usd === "0" && resumedBefore.open_judgment === null &&
+      resumedBefore.submissions.some(s => s.id === submitted.id && s.invoice.id === submitted.invoice.id && s.judgment_id === recoveredSubmission.judgment_id && s.state === "disputed"),
+      "Restoration did not retain the original committed dispute, submission, invoice and judgment.");
+    const firstRecoveryReads = assertFreshRecoveryReads(active, requestId, afterIdentity.correlation_id!);
+    const firstRecoveryIdentity = paymentIdentity(requestId), firstRecoveryPid = active.pid;
+    check(["request_id", "contract_id", "run_id", "correlation_id", "approval_id", "vote_correlation_id", "recipient", "amount_atomic", "seq", "attempt"]
+      .every(key => firstRecoveryIdentity[key as keyof typeof firstRecoveryIdentity] === approvedIdentity[key as keyof typeof approvedIdentity]), "Handoff replaced an original payment identity.");
+    await stopApp(active, "SIGKILL"); active = null;
+    active = await startApp(4, observation);
+    check(active.pid !== firstRecoveryPid, "Recovery restart did not replace the OS process.");
+    const afterRestart = await observe(id, view => view.payouts.some(p => p.request_id === requestId && p.state === "disputed"), "same working database after recovery restart");
+    check(afterRestart.hash === offered.hash && afterRestart.payouts.length === 1 && afterRestart.committed_usd === "300" && afterRestart.paid_usd === "0" &&
+      afterRestart.submissions.some(s => s.id === submitted.id && s.invoice.id === submitted.invoice.id && s.judgment_id === recoveredSubmission.judgment_id) &&
+      JSON.stringify(paymentIdentity(requestId)) === JSON.stringify(firstRecoveryIdentity), "Recovery restart changed the original hold or identities.");
+    const restartedRecoveryReads = assertFreshRecoveryReads(active, requestId, afterIdentity.correlation_id!);
+    const state = JSON.parse(readFileSync(stack.stateFile, "utf8")) as StackState;
+    check(state.transfers.length === 1 && state.transfers[0]!.correlation === afterIdentity.correlation_id && state.transfers[0]!.status !== "SUCCESS",
+      "The blocked/working-copy rehearsal created or settled a different payment.");
+    receipt.recovery = { ...rehearsal.preparation, working_database_relative_path: "recovery/working/paperwork.sqlite",
+      first_pid: firstRecoveryPid, restarted_pid: active.pid, timers_disabled: true, original_approved_identity: approvedIdentity,
+      held_identity_before_restart: firstRecoveryIdentity, held_identity_after_restart: paymentIdentity(requestId),
+      successful_observations_before_restart: firstRecoveryReads, successful_observations_after_restart: restartedRecoveryReads,
+      committed_before_restart_usd: resumedBefore.committed_usd, committed_after_restart_usd: afterRestart.committed_usd,
+      paid_before_settlement_usd: afterRestart.paid_usd, clearance: "none" };
+    report("06b. Inventoried all blockers; mixed-history copy refused before any SDK call. Separate clean copy retained the original dispute across two no-timer app processes.");
+  }
   await request("POST", "/sim/settle", { request_id: requestId });
   const settled = await observe(id, (v) => v.submissions.find((s) => s.id === submitted.id)?.state === "settled", "confirmed platform settlement");
   const paid = settled.payouts.find((p) => p.request_id === requestId)!;
@@ -436,8 +518,21 @@ try {
   check(providerPayment.recipient === terms.payee.address, "The provider's settled recipient does not match the signed payee.");
   check(providerPayment.amount === signedScopeAmount, "The provider's settled amount does not match this job's signed scope total.");
   check(finalState.providerErrors.length === 0, "The simulator recorded a provider error.");
+  if (rehearsal) {
+    await stopApp(active, "SIGTERM"); active = null;
+    const trace = processes.filter(app => app.trace_path).flatMap(recoveryTrace), attempts = trace.filter(row => row.event === "attempt");
+    check(attempts.length > 0 && attempts.every(row => row.violation === false && row.method === "POST") &&
+      trace.some(row => row.event === "observation" && row.ok === true && row.procedure === "payouts/status" && row.state === "succeeded" && row.request_id === requestId),
+      "Supervised recovery attempted an outbound mutation or lacked fresh original-payment observations.");
+    const preserved = rehearsal.verifyPreserved();
+    receipt.recovery = { ...receipt.recovery as object, ...preserved, settled_request_id: paid.request_id, settled_payment_correlation: afterIdentity.correlation_id,
+      paid_after_settlement_usd: settled.paid_usd, sdk_trace: trace, sdk_mutation_attempt_count: attempts.filter(row => row.violation).length,
+      provider_payment_count_before: 1, provider_payment_count_after: finalState.transfers.length, result: "passed", clearance: "none" };
+    check(manifest(appSnapshot).sha256 === sourceBefore.sha256, "The frozen rehearsal source changed during the run.");
+    report("06c. Original approved payment settled once after restart; zero SDK mutation attempts. Both export bundles and their sources passed unchanged reuse verification.");
+  }
   Object.assign(receipt, {
-    result: "passed", completed_at: new Date().toISOString(), app_pids: [firstPid, active.pid],
+    result: "passed", completed_at: new Date().toISOString(), app_pids: recovery ? processes.map(app => app.pid) : [firstPid, active!.pid],
     job: id, terms_hash: settled.hash, submission: submitted.id, invoice: submitted.invoice.id,
     judgment: recoveredSubmission.judgment_id, payout_request: requestId, payment_correlation: afterIdentity.correlation_id,
     approval: vote.correlation_id, settlement: paid.state, paid_usd: settled.paid_usd, tx_hash: paid.tx_hash,
@@ -449,6 +544,7 @@ try {
   });
   report(`06. Explicit agency approval followed by confirmed 300 USDC simulated settlement; ${paid.tx_hash ? `transaction ${paid.tx_hash}` : "gateway supplies no transaction hash"}`);
   if (collect) {
+    check(active, "Collector mode requires the original active app.");
     await stopApp(active, "SIGTERM");
     active = null;
     await collectProof({ job: id, termsHash: settled.hash, requestId, correlationId: afterIdentity.correlation_id, judgmentId: recoveredSubmission.judgment_id }, finalState);
@@ -478,7 +574,7 @@ try {
       } catch { receipt.failure_identity_read = "Unavailable; inspect the preserved fixture database before any further action."; }
     }
   }
-  const processRecords = processes.map((p) => ({ generation: p.generation, pid: p.pid, exit_code: p.process.exitCode, termination: p.termination }));
+  const processRecords = processes.map((p) => ({ generation: p.generation, pid: p.pid, exit_code: p.process.exitCode, trace_path: p.trace_path, termination: p.termination }));
   writeFileSync(join(artifactDir, "receipt.json"), JSON.stringify({ ...receipt, app_processes: processRecords }, null, 2));
   writeFileSync(join(artifactDir, "processes.json"), JSON.stringify(processRecords, null, 2));
 }

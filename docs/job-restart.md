@@ -1,6 +1,6 @@
 # Paperwork process restart
 
-The current command runs Paperwork as two distinct operating-system processes against the independent local platform gateway through SDK 0.5.7. Dated evidence below retains the SDK version used by each recorded run. Both app processes use the same durable SQLite database. The platform provider, chain, signatures, deposits and settlement remain simulated; this is neither hosted acceptance nor a real payment.
+The default command runs Paperwork as two distinct operating-system processes against the independent local platform gateway through SDK 0.5.7. Dated evidence below retains the SDK version used by each recorded run. Both app processes use the same durable SQLite database. The platform provider, chain, signatures, deposits and settlement remain simulated; this is neither hosted acceptance nor a real payment.
 
 The injected fault is specifically a lost **app HTTP proposal response**. A loopback proxy forwards the proposal, lets the application persist its judgment/payment identity and complete the SDK request, then suppresses the HTTP response and aborts the caller. The runner kills that app process with `SIGKILL`, starts a new one, and recovers the existing held payout by reading its retained identity. It never replaces the uncertain proposal with a new payment request.
 
@@ -59,6 +59,16 @@ HTTP requests have bounded timeouts (30 seconds; five seconds for startup health
 The application runner stops its app processes and proxy. The default launcher then stops its own simulated gateway. An explicitly supplied stack remains caller-owned and is left running for its owner.
 
 Preserve a failed run's database and receipt for inspection. A failed or uncertain receipt does not authorize a replacement payment in that stack; start another fresh isolated stack only for a separate test.
+
+## Exported-bundle recovery rehearsal
+
+```sh
+env -u PLATFORM_STACK_DIR -u PAPERWORK_RESTART_COLLECT -u PAPERWORK_RESTART_DROP_WITHDRAW PAPERWORK_RECOVERY_REHEARSAL=1 bun --no-env-file scripts/demo-job-restart-local.ts
+```
+
+This opt-in mode extends the default proof after its original explicit approval. It stops the app before settlement, seeds historical local state only in separate fixture backups, inventories every known database compatibility blocker and exports two retained bundles. A mixed-history working copy must refuse the unsafe-budget-release guard without a listener, SDK calls or database changes. Only a clean bundle's separate working copy is resumed, killed and restarted across two additional app processes with timers disabled and SDK mutations blocked/traced. Both must successfully observe the original processing payout/payment; the already-approved original payment then settles once through the existing simulated control.
+
+The source and all bundle bytes remain unchanged and pass completed-bundle reuse afterward. This is v3 SDK processing/full-settlement coverage; v2, unknown and partial cases have separately labelled stand-in tests. It supplies no real historical or production resumption clearance. [Full procedure and limits](recovery-acceptance.md#whole-database-recovery-rehearsal) and [dated receipt](recovery-acceptance.md#whole-database-rehearsal-checkpoint) record the fresh source and exact checks. Collector, full-demo and provider-response-drop modes cannot be combined with this mode; their existing receipts remain separate.
 
 ## Wallet-signing follow-up evidence — November 11, 2026
 

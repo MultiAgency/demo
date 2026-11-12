@@ -118,6 +118,8 @@ The app namespace is `multiagency-paperwork`: platform deployment, stack `--app`
 
 Each job stores its signing recipient. New jobs use `multiagency-paperwork`; existing rows retain `covenant` and their original complete or partial signatures. The new default database path does not move an old file. To recover old records, use that original file through `DB_PATH`, its original `PLATFORM_DEPLOYMENT` and the credential for that deployment; the app refuses a database/deployment mismatch.
 
+Unsafe historical payment releases also refuse startup. Preserve an offline standalone snapshot and use the [recovery inspection, evidence, private export and disposable rehearsal commands](docs/recovery-acceptance.md). Export creates a separate reviewed bundle. The rehearsal runs separate synthetic working copies; neither command installs or authorizes a real historical database.
+
 New browser state uses `paperwork.*`. Recovery can read a legacy pending submission with its exact saved payload and client key; it does not create a replacement identity. See the [deployment notes](docs/deploy.md#existing-state-during-the-rename).
 
 ```
