@@ -164,6 +164,13 @@ export function exportRestorationBundle(sourcePath: string, input: RestorationRe
       check(replay.receipt.result === "already_applied" && Buffer.from(replay.snapshot_bytes).equals(reads["snapshot.sqlite"].bytes) &&
         canonicalJson(savedReceipt) === canonicalJson({ ...replay.receipt, result: "applied" }) &&
         auditDigest(reads["snapshot.sqlite"].bytes, request.correction_id) === manifest.audit_sha256, "invalid_bundle");
+      // An old lossy result can have a self-consistent audit. Reproduce it from the pinned original source too.
+      // Its recorded application time preserves aged, exact replay without granting a fresh correction.
+      let expected: ReturnType<typeof restoreCommitment>;
+      try { expected = restoreCommitment(source.path, request, { now: () => new Date(replay.receipt.applied_at) }); }
+      catch { throw new RestorationExportError("invalid_bundle"); }
+      check(expected.receipt.result === "applied" && Buffer.from(expected.snapshot_bytes).equals(reads["snapshot.sqlite"].bytes) &&
+        canonicalJson(savedReceipt) === canonicalJson(expected.receipt), "invalid_bundle");
       // A crash between link and unlink can retain the private parent-side manifest link. No other links are accepted.
       if (manifestFile.stat.nlink === 2) {
         const staging = readFile(stage, SMALL_LIMIT, true, pins, "invalid_bundle");

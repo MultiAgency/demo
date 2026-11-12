@@ -29,8 +29,9 @@ export function restorationRows(path: string) {
   } finally { db.close(); }
 }
 
-export async function restorationEvidence(path: string) {
-  const inspection = inspectLedger(path), job = inspection.jobs[0]!, attempt = inspection.attempts[0]!;
+export async function restorationEvidence(path: string, contractId?: string) {
+  const inspection = inspectLedger(path), job = contractId === undefined ? inspection.jobs[0]! : inspection.jobs.find(row => row.id === contractId)!;
+  const attempt = inspection.attempts.find(row => row.contract_id === job.id)!;
   const binding = {
     schema_version: 1 as const, snapshot_sha256: inspection.snapshot.sha256, provenance_sha256: "b".repeat(64),
     platform_origin: "https://platform.invalid", deployment: inspection.deployment!, contract_id: job.id,
@@ -108,3 +109,54 @@ export async function restorationLedger(version: 2 | 3 = 3, options: { partial?:
 }
 
 export type RestorationFixture = Awaited<ReturnType<typeof restorationLedger>>;
+
+/** Add a declared conflict policy while retaining the fixture's columns, rowids and explicit indexes. */
+export function addRestorationConflictConstraint(db: Database,
+  table: "events" | "payout_attempts" | "judgments" | "job_submissions", column: string, policy: "REPLACE" | "IGNORE") {
+  const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
+  const { sql } = db.query("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table) as { sql: string };
+  const columns = (db.query("SELECT name FROM pragma_table_info(?)").all(table) as { name: string }[]).map(row => row.name);
+  if (!columns.includes(column)) throw new Error("Unknown fixture conflict column");
+  const indexes = db.query("SELECT sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL ORDER BY name").all(table) as { sql: string }[];
+  const temporary = `fixture_constrained_${table}`, end = sql.lastIndexOf(")");
+  const create = `${sql.slice(0, end)}, UNIQUE (${quote(column)}) ON CONFLICT ${policy}${sql.slice(end)}`
+    .replace(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"[^"]+"|\w+)/i, `CREATE TABLE ${quote(temporary)}`);
+  const fields = ["rowid", ...columns].map(quote).join(", ");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.transaction(() => {
+    db.exec(create);
+    db.exec(`INSERT INTO ${quote(temporary)} (${fields}) SELECT ${fields} FROM ${quote(table)}`);
+    db.exec(`DROP TABLE ${quote(table)}; ALTER TABLE ${quote(temporary)} RENAME TO ${quote(table)}`);
+    for (const index of indexes) db.exec(index.sql);
+  })();
+}
+
+/** Separate synthetic history ensures a conflicting UPDATE cannot pass by deleting another job's row. */
+export function seedUnrelatedRestorationJob(db: Database, f: RestorationFixture, eventKind = "recovery_correction") {
+  const ids = { contract: "fixture-unrelated-job", judgment: "fixture-unrelated-judgment", request: "fixture-unrelated-request",
+    submission: "fixture-unrelated-submission", organization: "fixture-unrelated-organization" };
+  const row = (table: string, key: string, value: string) => db.query(`SELECT * FROM ${table} WHERE ${key} = ?`).get(value) as Record<string, unknown>;
+  const insert = (table: string, values: Record<string, unknown>) => {
+    const names = Object.keys(values);
+    db.query(`INSERT INTO ${table} (${names.join(",")}) VALUES (${names.map(() => "?").join(",")})`)
+      .run(...Object.values(values) as (string | number | null)[]);
+  };
+  const contract = row("contracts", "id", f.ctx.id);
+  insert("contracts", { ...contract, id: ids.contract, hash: "e".repeat(64), organization: ids.organization, rep_sig: null, contractor_sig: null });
+  insert("platform_agents", { ...row("platform_agents", "organization", String(contract.organization)), organization: ids.organization,
+    agent: "fixture-unrelated-agent", agent_id: "fixture-unrelated-agent-id" });
+  insert("judgments", { ...row("judgments", "id", f.judgmentId), id: ids.judgment, contract_id: ids.contract,
+    outcome: "disputed", closed_at: RESTORATION_NOW.toISOString() });
+  insert("payout_attempts", { ...row("payout_attempts", "request_id", f.requestId), request_id: ids.request, contract_id: ids.contract,
+    run_id: ids.judgment, resolution: "disputed", correlation_id: "fixture-unrelated-payment", approval_id: null, vote_correlation_id: null });
+  db.query("INSERT INTO payout_lines SELECT ?, deliverable_id, amount_atomic FROM payout_lines WHERE request_id = ?").run(ids.request, f.requestId);
+  if (f.submissionId) {
+    insert("job_submissions", { ...row("job_submissions", "id", f.submissionId), id: ids.submission, contract_id: ids.contract,
+      judgment_id: ids.judgment, state: "disputed", terms_hash: "e".repeat(64) });
+    const invoice = row("job_invoices", "submission_id", f.submissionId);
+    insert("job_invoices", { ...invoice, id: "fixture-unrelated-invoice", contract_id: ids.contract, submission_id: ids.submission });
+  }
+  db.query("INSERT INTO events (contract_id, at, kind, text) VALUES (?, ?, ?, 'PRIVATE-unrelated-retained-event')")
+    .run(ids.contract, RESTORATION_NOW.toISOString(), eventKind);
+  return ids;
+}

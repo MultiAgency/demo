@@ -1,15 +1,19 @@
+import "./privacy";
 import { AbstractAgent, EventType, type BaseEvent, type RunAgentInput } from "@ag-ui/client";
 import { AgentRunner, ThreadAlreadyRunningError, type AgentRunnerConnectRequest, type AgentRunnerIsRunningRequest, type AgentRunnerRunRequest, type AgentRunnerStopRequest, type LocalThreadEndpointScope } from "@copilotkit/runtime/v2";
 import { Observable, Subject, type Subscription } from "rxjs";
 import type { ReviewContext } from "../../shared/review";
-import { HermesReviewError, reviewWithHermes, type HermesReviewConfig, type ReviewFetch } from "./hermes";
+import { HermesReviewError, reviewWithHermes, type ReviewFetch } from "./hermes";
+import { reviewWithNear, type NearReviewClientFactory } from "./near";
+import type { ReviewServiceConfig } from "./types";
 
 interface ReviewAgentOptions {
-  config: HermesReviewConfig;
+  config: ReviewServiceConfig;
   context: ReviewContext;
   signal: AbortSignal;
   assertFresh: () => Promise<void>;
   fetch?: ReviewFetch;
+  nearClient?: NearReviewClientFactory;
 }
 
 const PROGRESS = {
@@ -35,7 +39,10 @@ export class ReviewAgent extends AbstractAgent {
       observer.next({ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId });
       void (async () => {
         try {
-          for await (const progress of reviewWithHermes(this.options.config, this.options.context, controller.signal, this.options.fetch)) {
+          const progressStream = this.options.config.backend === "near"
+            ? reviewWithNear(this.options.config, this.options.context, controller.signal, this.options.nearClient)
+            : reviewWithHermes(this.options.config, this.options.context, controller.signal, this.options.fetch);
+          for await (const progress of progressStream) {
             if (observer.closed || controller.signal.aborted) return;
             if (progress.type === "status") {
               observer.next({ type: EventType.STATE_SNAPSHOT, snapshot: { progress: PROGRESS[progress.stage] } });
@@ -43,7 +50,8 @@ export class ReviewAgent extends AbstractAgent {
             }
             await this.options.assertFresh();
             if (observer.closed || controller.signal.aborted) return;
-            observer.next({ type: EventType.STATE_SNAPSHOT, snapshot: { progress: "Review ready", result: progress.review } });
+            observer.next({ type: EventType.STATE_SNAPSHOT, snapshot: { progress: "Review ready", result: progress.review,
+              ...(progress.verification && { verification: progress.verification }) } });
             const messageId = crypto.randomUUID();
             observer.next({ type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant" });
             observer.next({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: progress.review.summary });

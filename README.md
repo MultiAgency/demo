@@ -33,7 +33,7 @@ Tracks: Real-World Money, AI Security & Defense.
 
 ## Run it
 
-The optional **Review assistant** uses CopilotKit/AG-UI to prepare editable report feedback through Hermes and NEAR AI Cloud. Run `bun run demo:review` for the isolated scripted demonstration, or `bun run demo:review:check` for its browser check. Neither calls a hosted model or creates a payment. See [team-account setup and boundaries](docs/hermes-review.md).
+The optional **Review assistant** uses CopilotKit/AG-UI to prepare editable report feedback. Its direct NEAR backend uses the official Inference SDK with encrypted Chat Completions and verified model responses. Run `bun run demo:review` for the isolated scripted demonstration, or `bun run demo:review:check` for its browser check. Neither calls a hosted model or creates a payment. See [NEAR setup, verification and the synthetic check](docs/review.md); the [Hermes connection investigation](docs/hermes-review.md) is retained separately.
 
 Prerequisites: Bun 1.4+ (if `bun install` says "Unknown lockfile version", run `bun upgrade`).
 

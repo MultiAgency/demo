@@ -27,9 +27,20 @@ export interface ReviewContext {
 
 export type ReviewProgress =
   | { type: "status"; stage: "connecting" | "reviewing" | "validating" }
-  | { type: "complete"; review: ReviewResult };
+  | { type: "complete"; review: ReviewResult; verification?: ReviewVerification };
+
+/** Compact server observation; the browser does not receive credentials or raw attestation reports. */
+export interface ReviewVerification {
+  backend: "near";
+  model: string;
+  signature_kind: "provider_tee";
+  encrypted: true;
+  gateway_tls_bound: true;
+  record_sha256: string;
+}
 
 export interface ReviewState {
   progress: string;
   result?: ReviewResult;
+  verification?: ReviewVerification;
 }

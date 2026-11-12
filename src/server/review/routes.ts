@@ -1,3 +1,4 @@
+import "./privacy";
 import { CopilotRuntime, createCopilotRuntimeHandler } from "@copilotkit/runtime/v2";
 import type { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -9,6 +10,7 @@ import type { Config } from "../config";
 import { type Engine, UserError } from "../engine";
 import { EphemeralReviewRunner, ReviewAgent } from "./agent";
 import { HermesReviewError, type ReviewFetch } from "./hermes";
+import type { NearReviewClientFactory } from "./near";
 
 const opaqueId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const snapshotSchema = z.object({
@@ -24,6 +26,7 @@ interface ReviewDependencies {
   config: Config;
   asRepresentative: (session: SessionInfo | null, contractId: string) => void;
   fetch?: ReviewFetch;
+  nearClient?: NearReviewClientFactory;
 }
 
 export function reviewRoutes(app: Hono<{ Variables: { session: SessionInfo | null } }>, dependencies: ReviewDependencies): void {
@@ -43,7 +46,7 @@ export function reviewRoutes(app: Hono<{ Variables: { session: SessionInfo | nul
     const isStop = c.req.method === "POST" && /^\/agent\/review\/stop\/[A-Za-z0-9_-]{1,200}$/.test(tail);
     const isInfo = c.req.method === "GET" && tail === "/info";
     if (!isRun && !isConnect && !isStop && !isInfo) return c.json({ error: "Review endpoint not found." }, 404);
-    if (!config.review) return c.json({ error: "The Hermes review service is not configured." }, 503);
+    if (!config.review) return c.json({ error: "The review service is not configured." }, 503);
     if (c.req.method === "POST") {
       if (c.req.header("origin") && c.req.header("origin") !== config.auth.publicUrl || c.req.header("sec-fetch-site") === "cross-site")
         return c.json({ error: "This origin is not configured for Paperwork." }, 403);
@@ -79,7 +82,7 @@ export function reviewRoutes(app: Hono<{ Variables: { session: SessionInfo | nul
     const ownerId = sha256Hex(JSON.stringify([config.deployment, session?.accountId ?? engine.parties(contractId).representative, sid]));
     const fallbackContext: ReviewContext = { submission_id: sid, terms_hash: "", revision: 0, scope: [], report: "", evidence: [], invoice: { number: "", amount_usd: "0" } };
     const agent = new ReviewAgent({
-      config: config.review, context: context ?? fallbackContext, signal: request.signal, fetch: dependencies.fetch,
+      config: config.review, context: context ?? fallbackContext, signal: request.signal, fetch: dependencies.fetch, nearClient: dependencies.nearClient,
       assertFresh: async () => {
         if (!fingerprint) throw new HermesReviewError("Refresh this submission before reviewing.");
         try {
@@ -93,7 +96,7 @@ export function reviewRoutes(app: Hono<{ Variables: { session: SessionInfo | nul
       threads: { access: "owner" }, generativeUI: false, openGenerativeUI: false, exposeMemoryRoutes: false, debug: false,
       // Bun closes idle responses after 10s; inference can be silent for much longer.
       sseKeepAliveIntervalSeconds: 5,
-      // This workflow sends private records only to its configured Hermes service.
+      // No CopilotKit telemetry receives the submission or model output.
       ɵtelemetry: { capture: async () => {} },
     });
     const response = await createCopilotRuntimeHandler({ runtime, basePath, activateChannels: false })(request);

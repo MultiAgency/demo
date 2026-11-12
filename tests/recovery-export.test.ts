@@ -7,7 +7,8 @@ import { canonicalJson } from "../src/shared/canonical";
 import { evidenceDigest } from "../src/server/recovery/collect";
 import { exportRestorationBundle, RestorationExportError } from "../src/server/recovery/export";
 import { restoreCommitment } from "../src/server/recovery/restore";
-import { RESTORATION_NOW, restorationLedger, restorationRows, type RestorationFixture } from "./support/restoration-ledger";
+import { addRestorationConflictConstraint, RESTORATION_NOW, restorationEvidence, restorationLedger, restorationRows,
+  seedUnrelatedRestorationJob, type RestorationFixture } from "./support/restoration-ledger";
 
 const fixtures: RestorationFixture[] = [];
 const children = new Set<ReturnType<typeof Bun.spawn>>();
@@ -61,6 +62,27 @@ function rehash(f: Fixture, name: typeof payloads[number]) {
 }
 
 describe("private durable restoration bundles from signed disposable snapshots", () => {
+  test("a conflicting REPLACE event constraint refuses export before reserving a destination", async () => {
+    const f = await fixture();
+    const db = new Database(f.path, { strict: true });
+    try {
+      db.exec("UPDATE events SET kind = 'fixture_history_' || id");
+      seedUnrelatedRestorationJob(db, f);
+      addRestorationConflictConstraint(db, "events", "kind", "REPLACE");
+    } finally { db.close(true); }
+    const fresh = await restorationEvidence(f.path, f.ctx.id);
+    f.inspection = fresh.inspection; f.input = fresh.input;
+    writeFileSync(f.requestPath, `${canonicalJson(f.input)}\n`, { mode: 0o600 });
+    const rows = restorationRows(f.path);
+    expect(rows.events!.filter(row => row.kind === "recovery_correction")).toHaveLength(1);
+    refuse(f, { codes: ["export_failed"] });
+    expect(existsSync(f.target)).toBe(false);
+    expect(restorationRows(f.path)).toEqual(rows);
+    expect(restorationRows(f.path)).not.toHaveProperty("recovery_corrections");
+    expect(f.ctx.stub.calls.requestPayout).toBe(1);
+    expect(f.ctx.stub.transfers).toHaveLength(0);
+  });
+
   for (const version of [2, 3] as const) test(`v${version}: publishes matching snapshot, original request, receipt and completion manifest without changing inputs`, async () => {
     const f = await fixture(version), source = readFileSync(f.path), request = readFileSync(f.requestPath), before = readdirSync(f.directory).sort();
     const result = publish(f);
@@ -100,6 +122,22 @@ describe("private durable restoration bundles from signed disposable snapshots",
     const result = exportRestorationBundle(f.path, f.input, f.target, { now: () => new Date(RESTORATION_NOW.getTime() + 3_600_000) });
     expect(result).toMatchObject({ result: "already_exported", manifest: first.manifest, manifest_sha256: first.manifest_sha256 });
     expect(image(f.target)).toEqual(before);
+  });
+
+  test("a logically identical repacked bundle cannot bypass reproduction from the original source", async () => {
+    const f = await fixture(); publish(f);
+    const path = join(f.target, "snapshot.sqlite"), original = readFileSync(path);
+    const db = new Database(path, { strict: true });
+    try { db.exec("VACUUM"); } finally { db.close(true); }
+    const repacked = readFileSync(path);
+    expect(repacked).not.toEqual(original);
+    // The local audit still passes: only reproduction from the pinned original distinguishes these bytes.
+    const replay = restoreCommitment(path, f.input, { now });
+    expect(replay.receipt.result).toBe("already_applied");
+    expect(replay.snapshot_bytes).toEqual(repacked);
+    writeFileSync(join(f.target, "receipt.json"), `${canonicalJson({ ...replay.receipt, result: "applied" })}\n`);
+    rehash(f, "snapshot.sqlite"); rehash(f, "receipt.json");
+    refuse(f, { codes: ["invalid_bundle"] });
   });
 
   test("a payload removed after publication cannot be acknowledged as a successful export", async () => {

@@ -187,7 +187,8 @@ export function restoreCommitment(path: string, input: RestorationRequest, optio
     let loaded: ReturnType<typeof loadLedgerSnapshot>;
     try { loaded = loadLedgerSnapshot(path); } catch { throw new RestorationError("invalid_snapshot"); }
     db = Database.deserialize(loaded.bytes, { strict: true, safeIntegers: true });
-    db.exec("PRAGMA temp_store = MEMORY; PRAGMA trusted_schema = OFF;");
+    // This isolated transform must not cascade writes through an input schema's foreign keys.
+    db.exec("PRAGMA temp_store = MEMORY; PRAGMA trusted_schema = OFF; PRAGMA foreign_keys = OFF;");
     const hasAudit = checkSchema(db);
     const prior = hasAudit ? db.query("SELECT * FROM recovery_corrections WHERE correction_id = ?").get(request.correction_id) as Row | null : null;
     const clock = options.now?.() ?? new Date();
@@ -229,10 +230,11 @@ export function restoreCommitment(path: string, input: RestorationRequest, optio
       submission: row.submission ? { id: row.submission.id, state: "disputed" } : null };
     db.transaction(() => {
       if (!hasAudit) { db!.exec(AUDIT_SQL); for (const sql of Object.values(TRIGGERS)) db!.exec(sql); }
-      requireThat(db!.query("UPDATE payout_attempts SET resolution = 'disputed' WHERE request_id = ? AND state = 'failed' AND resolution = 'reowe'").run(request.request_id).changes === 1, "divergent_state");
-      requireThat(db!.query("UPDATE judgments SET outcome = 'disputed', closed_at = ? WHERE id = ? AND outcome = 'pending' AND closed_at IS NULL").run(appliedAt, row.judgment.id as string).changes === 1, "divergent_state");
-      if (row.submission) requireThat(db!.query("UPDATE job_submissions SET state = 'disputed' WHERE id = ? AND state = 'proposed' AND changes IS NULL").run(row.submission.id as string).changes === 1, "divergent_state");
-      const event = db!.query("INSERT INTO events (contract_id, at, kind, text) VALUES (?, ?, 'recovery_correction', ?)").run(row.contractId, appliedAt, canonicalJson({ correction_id: request.correction_id, operation: OPERATION }));
+      // Override schema-level REPLACE/IGNORE policies: a conflict must abort, never remove history or skip a write.
+      requireThat(db!.query("UPDATE OR ABORT payout_attempts SET resolution = 'disputed' WHERE request_id = ? AND state = 'failed' AND resolution = 'reowe'").run(request.request_id).changes === 1, "divergent_state");
+      requireThat(db!.query("UPDATE OR ABORT judgments SET outcome = 'disputed', closed_at = ? WHERE id = ? AND outcome = 'pending' AND closed_at IS NULL").run(appliedAt, row.judgment.id as string).changes === 1, "divergent_state");
+      if (row.submission) requireThat(db!.query("UPDATE OR ABORT job_submissions SET state = 'disputed' WHERE id = ? AND state = 'proposed' AND changes IS NULL").run(row.submission.id as string).changes === 1, "divergent_state");
+      const event = db!.query("INSERT OR ABORT INTO events (contract_id, at, kind, text) VALUES (?, ?, 'recovery_correction', ?)").run(row.contractId, appliedAt, canonicalJson({ correction_id: request.correction_id, operation: OPERATION }));
       const next = db!.query("SELECT COALESCE(MAX(rowid), 0) + 1 AS next FROM recovery_corrections").get() as { next: bigint };
       requireThat(typeof next.next === "bigint" && next.next > 0n && next.next < 9_223_372_036_854_775_807n, "unsupported_schema");
       const audit: Row = { rowid: next.next, correction_id: request.correction_id, operation: OPERATION, contract_id: row.contractId, request_id: request.request_id,
@@ -240,7 +242,7 @@ export function restoreCommitment(path: string, input: RestorationRequest, optio
         binding_sha256: hashCanonical(request.binding), collection_sha256: request.collection_sha256, inputs_json: inputsJson, before_json: canonicalJson(before), after_json: canonicalJson(after),
         post_state_sha256: null, applied_at: appliedAt, event_id: BigInt(event.lastInsertRowid) };
       audit.post_state_sha256 = stateDigest(db!, request.correction_id, audit);
-      db!.query(`INSERT INTO recovery_corrections (${Object.keys(audit).map(quote).join(",")}) VALUES (${Object.keys(audit).map(() => "?").join(",")})`)
+      db!.query(`INSERT OR ABORT INTO recovery_corrections (${Object.keys(audit).map(quote).join(",")}) VALUES (${Object.keys(audit).map(() => "?").join(",")})`)
         .run(...Object.values(audit) as (string | bigint | null)[]);
       checkSchema(db!);
       requireThat(stateDigest(db!, request.correction_id) === audit.post_state_sha256, "divergent_state");

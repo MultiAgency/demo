@@ -17,6 +17,7 @@ import { marketRoutes } from "./market/routes";
 import { makePlatform } from "./platform/index";
 import { reviewRoutes } from "./review/routes";
 import type { ReviewFetch } from "./review/hermes";
+import type { NearReviewClientFactory } from "./review/near";
 import type { PlatformKit } from "./platform/port";
 
 /** Accounts the keyless demo signs for. Clearly fake names so nobody mistakes them for real accounts. */
@@ -54,10 +55,13 @@ export interface Runtime {
   openings: MultiAgencyOpenings;
   /** Offline Hermes transport injection for focused integration checks. */
   reviewFetch?: ReviewFetch;
+  /** Internal offline SDK injection; no browser/configuration path can replace verification. */
+  reviewNearClient?: NearReviewClientFactory;
 }
 
 export interface RuntimeOptions {
   reviewFetch?: ReviewFetch;
+  reviewNearClient?: NearReviewClientFactory;
   /** Offline transport injection for public-board checks; never falls back to a browser's Market session. */
   boardApi?: MarketApi | null;
   /** Public-source fixture injection; no existing app data or credentials are imported. */
@@ -126,7 +130,7 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
   const boardApi = opts.boardApi !== undefined ? opts.boardApi
     : boardToken ? new MarketApi(kit.market?.url ?? config.market.url ?? "https://market.near.ai", boardToken) : null;
   const openings = opts.openings ?? new MultiAgencyOpenings();
-  const rt = { engine, auth, kit, clock, config, evidence, market, boardApi, openings, reviewFetch: opts.reviewFetch };
+  const rt = { engine, auth, kit, clock, config, evidence, market, boardApi, openings, reviewFetch: opts.reviewFetch, reviewNearClient: opts.reviewNearClient };
   return { ...rt, app: buildApp(rt) };
 }
 
@@ -314,7 +318,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   });
 
   // ---------- immutable reports and invoices; only v3 signed terms opt into this workflow
-  reviewRoutes(app, { engine, config, asRepresentative, fetch: rt.reviewFetch });
+  reviewRoutes(app, { engine, config, asRepresentative, fetch: rt.reviewFetch, nearClient: rt.reviewNearClient });
   app.get("/contracts/:id/submissions", (c) => {
     const id = c.req.param("id");
     asParty(c.get("session"), id);

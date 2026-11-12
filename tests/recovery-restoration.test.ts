@@ -11,8 +11,8 @@ import { restoreCommitment, RestorationError } from "../src/server/recovery/rest
 import { isCommitted, isOpen, isPaid } from "../src/server/payouts";
 import { START } from "./support/harness";
 import {
-  changeRestorationEvidence, closeRestorationRuntime, RESTORATION_NOW, restorationDb, restorationEvidence,
-  restorationLedger, restorationRows, type RestorationFixture,
+  addRestorationConflictConstraint, changeRestorationEvidence, closeRestorationRuntime, RESTORATION_NOW, restorationDb, restorationEvidence,
+  restorationLedger, restorationRows, seedUnrelatedRestorationJob, type RestorationFixture,
 } from "./support/restoration-ledger";
 
 const fixtures: RestorationFixture[] = [], runtimes = new Set<Runtime>();
@@ -33,9 +33,10 @@ function output(f: RestorationFixture, bytes: Uint8Array, name = "corrected.sqli
 }
 function refusal(f: RestorationFixture, input: Input = f.input, codes?: string[]) {
   const bytes = readFileSync(f.path), files = readdirSync(f.directory).sort(), rows = restorationRows(f.path);
-  let failure: unknown;
-  try { apply(f, input); } catch (error) { failure = error; }
+  let failure: unknown, result: unknown;
+  try { result = apply(f, input); } catch (error) { failure = error; }
   expect(failure).toBeInstanceOf(RestorationError);
+  expect(result).toBeUndefined();
   if (codes) expect(codes).toContain((failure as RestorationError).code);
   expect(readFileSync(f.path)).toEqual(bytes);
   expect(readdirSync(f.directory).sort()).toEqual(files);
@@ -45,7 +46,7 @@ function refusal(f: RestorationFixture, input: Input = f.input, codes?: string[]
 async function mutate(f: RestorationFixture, change: (db: Database) => void) {
   const db = new Database(f.path, { strict: true });
   try { change(db); } finally { db.close(true); }
-  const fresh = await restorationEvidence(f.path);
+  const fresh = await restorationEvidence(f.path, f.ctx.id);
   f.inspection = fresh.inspection; f.input = fresh.input;
 }
 function insertRow(db: Database, table: "payout_attempts" | "judgments" | "contracts", row: Record<string, unknown>) {
@@ -60,6 +61,61 @@ async function reopen(f: RestorationFixture, path: string) {
 }
 
 describe("restoration-only correction on signed disposable app ledgers", () => {
+  for (const { table, column, policy } of [
+    { table: "events", column: "kind", policy: "REPLACE" },
+    { table: "events", column: "kind", policy: "IGNORE" },
+    { table: "payout_attempts", column: "resolution", policy: "REPLACE" },
+    { table: "judgments", column: "outcome", policy: "REPLACE" },
+    { table: "job_submissions", column: "state", policy: "REPLACE" },
+  ] as const) test(`${table} ${policy} cannot delete or skip unrelated history during a correction`, async () => {
+    const f = await fixture();
+    await mutate(f, db => {
+      // Make this synthetic event constraint independent of repeated ordinary workflow event kinds.
+      if (table === "events") db.exec("UPDATE events SET kind = 'fixture_history_' || id");
+      seedUnrelatedRestorationJob(db, f);
+      addRestorationConflictConstraint(db, table, column, policy);
+    });
+    const before = restorationRows(f.path);
+    expect(before.contracts).toHaveLength(2);
+    expect(before.payout_attempts!.filter(row => row.contract_id === f.ctx.id)).toHaveLength(1);
+    expect(before.judgments!.filter(row => row.contract_id === f.ctx.id)).toHaveLength(1);
+    expect(before.job_submissions!.filter(row => row.contract_id === f.ctx.id)).toHaveLength(1);
+    expect(f.inspection.findings.filter(row => row.code === "invalid_record")).toEqual([]);
+    refusal(f, f.input, ["unsupported_case"]);
+    expect(restorationRows(f.path)).not.toHaveProperty("recovery_corrections");
+    expect(f.ctx.stub.calls.requestPayout).toBe(1);
+    expect(f.ctx.stub.transfers).toHaveLength(0);
+  });
+
+  for (const version of [2, 3] as const) test(`v${version}: a nonconflicting REPLACE event constraint preserves unrelated rows and exact replay`, async () => {
+    const f = await fixture(version);
+    await mutate(f, db => {
+      db.exec("UPDATE events SET kind = 'fixture_history_' || id");
+      seedUnrelatedRestorationJob(db, f, "fixture_unrelated_history");
+      addRestorationConflictConstraint(db, "events", "kind", "REPLACE");
+    });
+    const beforeBytes = readFileSync(f.path), beforeFiles = readdirSync(f.directory).sort(), before = restorationRows(f.path);
+    const result = apply(f);
+    expect(readFileSync(f.path)).toEqual(beforeBytes);
+    expect(readdirSync(f.directory).sort()).toEqual(beforeFiles);
+    const path = output(f, result.snapshot_bytes), after = restorationRows(path);
+    expect(after.payout_attempts).toEqual(before.payout_attempts!.map(row => row.request_id === f.requestId ? { ...row, resolution: "disputed" } : row));
+    expect(after.judgments).toEqual(before.judgments!.map(row => row.id === f.judgmentId ? { ...row, outcome: "disputed", closed_at: RESTORATION_NOW.toISOString() } : row));
+    expect(after.job_submissions).toEqual(before.job_submissions!.map(row => row.id === f.submissionId ? { ...row, state: "disputed" } : row));
+    for (const table of Object.keys(before).filter(name => !["payout_attempts", "judgments", "job_submissions", "events"].includes(name)))
+      expect(after[table]).toEqual(before[table]);
+    expect(after.events!.slice(0, before.events!.length)).toEqual(before.events!);
+    expect(after.events).toHaveLength(before.events!.length + 1);
+    expect(after.events!.filter(row => row.kind === "recovery_correction")).toHaveLength(1);
+    expect(after.recovery_corrections).toHaveLength(1);
+    const replay = restoreCommitment(path, f.input, { now: () => new Date(RESTORATION_NOW.getTime() + 3_600_000) });
+    expect(replay.receipt).toMatchObject({ result: "already_applied", clearance: "none" });
+    expect(replay.snapshot_bytes).toEqual(result.snapshot_bytes);
+    expect(readFileSync(path)).toEqual(Buffer.from(result.snapshot_bytes));
+    expect(f.ctx.stub.calls.requestPayout).toBe(1);
+    expect(f.ctx.stub.transfers).toHaveLength(0);
+  });
+
   for (const version of [2, 3] as const) {
     test(`v${version}: original commitment and dispute are restored atomically without altering the source or fabricating evidence`, async () => {
       const f = await fixture(version), beforeBytes = readFileSync(f.path), before = restorationRows(f.path), sourceFiles = readdirSync(f.directory).sort();

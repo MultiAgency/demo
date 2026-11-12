@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { DEFAULT_REVIEW_MODEL, NEAR_AI_BASE_URL, type ReviewServiceConfig } from "./review/types";
 
 export interface Config {
   platform: "fake" | "remote";
@@ -20,8 +21,8 @@ export interface Config {
   githubToken: string | null;
   /** The agent's judge. NEAR AI Cloud when NEARAI_API_KEY is set, otherwise rule-based. */
   judge: { kind: "rules" | "near-ai"; apiKey: string | null; model: string; baseUrl: string; assessmentTimeoutMs: number };
-  /** Dedicated review profile under the Hermes team account. Never sent to the browser. */
-  review: { url: string; apiKey: string; model: string; provider: string; timeoutMs: number } | null;
+  /** Opt-in review service. Its credential is separate from the compensation judge and never sent to the browser. */
+  review: ReviewServiceConfig | null;
   /** Check for new merges on a timer (ms). 0 = only when "Run agent" is pressed. */
   pollMs: number;
   /** Sign in with NEAR (Better-Auth + better-near-auth). */
@@ -71,13 +72,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       baseUrl: env.NEARAI_BASE_URL || "https://cloud-api.near.ai/v1",
       assessmentTimeoutMs: Number(env.PAPERWORK_ASSESSMENT_TIMEOUT_MS ?? 30_000),
     },
-    review: env.PAPERWORK_HERMES_URL && env.PAPERWORK_HERMES_API_KEY ? {
-      url: reviewEndpoint(env.PAPERWORK_HERMES_URL),
-      apiKey: env.PAPERWORK_HERMES_API_KEY,
-      model: env.PAPERWORK_HERMES_MODEL || env.NEARAI_MODEL || "z-ai/glm-5.3-flash",
-      provider: env.PAPERWORK_HERMES_PROVIDER || "custom:near",
-      timeoutMs: Number(env.PAPERWORK_REVIEW_TIMEOUT_MS ?? 90_000),
-    } : null,
+    review: reviewService(env),
     pollMs: env.AGENT_POLL_MS ? Number(env.AGENT_POLL_MS) : 0,
     auth: {
       secret: env.BETTER_AUTH_SECRET || null,
@@ -90,16 +85,14 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
 
   cfg.auth.publicUrl = publicOrigin(cfg.auth.publicUrl, "PUBLIC_URL");
-  if (!!env.PAPERWORK_HERMES_URL !== !!env.PAPERWORK_HERMES_API_KEY)
-    throw new Error("Set PAPERWORK_HERMES_URL and PAPERWORK_HERMES_API_KEY together.");
   if (cfg.review) {
     const url = new URL(cfg.review.url);
-    if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    if (cfg.review.backend !== "near" && url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
       throw new Error("PAPERWORK_HERMES_URL requires HTTPS except on loopback.");
     if (!Number.isSafeInteger(cfg.review.timeoutMs) || cfg.review.timeoutMs < 1000 || cfg.review.timeoutMs > 300_000)
       throw new Error("PAPERWORK_REVIEW_TIMEOUT_MS must be an integer between 1000 and 300000.");
-    if (cfg.review.apiKey.trim().length < 16 || /[\r\n]/.test(cfg.review.apiKey))
-      throw new Error("PAPERWORK_HERMES_API_KEY must be a valid server credential of at least 16 characters.");
+    if (cfg.review.apiKey.length < 16 || cfg.review.apiKey.length > 4096 || /[\s\x00-\x1f\x7f]/.test(cfg.review.apiKey))
+      throw new Error("The review API key must be a valid server credential of 16 to 4096 characters without whitespace.");
   }
 
   const workerVars = [env.MARKET_AGENT_TOKEN, env.MARKET_WEBHOOK_SECRET, env.MARKET_WORKER_AGENCY];
@@ -126,6 +119,35 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!Number.isFinite(cfg.consentGraceDays) || cfg.consentGraceDays < 0) throw new Error("CONSENT_GRACE_DAYS must be a number of days");
   if (!Number.isFinite(cfg.statusPollMs) || cfg.statusPollMs <= 0) throw new Error("STATUS_POLL_MS must be a positive number of ms");
   return cfg;
+}
+
+/** An explicit backend wins during migration; missing or ambiguous settings never fall back silently. */
+function reviewService(env: Record<string, string | undefined>): ReviewServiceConfig | null {
+  const selected = env.PAPERWORK_REVIEW_BACKEND;
+  if (selected && selected !== "near" && selected !== "hermes")
+    throw new Error("PAPERWORK_REVIEW_BACKEND must be near or hermes.");
+  const nearKey = env.PAPERWORK_REVIEW_NEARAI_API_KEY;
+  const hermes = !!env.PAPERWORK_HERMES_URL || !!env.PAPERWORK_HERMES_API_KEY;
+  if (!selected && nearKey && hermes)
+    throw new Error("Select PAPERWORK_REVIEW_BACKEND when both NEAR and Hermes review settings are present.");
+  if (selected === "near" || !selected && nearKey) {
+    if (!nearKey) throw new Error("The near review backend requires PAPERWORK_REVIEW_NEARAI_API_KEY.");
+    const model = env.PAPERWORK_REVIEW_MODEL || DEFAULT_REVIEW_MODEL;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,199}$/.test(model) || model.includes("://"))
+      throw new Error("PAPERWORK_REVIEW_MODEL must be a canonical model ID.");
+    return { backend: "near", url: NEAR_AI_BASE_URL, apiKey: nearKey, model, provider: "near",
+      timeoutMs: Number(env.PAPERWORK_REVIEW_TIMEOUT_MS ?? 120_000) };
+  }
+  if (selected === "hermes" && nearKey)
+    throw new Error("Remove PAPERWORK_REVIEW_NEARAI_API_KEY when selecting the Hermes backend.");
+  if (!!env.PAPERWORK_HERMES_URL !== !!env.PAPERWORK_HERMES_API_KEY || selected === "hermes" && !hermes)
+    throw new Error("Set PAPERWORK_HERMES_URL and PAPERWORK_HERMES_API_KEY together.");
+  return env.PAPERWORK_HERMES_URL && env.PAPERWORK_HERMES_API_KEY ? {
+    url: reviewEndpoint(env.PAPERWORK_HERMES_URL), apiKey: env.PAPERWORK_HERMES_API_KEY,
+    model: env.PAPERWORK_HERMES_MODEL || env.NEARAI_MODEL || DEFAULT_REVIEW_MODEL,
+    provider: env.PAPERWORK_HERMES_PROVIDER || "custom:near",
+    timeoutMs: Number(env.PAPERWORK_REVIEW_TIMEOUT_MS ?? 90_000),
+  } : null;
 }
 
 /** Only explicit origins become sign-in hosts; never accept paths, credentials or wildcard subdomains. */
