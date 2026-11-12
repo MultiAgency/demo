@@ -10,7 +10,7 @@ The primary users are the representative who offers and approves work and the bu
 
 **Next priority:** payment and historical recovery first; public verification and complete browser walkthroughs follow.
 
-**Failed-payment policy:** new and existing v2/v3 jobs require positive platform evidence of non-execution, without contradictory payment/refund evidence, before a failed payout can release budget for another payment. Runtime and startup guards enforce this rule. Unsafe historical releases block database startup; their records must be preserved and reconciled. Read-only inspection, evidence collection and an advisory preview are available; audited correction/resumption remain pending.
+**Failed-payment policy:** new and existing v2/v3 jobs require positive platform evidence of non-execution, without contradictory payment/refund evidence, before a failed payout can release budget for another payment. Runtime and startup guards enforce this rule. Unsafe historical releases block database startup; their records must be preserved and reconciled. Inspection, evidence collection, advisory preview and an in-memory audited restoration prototype are available; operational import and supervised resumption remain pending.
 
 **Privacy policy:** full details of new and existing v2 jobs are private to the named representative/builder. Limited public verification exposes the terms hash and verification status, not identity/financial details. The [access contract](docs/recovery-acceptance.md#v2-privacy--approved) defines the projections and role boundaries. Implementation remains pending.
 

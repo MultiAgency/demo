@@ -166,6 +166,11 @@ function hashDescriptor(fd: number, size: number): string {
 
 /** Inspect only an operator-prepared snapshot. No application runtime, migrations or external calls. */
 export function inspectLedger(path: string): LedgerInspection {
+  return loadLedgerSnapshot(path).inspection;
+}
+
+/** Securely load one immutable snapshot. Raw bytes are operator-private database contents: never report or log them. */
+export function loadLedgerSnapshot(path: string): { inspection: LedgerInspection; bytes: Uint8Array } {
   let fd: number | undefined;
   let db: Database | undefined;
   try {
@@ -195,7 +200,7 @@ export function inspectLedger(path: string): LedgerInspection {
     assertNoSidecars(path);
     if (!sameFile(before, fstatSync(fd)) || !sameFile(before, lstatSync(path)) || hashDescriptor(fd, before.size) !== sha256)
       throw new LedgerInspectionError("snapshot_changed", "The source snapshot changed during inspection; no inventory was produced.");
-    return { ...report, snapshot: { sha256, bytes: before.size } };
+    return { inspection: { ...report, snapshot: { sha256, bytes: before.size } }, bytes };
   } catch (error) {
     if (error instanceof LedgerInspectionError) throw error;
     if ((error as { code?: string }).code === "ENOENT")

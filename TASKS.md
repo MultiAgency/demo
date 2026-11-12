@@ -15,11 +15,12 @@ Selected 2026-11-11 for the local milestone covering both Report and invoice and
 - [x] Correct preview reporting: refunded success claims are excluded from the matched status-report subtotal and remain visible; valid SDK refunds/unknown statuses retain commitment. Verified pure preview and installed-SDK/CLI regressions, including related attempts and normal successful transaction evidence.
 - [x] Verify one collector journey against an isolated SDK stack: original request/correlation retained, all four read procedures complete, snapshot/source unchanged, provider payment count unchanged and owned processes stopped. [Receipt and limits](docs/recovery-acceptance.md#sdk-collector-integration-checkpoint).
 - [x] Define one restoration-only correction contract with explicit before/after accounting, evidence/verification limits and refusal cases. [First correction contract](docs/recovery-acceptance.md#first-correction-contract-restore-one-commitment).
-- [ ] Implement that reviewed correction transaction against disposable fixtures; preserve prior records/evidence and test interruption, repetition and stale/conflicting observations.
+- [x] Implement that reviewed correction transaction in memory against disposable fixtures; preserve prior records/evidence and test refusal without source mutation, exact replay and stale/conflicting observations.
+- [ ] Define and implement the operational persistence/handoff procedure, including filesystem durability, process interruption and recovery from a lost returned result. The in-memory prototype has no import CLI or external idempotency registry.
 - [ ] Verify whole-database compatibility and supervised local resumption, including unrelated startup blockers; a one-job correction cannot clear the shared database by itself.
 - [ ] Complete the acceptance matrix, including missing v2 browser, clean SDK happy-path and independent process-restart branches.
 
-The proof/startup guard and read-only collector/preview are implemented. Payment/recovery work remains open until audited historical correction/resumption and the remaining acceptance branches are implemented and verified. Existing Hermes work remains recorded below.
+The proof/startup guard, read-only collector/preview and in-memory restoration are implemented. Payment/recovery work remains open until operational historical correction/resumption and the remaining acceptance branches are implemented and verified. Existing Hermes work remains recorded below.
 
 ## Hermes report-review assistant
 
