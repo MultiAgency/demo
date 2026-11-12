@@ -24,7 +24,9 @@ export async function createAuth(o: AuthOptions) {
     secret: o.secret,
     baseURL: o.baseURL,
     basePath: "/api/auth",
-    trustedOrigins: o.trustedOrigins,
+    trustedOrigins: o.trustedOrigins ?? [new URL(o.baseURL).origin],
+    // Keep origin checks active in fixtures too; never derive an auth origin from untrusted proxy headers.
+    advanced: { disableOriginCheck: false, trustedProxyHeaders: false },
     plugins: [siwn({ recipient: o.recipient, requireFullAccessKey: true })],
   };
   const { runMigrations } = await getMigrations(options);
@@ -47,8 +49,8 @@ export interface SessionInfo {
 }
 
 /** Read the session from request headers. Null when nobody is signed in. */
-export async function sessionFrom(auth: Auth, headers: Headers): Promise<SessionInfo | null> {
-  const s = await auth.api.getSession({ headers });
+export async function sessionFrom(auth: Auth, headers: Headers, request?: Request): Promise<SessionInfo | null> {
+  const s = await auth.api.getSession({ headers, request, asResponse: false });
   if (!s) return null;
   const accountId = auth.nearAccountFor(s.user.id);
   return accountId ? { userId: s.user.id, accountId } : null;

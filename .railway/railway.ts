@@ -30,6 +30,7 @@ export default defineRailway(() => {
       GITHUB_TOKEN: preserve(),
       NEARAI_API_KEY: preserve(),
       MARKET_URL: preserve(),
+      PAPERWORK_MARKET_BOARD_TOKEN: preserve(),
       MARKET_AGENT_TOKEN: preserve(),
       MARKET_WEBHOOK_SECRET: preserve(),
       MARKET_WORKER_AGENCY: preserve(),

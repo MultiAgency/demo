@@ -1,5 +1,7 @@
 # How Paperwork works
 
+> **Current clarification — 2026-11-11:** This chapter records the original Pay on merge workflow; use the [builder job guide](job-demo.md) and [Desk guide](jobs-portal.md) for current report-and-invoice jobs. New jobs sign exactly `Paperwork terms sha256:<hash>` with recipient `multiagency-paperwork`; existing rows retain their original signing bytes and recipient. A rejection or missing transaction hash alone does not prove non-execution: an uncertain payout stays committed until the platform supplies positive non-execution evidence. The historical descriptions below do not override those guards.
+
 ## The idea
 
 A company and a contractor sign a scope of deliverables, each with a value. Paperwork turns the signed scope into a MultiAgency platform agent made for that job, funded with the total. Every merged PR is judged against the scope; Paperwork requests what the work completed; the platform holds the payout until the company approves it, and refuses anything outside the job's policy.

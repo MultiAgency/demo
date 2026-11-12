@@ -2,10 +2,11 @@
  * True Paperwork process restart on an independent, isolated SDK gateway.
  * Default fault: the local proxy suppresses the completed proposal's app HTTP response.
  * PAPERWORK_RESTART_DROP_WITHDRAW=1 additionally uses the existing stack's provider-response-loss control.
+ * PAPERWORK_RESTART_COLLECT=1 also checks the read-only collector after stopping the synthetic app.
  * PLATFORM_STACK_DIR=<fresh loopback stack directory> bun scripts/demo-job-restart.ts
  */
 import { Database } from "bun:sqlite";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { JOB_DEMO_TERMS } from "../src/shared/demo";
@@ -16,10 +17,13 @@ import type { JobSubmissionInput, JobSubmissionView } from "../src/shared/jobs";
 import { readStack, StackControls } from "../src/server/platform/stack";
 
 const root = resolve(import.meta.dir, "..");
+const collect = process.env.PAPERWORK_RESTART_COLLECT === "1";
+const dropWithdrawResponse = process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1";
+if (collect && (dropWithdrawResponse || process.argv.some(value => value === "--full" || value === "--full-check")))
+  throw new Error("Collector proof cannot be combined with full-demo or provider-response-drop modes.");
 const stackDir = process.env.PLATFORM_STACK_DIR;
 if (!stackDir) throw new Error("Set PLATFORM_STACK_DIR to a fresh isolated platform stack holding state.json.");
 const stack = readStack(stackDir);
-const dropWithdrawResponse = process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1";
 for (const value of [stack.url, stack.rpcUrl]) {
   const host = new URL(value).hostname;
   if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) throw new Error("This proof only supports an isolated loopback stack.");
@@ -102,7 +106,7 @@ function check(condition: unknown, message: string): asserts condition {
 }
 async function startApp(generation: number): Promise<ChildApp> {
   const logPath = join(artifactDir, `app-${generation}.log`);
-  const child = Bun.spawn([process.execPath, "src/server/index.ts"], {
+  const child = Bun.spawn([process.execPath, "--no-env-file", "src/server/index.ts"], {
     cwd: appSnapshot,
     env: {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -203,6 +207,7 @@ const receipt: Record<string, unknown> = {
   scope: "True app process kill/restart with durable SQLite and independent SDK gateway; simulated provider/chain/signatures/settlement only",
   fault_boundary: dropWithdrawResponse ? "Provider accepts withdrawal and its response is dropped by existing stack control; app HTTP proposal response also suppressed" : "Completed proposal app HTTP response suppressed by local proxy; not a lost gateway/provider response",
   provider_response_drop: dropWithdrawResponse,
+  ...(collect && { collector_requested: true }),
   started_at: new Date().toISOString(), sdk: sdkVersion, bun: Bun.version, platform_node: nodeVersion,
   app_source_sha256: sourceBefore.sha256,
   dependencies_sha256: dependenciesCopied.sha256,
@@ -211,6 +216,108 @@ const receipt: Record<string, unknown> = {
   platform_snapshot: existsSync(platformSnapshotFile) ? JSON.parse(readFileSync(platformSnapshotFile, "utf8")) : null,
   platform_provenance_scope: existsSync(platformSnapshotFile) ? "Pinned platform snapshot and E2E manifest" : "Caller-owned standalone E2E manifest; no release snapshot supplied",
 };
+
+/** This probe reads only its stopped synthetic app's copy and the launcher's still-running simulated gateway. */
+async function collectProof(expected: { job: string; termsHash: string; requestId: string; correlationId: string | null; judgmentId: string | null }, providerBefore: StackState) {
+  const startedAt = new Date().toISOString();
+  check(!active && processes.every(app => app.termination && !app.termination.wait_timed_out), "Collector proof requires every owned app process to have stopped.");
+  const directory = join(artifactDir, "collector");
+  mkdirSync(directory, { mode: 0o700 });
+  const ledgerFiles = () => ["", "-wal", "-shm", "-journal"].flatMap(suffix => {
+    const path = `${databasePath}${suffix}`;
+    if (!existsSync(path)) return [];
+    const stat = lstatSync(path);
+    check(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 * 1024 * 1024, "Stopped fixture ledger files must be bounded regular files.");
+    return [{ suffix, bytes: stat.size, sha256: hash(readFileSync(path)) }];
+  });
+  const sourceFiles = ledgerFiles(), sourceDigest = hash(JSON.stringify(sourceFiles));
+  check(sourceFiles.some(file => file.suffix === "") && !sourceFiles.some(file => file.suffix === "-journal"), "Collector proof needs the stopped fixture's main database without a rollback journal.");
+  const backupDirectory = join(directory, "backup");
+  mkdirSync(backupDirectory, { mode: 0o700 });
+  const backupPath = join(backupDirectory, "paperwork.sqlite"), snapshotPath = join(directory, "snapshot.sqlite");
+  cpSync(databasePath, backupPath);
+  if (sourceFiles.some(file => file.suffix === "-wal")) cpSync(`${databasePath}-wal`, `${backupPath}-wal`);
+  check(hash(JSON.stringify(ledgerFiles())) === sourceDigest, "Stopped source ledger changed during copying; collector was not started.");
+  // Reconstruct shared memory and checkpoint only this disposable copy. Never open or checkpoint the source ledger.
+  const snapshot = new Database(backupPath, { strict: true });
+  try {
+    const checkpoint = snapshot.query("PRAGMA wal_checkpoint(TRUNCATE)").get() as { busy: number };
+    check(checkpoint.busy === 0, "Disposable snapshot checkpoint did not finish.");
+    const journal = snapshot.query("PRAGMA journal_mode = DELETE").get() as { journal_mode: string };
+    check(journal.journal_mode === "delete", "Disposable snapshot did not reach standalone journal format.");
+  } finally { snapshot.close(true); }
+  // Bun may retain an orphan SHM file after leaving WAL mode. Keep it with the backup, never remove source sidecars.
+  cpSync(backupPath, snapshotPath);
+  check(["-wal", "-shm", "-journal"].every(suffix => !existsSync(`${snapshotPath}${suffix}`)), "Disposable snapshot still has sidecars.");
+  check(hash(JSON.stringify(ledgerFiles())) === sourceDigest, "Snapshot preparation changed the stopped source ledger.");
+
+  // Execute the same verified source copy as both app generations, never late-import the changing checkout.
+  const [inspector, collector, adapter, reviewer, transport] = await Promise.all([
+    import(join(appSnapshot, "src/server/recovery/inspect.ts")) as Promise<typeof import("../src/server/recovery/inspect")>,
+    import(join(appSnapshot, "src/server/recovery/collect.ts")) as Promise<typeof import("../src/server/recovery/collect")>,
+    import(join(appSnapshot, "src/server/recovery/sdk-reader.ts")) as Promise<typeof import("../src/server/recovery/sdk-reader")>,
+    import(join(appSnapshot, "src/server/recovery/preview.ts")) as Promise<typeof import("../src/server/recovery/preview")>,
+    import(join(appSnapshot, "src/server/platform/client.ts")) as Promise<typeof import("../src/server/platform/client")>,
+  ]);
+  const inspection = inspector.inspectLedger(snapshotPath), job = inspection.jobs.find(row => row.id === expected.job);
+  const attempt = inspection.attempts[0];
+  check(inspection.jobs.length === 1 && job?.terms_hash === expected.termsHash && inspection.attempts.length === 1 && attempt?.kind === "payout" &&
+    attempt.request_id === expected.requestId && attempt.payout_correlation_id === expected.correlationId && attempt.judgment_id === expected.judgmentId && attempt.state === "paid",
+    "Standalone snapshot did not retain the original job and settled payment identities.");
+  const identity = { platform_origin: new URL(stack.url).origin, deployment: stack.deployment, contract_id: expected.job,
+    terms_hash: expected.termsHash, organization: job.organization, agent: job.agent?.name, agent_id: job.agent?.id };
+  const modules = ["src/server/recovery/inspect.ts", "src/server/recovery/evidence.ts", "src/server/recovery/collect.ts", "src/server/recovery/sdk-reader.ts",
+    "src/server/recovery/preview.ts", "src/server/platform/client.ts", "node_modules/@multiagency/sdk/package.json", "node_modules/@multiagency/sdk/dist/contract/index.js"]
+    .map(path => ({ path, sha256: hash(readFileSync(join(appSnapshot, path))) }));
+  const provenance = { schema_version: 1, simulated_only: true, scope: "Standalone snapshot and SDK read transport only; no historical repair or resumption.",
+    app_source_sha256: sourceBefore.sha256, dependencies_sha256: dependenciesCopied.sha256, sdk: sdkVersion, bun: Bun.version, platform_node: nodeVersion,
+    platform_manifest_sha256: hash(JSON.stringify(receipt.platform_manifest)), platform_snapshot_sha256: hash(JSON.stringify(receipt.platform_snapshot)),
+    stopped_source_files: sourceFiles, stopped_source_sha256: sourceDigest, snapshot: inspection.snapshot, original_binding: identity, executed_modules: modules };
+  const provenanceText = `${JSON.stringify(provenance, null, 2)}\n`;
+  const binding = collector.parseRecoveryBinding(inspection, { schema_version: 1, snapshot_sha256: inspection.snapshot.sha256, provenance_sha256: hash(provenanceText), ...identity });
+  const calls: string[] = [], send = transport.caFetch(stack.caPem);
+  const prefix = `/apps/v1/o/${encodeURIComponent(binding.organization)}/a/${encodeURIComponent(binding.agent)}/rpc/`;
+  const observedFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input)), procedure = url.pathname.slice(prefix.length);
+    check(url.origin === binding.platform_origin && url.pathname.startsWith(prefix) && !url.search && !url.hash && init?.method === "POST" &&
+      ["payouts/status", "paymentStatus", "owner/status", "held"].includes(procedure), "Collector transport attempted a request outside the four bound read procedures.");
+    calls.push(procedure);
+    return send(input, init);
+  }) as typeof fetch;
+  const reader = adapter.createRecoveryReader({ origin: binding.platform_origin, deployment: binding.deployment, credential: stack.credential, fetch: observedFetch });
+  check(reader.sdk_version === sdkVersion, "Collector SDK version differs from the verified dependency snapshot.");
+  const collection = await collector.collectRecoveryEvidence(inspection, binding, reader);
+  const preview = reviewer.previewRecovery(inspection, collection), after = inspector.inspectLedger(snapshotPath);
+  check(after.snapshot.sha256 === inspection.snapshot.sha256 && after.snapshot.bytes === inspection.snapshot.bytes &&
+    hash(JSON.stringify(ledgerFiles())) === sourceDigest && manifest(appSnapshot).sha256 === sourceBefore.sha256, "Collector changed its source ledger, standalone snapshot or verified app source.");
+  await pause(300);
+  const providerAfter = JSON.parse(readFileSync(stack.stateFile, "utf8")) as StackState;
+  const transfers = (state: StackState) => state.transfers.map(({ agent, correlation, status, recipient, amount }) => ({ agent, correlation, status, recipient, amount }));
+  check(JSON.stringify(transfers(providerAfter)) === JSON.stringify(transfers(providerBefore)) && providerAfter.providerErrors.length === providerBefore.providerErrors.length &&
+    providerAfter.createdAgents.length === providerBefore.createdAgents.length, "Collector created or changed simulated provider activity.");
+  check(collection.payouts.length === 1 && collection.payouts[0]!.target_id === expected.requestId && collection.payments.length === 1 &&
+    collection.payments[0]!.target_id === expected.correlationId && preview.items.length === 1 && preview.items[0]!.request_id === expected.requestId,
+    "Collector did not preserve the original request and payment read scope.");
+  const expectedCalls = [...collection.payouts.map(() => "payouts/status"), ...collection.payments.map(() => "paymentStatus"), ...collection.owners.map(() => "owner/status"), "held"];
+  check(JSON.stringify(calls) === JSON.stringify(expectedCalls), "Collector read trace contains an extra, retried or missing HTTP request.");
+  const reportText = `${JSON.stringify({ collection, preview }, null, 2)}\n`, bindingText = `${JSON.stringify(binding, null, 2)}\n`;
+  check(![provenanceText, bindingText, reportText].some(text => text.includes(stack.credential)), "Collector artifacts contained the fixture credential.");
+  writeFileSync(join(directory, "provenance.json"), provenanceText, { mode: 0o600 });
+  writeFileSync(join(directory, "binding.json"), bindingText, { mode: 0o600 });
+  writeFileSync(join(directory, "report.json"), reportText, { mode: 0o600 });
+  const observations = [...collection.payouts, ...collection.payments, ...collection.owners, collection.held];
+  receipt.collector = { scope: "Actual isolated SDK reads and standalone snapshot integrity only; no historical repair, financial clearance or resumption.",
+    started_at: startedAt, completed_at: new Date().toISOString(),
+    integration_read_pass: collection.complete && observations.every(row => row.result.response_sha256 !== null), clearance: "none", simulated_only: true,
+    report_relative_path: "collector/report.json", report_sha256: hash(reportText), binding_sha256: collection.binding_sha256, provenance_sha256: hash(provenanceText),
+    executed_modules_sha256: hash(JSON.stringify(modules)), snapshot: inspection.snapshot, stopped_source_sha256: sourceDigest, source_unchanged: true,
+    request_id: expected.requestId, payment_correlation_id: expected.correlationId, sdk: reader.sdk_version, read_procedures: calls,
+    preview_categories: preview.items.map(item => item.category), unsupported_original_requests: collection.payments.filter(row => row.result.ok && row.result.value.request === null).length,
+    unknown_owner_phases: collection.owners.filter(row => row.result.ok && row.result.value.phase === null).length,
+    provider_payment_count_before: providerBefore.transfers.length, provider_payment_count_after: providerAfter.transfers.length };
+  check(collection.complete && observations.every(row => row.result.response_sha256 !== null), "Collector did not obtain all bounded SDK reads; its advisory artifacts remain available and authorize no correction.");
+  report("07. PASS · standalone snapshot and original-ID SDK read transport; unknown metadata stays unresolved, no historical repair or resumption.");
+}
 
 try {
   report("Paperwork · TRUE APP PROCESS RESTART · independent SDK gateway");
@@ -341,6 +448,12 @@ try {
     retained_identities_before: beforeIdentity, retained_identities_after_restart: afterIdentity,
   });
   report(`06. Explicit agency approval followed by confirmed 300 USDC simulated settlement; ${paid.tx_hash ? `transaction ${paid.tx_hash}` : "gateway supplies no transaction hash"}`);
+  if (collect) {
+    await stopApp(active, "SIGTERM");
+    active = null;
+    await collectProof({ job: id, termsHash: settled.hash, requestId, correlationId: afterIdentity.correlation_id, judgmentId: recoveredSubmission.judgment_id }, finalState);
+    receipt.completed_at = new Date().toISOString();
+  }
   report(`PASS · true process restart, same durable identities, one confirmed simulated payment. Receipt: ${join(artifactDir, "receipt.json")}`);
 } catch (error) {
   Object.assign(receipt, { result: "failed", completed_at: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });

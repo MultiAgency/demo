@@ -1,0 +1,145 @@
+# Proposed Paperwork review profile for Hermes Agent v0.23.1.
+# Prepared 2026-11-11 from the stable tag's config example, config_defaults.py,
+# tools_config.py, runtime_provider.py, auxiliary_client.py and api_server.py.
+# This is the target configuration for activation, not an active API profile.
+# The team's paperwork-review profile was prepared on its v0.23.0 dashboard
+# with the same restrictions and model, but platforms.api_server.enabled=false.
+# Its intended routing and restriction fields were read back; hosted inference,
+# effective runtime isolation and v0.23.1 activation remain unverified.
+#
+# Provision a NEW dedicated profile/runtime under the team account. Do not merge
+# this into the existing owner-connected Multi agent. Start with no inherited
+# plugins, project context, skills, hooks, MCP configuration, login state or
+# provider credentials. Supply only NEARAI_API_KEY and API_SERVER_KEY through
+# the host's secret manager; no credential values belong in this file.
+# The pinned pilot model was listed as Private TEE on 2026-11-11:
+# https://near.ai/models/z-ai/glm-5.3-flash
+# Confirm its current API features before activation and use the same model in
+# Paperwork's server config. A catalog label is not client-side attestation.
+#
+# Hermes blank-profile creation can seed the launch model and provider block
+# even with cloning disabled. For the prepared profile, the seeded model was
+# explicitly reset before saving this configuration; no provider was inherited.
+
+model:
+  provider: custom:near
+  default: &review_model z-ai/glm-5.3-flash
+
+providers:
+  near:
+    api: https://cloud-api.near.ai/v1
+    key_env: NEARAI_API_KEY
+    transport: chat_completions
+    default_model: *review_model
+
+fallback_providers: []
+fallback_model: []
+auth:
+  adopt_external_logins: false
+
+# no_mcp is Hermes's explicit suppression sentinel. An empty platform list
+# alone can still inherit globally enabled MCP servers.
+platform_toolsets:
+  api_server: [no_mcp]
+  cli: [no_mcp]
+mcp_servers: {}
+hooks: {}
+hooks_auto_accept: false
+context:
+  engine: compressor
+
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  provider: ""
+  nudge_interval: 0
+skills:
+  creation_nudge_interval: 0
+  external_dirs: []
+  project_discovery: false
+  trusted_project_dirs: []
+  auto_load: []
+  inline_shell: false
+compression:
+  enabled: false
+
+# Disable automatic auxiliary work; pin the remaining task routes to NEAR
+# instead of allowing credential-based discovery of other providers.
+auxiliary:
+  vision: &near_aux
+    provider: custom:near
+    model: *review_model
+    fallback_chain: []
+  compression: *near_aux
+  approval: *near_aux
+  review: *near_aux
+  mcp: *near_aux
+  memory_query_rewrite: *near_aux
+  tts_audio_tags: *near_aux
+  voice_chat: *near_aux
+  triage_specifier: *near_aux
+  kanban_decomposer: *near_aux
+  profile_describer: *near_aux
+  goal_judge: *near_aux
+  group_router: *near_aux
+  curator: *near_aux
+  monitor: *near_aux
+  moa_reference: *near_aux
+  moa_aggregator: *near_aux
+  title_generation:
+    enabled: false
+    model_upgrade_enabled: false
+    provider: custom:near
+    model: *review_model
+    fallback_chain: []
+  background_review:
+    enabled: false
+    provider: custom:near
+    model: *review_model
+    fallback_chain: []
+
+agent:
+  max_turns: 2
+gateway:
+  api_server:
+    max_concurrent_runs: 4
+platforms:
+  api_server:
+    enabled: true
+    extra:
+      host: 127.0.0.1
+      port: 8642
+# API_SERVER_KEY is required in the runtime environment. The operator must
+# choose private service binding and authenticated TLS ingress separately.
+# With shared gateway multiplexing, a named profile's key does not start the
+# listener: the primary profile must already have its API listener enabled and
+# its own startup key. Otherwise use a separately configured profile gateway;
+# this example alone does not activate a missing shared listener.
+plugins:
+  auto_update_check_hours: 0
+  auto_apply: false
+
+# Remaining operator checks before any private submission is sent:
+# - Verify the HOSTED runtime's version and effective configuration. The local
+#   CLI version and the Portal's inference proxy do not establish Runs support.
+# - Inventory loaded plugins: plugin toolsets may be enabled independently of
+#   the saved platform list. There is no invented wildcard plugin-disable key
+#   here. Provision without optional/team plugins and confirm effective tools.
+# - Require bearer authentication and working /v1/capabilities, /v1/toolsets,
+#   /v1/runs, /v1/runs/{id}/events and /v1/runs/{id}/stop on the private endpoint.
+# - Paperwork refuses enabled advertised toolsets. That probe does not attest
+#   memory, hooks, plugins, managed overrides or the actual provider's privacy.
+# - Disabling memory does not disable Hermes's transcript/state persistence.
+#   Choose access control, disk encryption and retention for that dedicated
+#   profile. Do not mount owner keys, wallets or the existing agent's home.
+# - Verify no managed config, environment overlay or credential-pool entry
+#   redirects this profile or introduces a fallback. Do not import other logins.
+#
+# Source: https://github.com/NousResearch/hermes-agent/tree/v0.23.1
+# Public-source SHA256 observations (fetched 2026-11-11):
+# cli-config.yaml.example:
+#   0c26f125a06d39648c793442ef61779d5520f003013c27e1554edeef25105bd6
+# hermes_cli/config_defaults.py:
+#   24ac09830344046445f98f78e0b71afed77844f4caf2a93a4045c9d7ffb241bd
+# hermes_cli/tools_config.py:
+#   0155400154f6048239839f8703a4727bd2de3d7ed2a84a00c212883daa7efab8

@@ -12,11 +12,15 @@ const preflight = process.argv.includes("--preflight");
 const bootstrapOnly = process.argv.includes("--bootstrap-only");
 const fullCheck = process.argv.includes("--full-check");
 const full = fullCheck || process.argv.includes("--full");
+const collect = process.env.PAPERWORK_RESTART_COLLECT === "1";
+if (collect && (full || process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1"))
+  throw new Error("Collector proof cannot be combined with full-demo or provider-response-drop modes.");
 const artifactDir = mkdtempSync(join(tmpdir(), full ? "paperwork-full-launch-" : "paperwork-restart-launch-"));
 const jobArtifacts = join(artifactDir, "jobs");
 mkdirSync(jobArtifacts);
 const suppliedStack = process.env.PLATFORM_STACK_DIR;
-const record: Record<string, unknown> = { started_at: new Date().toISOString(), simulated_only: true, mode: suppliedStack ? "caller-owned-stack" : "owned-fresh-stack", launcher_sha256: sha(readFileSync(import.meta.path)), artifact_directory: artifactDir };
+const record: Record<string, unknown> = { started_at: new Date().toISOString(), simulated_only: true, mode: suppliedStack ? "caller-owned-stack" : "owned-fresh-stack", launcher_sha256: sha(readFileSync(import.meta.path)), artifact_directory: artifactDir,
+  ...(collect && { collector_requested: true }) };
 const logLines: string[] = [];
 const owned: Owned[] = [];
 let ownedStackDir: string | null = null;
@@ -232,17 +236,20 @@ try {
   }
   if (!preflight && !bootstrapOnly) {
     record.app_runner_sha256 = sha(readFileSync(appRunner));
-    const job = own([process.execPath, appRunner], full ? "combined-app" : "restart-job", root, { ...systemEnvironment(), PLATFORM_STACK_DIR: stackDir, PAPERWORK_RESTART_ARTIFACTS: jobArtifacts,
+    const job = own([process.execPath, "--no-env-file", appRunner], full ? "combined-app" : "restart-job", root, { ...systemEnvironment(), PLATFORM_STACK_DIR: stackDir, PAPERWORK_RESTART_ARTIFACTS: jobArtifacts,
       ...(full && { PAPERWORK_DEMO_ARTIFACTS: jobArtifacts, PAPERWORK_DEMO_PORT: process.env.PAPERWORK_DEMO_PORT ?? "3002" }),
       ...(fullCheck && { PAPERWORK_BROWSER_FULL: "1" }),
       ...(!full && process.env.PAPERWORK_RESTART_DROP_WITHDRAW === "1" && { PAPERWORK_RESTART_DROP_WITHDRAW: "1" }),
+      ...(collect && { PAPERWORK_RESTART_COLLECT: "1" }),
     });
-    const exit = full && !fullCheck ? await job.child.exited : await waitExit(job, fullCheck ? 360_000 : 180_000);
+    const exit = full && !fullCheck ? await job.child.exited : await waitExit(job, fullCheck ? 360_000 : collect ? 240_000 : 180_000);
     check(exit !== null, "Restart proof exceeded its bounded window. Its database and IDs remain in the artifact directory; no replacement job will be created.");
     check(exit === 0 || (full && !fullCheck && interrupted), "Local check failed; inspect the child log and retained receipts. No replacement payment is attempted.");
     job.done = { exit_result: exit, signals: [] };
     record.result = full && !fullCheck ? "stopped" : "passed";
-    record.scope = full ? "combined builder and market app on a fresh isolated SDK gateway; simulated only" : "full app process-restart proof through a fresh isolated SDK gateway; simulated only";
+    record.scope = full ? "combined builder and market app on a fresh isolated SDK gateway; simulated only" : collect
+      ? "app process restart plus standalone snapshot and read-only SDK collector transport proof; simulated only, no historical repair"
+      : "full app process-restart proof through a fresh isolated SDK gateway; simulated only";
     log(full && !fullCheck ? "Stopped the combined local app; keeping its isolated artifacts." : `PASS · ${fullCheck ? "combined browser experience" : "one-command local SDK restart demonstration"} completed.`);
   } else if (bootstrapOnly || suppliedStack) {
     record.result = "passed";

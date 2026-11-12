@@ -3,12 +3,15 @@ import { clauseFor } from "../shared/clauses";
 import { canonicalJson, sha256Hex } from "../shared/canonical";
 import { fromAtomic, toAtomic } from "../shared/money";
 import { jobSubmissionSchema, type JobSubmissionView } from "../shared/jobs";
+import type { MyJob } from "../shared/my-jobs";
+import type { ReviewContext } from "../shared/review";
 import { expectations, largestAtomic, policyDifferences, policyProblem, totalAtomic } from "../shared/policy-request";
 import { endInstant, parseTerms, scopeTotal, startInstant, type Terms, TERMS_RECIPIENT, termsHash, termsSigningMessage, USDC_DECIMALS } from "../shared/terms";
 import type { AttemptState, ContractView, EventView, JudgmentOutcome, NextStep, PayoutView, PayoutResolution, ScopeRow, SetupStage, VerifyView } from "../shared/views";
 import type { Config } from "./config";
 import type { AttemptRow, ContractRow, EventRow, JudgmentRow, LineRow, OwnerStepRow, PlatformAgentRow, SignatureRecord, JobRow, JobInvoiceRow } from "./db";
 import { judgeJob } from "./job-judge";
+import { jobAttention } from "./jobs/attention";
 import { type EvidenceSource, injectedPullRequest } from "./evidence/github";
 import type { Judge, Judgment, Level } from "./judge";
 import { nonceFromString, nonceToString, randomNonce, verifyNep413 } from "./nep413";
@@ -33,7 +36,7 @@ import {
   sumLines,
   type Transition,
 } from "./payouts";
-import type { AgentHandle, ChainReader, Overview, PayoutAnswer, Platform, Res } from "./platform/port";
+import type { AgentHandle, ChainReader, Overview, PaymentStatus, PayoutAnswer, Platform, Res } from "./platform/port";
 
 export class UserError extends Error {
   constructor(
@@ -184,6 +187,40 @@ export class Engine {
       });
   }
 
+  /** Private discovery from local records only: no follow-up, signing preparation or platform reads. */
+  jobsFor(account: string): MyJob[] {
+    const rows = this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all() as ContractRow[];
+    return rows.flatMap<MyJob>((row) => {
+      const terms = this.terms(row);
+      const roles: MyJob["roles"] = [];
+      if (terms.representative.near_account === account) roles.push("agency");
+      if (terms.contractor.near_account === account) roles.push("builder");
+      if (!roles.length) return [];
+      const agent = this.onboarding.agentRow(row.organization);
+      const attention = jobAttention({
+        terms, roles, row, agent, latestSubmission: this.jobRows(row.id)[0] ?? null,
+        payouts: this.attempts(row.id),
+        openJudgmentId: this.openJudgment(row.id)?.id ?? null,
+        ownerSteps: this.d.db.query("SELECT * FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC").all(row.id, row.organization) as OwnerStepRow[],
+        now: this.d.now(),
+      });
+      return [{
+        id: row.id,
+        title: terms.scope[0]?.title || terms.company,
+        company: terms.company,
+        builder_name: terms.contractor.name,
+        scope_usd: scopeTotal(terms),
+        start: terms.start,
+        end: terms.end,
+        stage: this.stageOf(row, agent, null),
+        roles,
+        builder_accepted: !!row.contractor_sig,
+        workflow: terms.v === 3 ? "report_invoice" : "pay_on_merge",
+        attention,
+      }];
+    });
+  }
+
   /** The view only: no follow-up, so no payout is planned or sent. */
   async viewContract(id: string): Promise<ContractView> {
     this.row(id);
@@ -284,6 +321,33 @@ export class Engine {
   jobSubmissions(id: string): JobSubmissionView[] {
     this.row(id);
     return this.jobRows(id).map((s) => this.jobView(s));
+  }
+
+  /** Stored review facts only: no platform reads, frozen-state synchronization or payout follow-up. */
+  reviewInput(submissionId: string) {
+    const s = this.job(submissionId);
+    const row = this.row(s.contract_id);
+    const terms = this.terms(row);
+    if (terms.v !== 3 || !row.rep_sig || !row.contractor_sig)
+      throw new UserError("Review requires an accepted report-and-invoice job.", 409);
+    if (s.terms_hash !== row.hash || termsHash(terms) !== row.hash)
+      throw new UserError("The submission's accepted terms do not match.", 409);
+    const payouts = s.judgment_id ? this.attempts(row.id).filter((a) => a.run_id === s.judgment_id) : [];
+    if ((s.state !== "submitted" && s.state !== "proposed") || s.changes || payouts.some((a) => a.vote === "approve" || a.state === "processing" || isPaid(a) || (a.state === "failed" && !a.resolution)))
+      throw new UserError("This submission is no longer available for a feedback draft. Refresh the job.", 409);
+    const invoice = this.jobInvoice(s.id);
+    const context: ReviewContext = {
+      submission_id: s.id, terms_hash: row.hash, revision: s.revision,
+      scope: terms.scope.map(({ id, title, criteria }) => ({ id, title, criteria })),
+      report: s.report, evidence: JSON.parse(s.evidence),
+      invoice: { number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
+    };
+    return {
+      context,
+      snapshot: { terms_hash: row.hash, revision: s.revision, state: s.state, judgment_id: s.judgment_id },
+      fingerprint: sha256Hex(canonicalJson({ context, state: s.state, changes: s.changes,
+        payouts: payouts.map((a) => ({ request_id: a.request_id, state: a.state, vote: a.vote, resolution: a.resolution })) })),
+    };
   }
 
   /** The proposal and its payment identity are committed together before the SDK sees any request. */
@@ -552,8 +616,8 @@ export class Engine {
       const a = this.attempt(requestId);
       if (a.kind !== "payout" || a.state !== "failed" || (a.resolution !== null && a.resolution !== "disputed")) throw new UserError("Only an unresolved or disputed failed payout can be reviewed.", 409);
       if (outcome === "disputed" && a.resolution === "disputed") return this.view(a.contract_id);
-      if (this.terms(this.row(a.contract_id)).v === 3 && outcome !== "arrived" && outcome !== "disputed" &&
-          (a.never_executed !== 1 || !!a.tx_hash || !!a.refund_tx_hash)) {
+      if (outcome !== "arrived" && outcome !== "disputed" &&
+          (a.never_executed !== 1 || a.tx_hash !== null || a.refund_tx_hash !== null || a.refunded_amount !== null)) {
         throw new UserError("This job's failed payment remains committed until the platform proves it never executed. Manual review cannot authorize a replacement or release its budget.", 409);
       }
       this.d.db.transaction(() => {
@@ -705,7 +769,7 @@ export class Engine {
   }
 
   /** Record a transition, then fetch what the new state needs (approval id, evidence). */
-  private async transition(att: AttemptRow, t: Transition) {
+  private async transition(att: AttemptRow, t: Transition, observedPayment?: Res<PaymentStatus>) {
     const fields: Partial<AttemptRow> = {
       state: t.state,
       code: t.code,
@@ -714,24 +778,27 @@ export class Engine {
     };
     if (t.correlationId) fields.correlation_id = t.correlationId;
     if (t.neverExecuted !== undefined) fields.never_executed = t.neverExecuted ? 1 : 0;
+    if (t.state === "paid") fields.never_executed = 0;
     if (t.failureCode !== undefined) fields.failure_code = t.failureCode;
     this.setAttempt(att.request_id, fields);
     let cur = this.attempt(att.request_id);
     const h = this.handleFor(cur);
     if (cur.state === "held" && !cur.approval_id) await this.fillHeld(cur);
     if ((cur.state === "paid" || cur.state === "failed") && cur.correlation_id && h) {
-      const ps = await h.paymentStatus(cur.correlation_id);
+      const ps = observedPayment ?? await h.paymentStatus(cur.correlation_id);
       const ev = ps.ok ? ps.value.evidence : null;
       const txHash = ev?.txHash ?? ev?.destinationTxHash ?? cur.tx_hash;
       const refundTxHash = ev?.refundTxHash ?? cur.refund_tx_hash;
-      const patch: Partial<AttemptRow> = { tx_hash: txHash, refund_tx_hash: refundTxHash, failure_code: (ps.ok ? ps.value.failureCode : null) ?? cur.failure_code };
+      // Once observed, refund counterevidence must survive omitted fields and unavailable later reads.
+      const refundedAmount = cur.refunded_amount ?? ev?.refundedAmount ?? null;
+      const patch: Partial<AttemptRow> = { tx_hash: txHash, refund_tx_hash: refundTxHash, refunded_amount: refundedAmount, failure_code: (ps.ok ? ps.value.failureCode : null) ?? cur.failure_code };
       if (cur.state === "failed") {
         if (ps.ok && ps.value.status === "SUCCESS") {
           patch.state = "paid";
           patch.never_executed = 0;
         } else {
           const consistent = !ps.ok || ps.value.status === "FAILED";
-          const proof = cur.never_executed === 1 && consistent && !txHash && !refundTxHash && !ev?.refundedAmount;
+          const proof = cur.never_executed === 1 && consistent && txHash === null && refundTxHash === null && refundedAmount === null;
           if (!proof) patch.never_executed = 0;
           // A disputed closure keeps its monetary hold until the agency explicitly reviews newly arrived
           // non-execution evidence. A later successful payment is handled above under the same original identity.
@@ -808,7 +875,13 @@ export class Engine {
     }
     const st = await h.payoutStatus(att.request_id);
     if (st.ok) {
-      if (att.state === "failed" && st.value.state === "not_found") return; // A known recorded failure is observed, never replayed.
+      const changedBinding = st.value.requestId !== att.request_id ||
+        (att.correlation_id !== null && st.value.correlationId !== null && st.value.correlationId !== att.correlation_id);
+      if (att.state === "failed" && (changedBinding || (st.value.state !== "failed" && st.value.state !== "succeeded"))) {
+        // A recorded failure cannot regress to a pre-execution refusal or missing/live record and free its hold.
+        // Revoke stale proof and observe the original payment correlation; late success can still settle it.
+        return this.transition(att, { state: "failed", code: att.code, failKind: null, neverExecuted: false });
+      }
       if (st.value.state === "not_found") return this.send(att.request_id);
       const mapped = fromAnswer(st.value).state;
       if (mapped === att.state && (mapped === "held" || mapped === "processing" || mapped === "unknown")) {
@@ -821,8 +894,10 @@ export class Engine {
     if (st.kind === "forbidden" && att.correlation_id) {
       const ps = await h.paymentStatus(att.correlation_id);
       if (!ps.ok) return;
-      if (ps.value.status === "SUCCESS") return this.transition(att, { state: "paid", code: null, failKind: null });
-      if (ps.value.status === "FAILED" || ps.value.status === "REFUNDED") return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null });
+      if (ps.value.status === "SUCCESS") return this.transition(att, { state: "paid", code: null, failKind: null }, ps);
+      if (att.state === "failed" && ps.value.status !== "FAILED")
+        return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null, neverExecuted: false }, ps);
+      if (ps.value.status === "FAILED" || ps.value.status === "REFUNDED") return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null }, ps);
     }
   }
 

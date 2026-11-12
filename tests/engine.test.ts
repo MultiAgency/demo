@@ -292,21 +292,24 @@ describe("state machine rows, end to end", () => {
     expect(ctx.stub.calls.requestPayout).toBe(1);
   });
 
-  test("failed after approval stays committed until the representative resolves reowe (bug 3)", async () => {
+  test("failed after approval stays committed when reowe lacks non-execution proof", async () => {
     const ctx = await activate();
     const rid = (await run(ctx)).payouts[0]!.request_id;
     await castVote(ctx, rid, "approve");
     ctx.stub.script.failAfterApproval = "delivery_failed";
     ctx.stub.settle(attemptOf(ctx, rid).correlation_id!);
-    let c = await view(ctx);
+    const c = await view(ctx);
     expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("failed");
     expect(c.committed_usd).toBe("500");
     expect((await run(ctx)).outcome).toBe("deferred");
-    c = await ctx.rt.engine.resolve(rid, "reowe");
-    expect(c.payouts.find((p) => p.request_id === rid)!.state).toBe("resolved");
-    const again = c.payouts.find((p) => p.state === "held")!;
-    expect([again.seq, again.attempt, again.amount_usd]).toEqual([1, 2, "500"]);
-    expect(c.committed_usd).toBe("500");
+    const original = attemptOf(ctx, rid);
+    const requests = ctx.stub.calls.requestPayout;
+    await expect(ctx.rt.engine.resolve(rid, "reowe")).rejects.toThrow("platform proves it never executed");
+    expect(attemptOf(ctx, rid)).toEqual(original);
+    const unchanged = await ctx.rt.engine.viewContract(ctx.id);
+    expect(unchanged.committed_usd).toBe("500");
+    expect(unchanged.payouts).toHaveLength(1);
+    expect(ctx.stub.calls.requestPayout).toBe(requests);
   });
 
   test("failed resolved arrived stays paid and the judgment moves on", async () => {
@@ -321,16 +324,21 @@ describe("state machine rows, end to end", () => {
     expect(c.payouts.find((p) => p.state === "held")!.seq).toBe(2);
   });
 
-  test("failed resolved rejected frees it and rejects the judgment", async () => {
+  test("failed manual rejection cannot free an uncertain payout or close its judgment", async () => {
     const ctx = await activate();
     const rid = (await run(ctx)).payouts[0]!.request_id;
     await castVote(ctx, rid, "approve");
     ctx.stub.script.failAfterApproval = "delivery_failed";
     ctx.stub.settle(attemptOf(ctx, rid).correlation_id!);
     await view(ctx);
-    const c = await ctx.rt.engine.resolve(rid, "rejected");
-    expect([c.committed_usd, c.open_judgment]).toEqual(["0", null]);
-    expect((c.judgment as { outcome: string }).outcome).toBe("rejected");
+    const original = attemptOf(ctx, rid);
+    const requests = ctx.stub.calls.requestPayout;
+    await expect(ctx.rt.engine.resolve(rid, "rejected")).rejects.toThrow("platform proves it never executed");
+    expect(attemptOf(ctx, rid)).toEqual(original);
+    const c = await ctx.rt.engine.viewContract(ctx.id);
+    expect(c.committed_usd).toBe("500");
+    expect(c.open_judgment?.id).toBe(original.run_id!);
+    expect(ctx.stub.calls.requestPayout).toBe(requests);
   });
 
   test("thrown recipient_not_registered → blocked; the same id succeeds after registration (bug 4)", async () => {
@@ -647,16 +655,22 @@ describe("on the FakePlatform", () => {
     expect(new Set(ctx.controls.requests().map((b) => b.requestId)).size).toBe(1);
   });
 
-  test("failed after approval stays committed until reowe, then attempt 2 on the same seq", async () => {
+  test("a FakePlatform delivery failure remains uncertain and cannot authorize another attempt", async () => {
     const ctx = await fakeActivate();
     const rid = (await ctx.rt.engine.run(ctx.id)).payouts[0]!.request_id;
     ctx.controls.failAfterApproval("delivery_failed");
     await fakeApproveAndSettle(ctx, rid);
-    let c = await ctx.rt.engine.getContract(ctx.id);
+    const c = await ctx.rt.engine.getContract(ctx.id);
     expect([c.payouts.find((p) => p.request_id === rid)!.state, c.committed_usd]).toEqual(["failed", "500"]);
-    c = await ctx.rt.engine.resolve(rid, "reowe");
-    const again = c.payouts.find((p) => p.state === "held")!;
-    expect([again.seq, again.attempt]).toEqual([1, 2]);
+    const original = ctx.rt.engine.attempt(rid);
+    const requests = ctx.controls.requests().length;
+    for (const outcome of ["reowe", "rejected"] as const)
+      await expect(ctx.rt.engine.resolve(rid, outcome)).rejects.toThrow("platform proves it never executed");
+    expect(ctx.rt.engine.attempt(rid)).toEqual(original);
+    const unchanged = await ctx.rt.engine.viewContract(ctx.id);
+    expect(unchanged.committed_usd).toBe("500");
+    expect(unchanged.payouts).toHaveLength(1);
+    expect(ctx.controls.requests()).toHaveLength(requests);
   });
 
   test("recipient_not_registered blocks; the same id goes through once the payee registers", async () => {

@@ -1,8 +1,8 @@
 // The payout attempt state machine and payout planning. Pure: no database, no platform calls.
 //
 // Rules this file encodes:
-// - A recorded refusal or rejection with explicit non-execution proof frees money. Legacy v2 manual resolutions
-//   can also free money; the v3 engine requires non-execution proof for those resolutions. Everything else stays committed.
+// - A recorded refusal or rejection with explicit non-execution proof frees money. For both workflows,
+//   the engine and startup guards require that proof without payment/refund evidence before a manual resolution frees money.
 // - Only a recorded refusal or a resolved failure allows a new requestId. Every other case re-asks the same id.
 // - The judgment is the open unit: every seq of one run belongs to it, and it closes once.
 import type { Fail, PayoutAnswer } from "./platform/port";
@@ -173,7 +173,7 @@ export function fromAnswer(a: PayoutAnswer): Transition {
 
 /** A reject attempt is not its outcome. Only the platform's explicit non-execution proof frees the amount. */
 export function classifyFailed(vote: "approve" | "reject" | null, txHash: string | null, neverExecuted = false): "rejected" | "failed" {
-  return vote === "reject" && neverExecuted && !txHash ? "rejected" : "failed";
+  return vote === "reject" && neverExecuted && txHash === null ? "rejected" : "failed";
 }
 
 // ------------------------------------------------------------------ judgment lifecycle

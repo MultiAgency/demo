@@ -119,6 +119,9 @@ export interface AssignmentView {
   deliverable: string | null;
   submit_state: "none" | "submitting" | "submitted" | "unknown";
   submit_error: string | null;
+  /** Optional for older app clients; retry uses the saved body and this existing attempt, never a new identity. */
+  submit_attempt_id?: string | null;
+  submit_phase?: "preflight" | "posting" | "not_arrived" | null;
   deposit_address: string | null;
   accepted_at: string | null;
 }

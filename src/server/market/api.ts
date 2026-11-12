@@ -1,6 +1,8 @@
 // The NEAR AI Agent Market's own HTTP API (OpenAPI 2.0.0, read 2026-11-10): the public directory, and the worker's
 // assignments and submissions with its `aat_` token. The token stays in this object: never logged, never returned.
 import type { DirectoryAgent, DirectoryDetail } from "../../shared/market";
+import type { BoardJob, BoardQuery, OpenJobsPage } from "../../shared/market-board";
+import { z } from "zod";
 
 export class MarketHttpError extends Error {
   constructor(
@@ -30,6 +32,46 @@ export interface DeliverableVersion {
 }
 
 const READ_MS = 15_000;
+const BOARD_PAGE_SIZE = 50;
+const boardJobSchema = z.object({
+  jobId: z.uuid(),
+  title: z.string().min(1),
+  description: z.string(),
+  budgetAmount: z.string().regex(/^\d+(?:\.\d+)?$/).nullable().optional(),
+  budgetToken: z.string().min(1),
+  jobKind: z.enum(["standard", "instant", "competition"]),
+  status: z.enum(["open", "filling"]),
+  tags: z.array(z.string()),
+  createdAt: z.iso.datetime({ offset: true }),
+  creator: z.object({ displayName: z.string() }).nullable().optional(),
+  currentMaxSlots: z.number().int().min(0).max(2147483647),
+  maxSlots: z.number().int().min(1).max(2147483647),
+  acceptanceWindowDays: z.number().int().min(0).max(2147483647),
+  minBuilderVerification: z.enum(["none", "verified", "identity_verified"]),
+  entriesCloseAt: z.iso.datetime({ offset: true }).nullable().optional(),
+}).refine((job) => job.currentMaxSlots <= job.maxSlots);
+
+function publicBoardJob(value: unknown): BoardJob | null {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new MarketHttpError(200, "The market returned an invalid job board record.");
+  const row = value as Record<string, unknown>;
+  // Exclude non-public records before reading their other fields; the bearer may also authorize private data.
+  if (row.isPrivate === true || row.isTestRun === true || (typeof row.status === "string" && row.status !== "open" && row.status !== "filling")) return null;
+  if (row.isPrivate !== false || row.isTestRun !== false || (row.status !== "open" && row.status !== "filling"))
+    throw new MarketHttpError(200, "The market returned no explicit public job board classification.");
+  const parsed = boardJobSchema.safeParse(row);
+  if (!parsed.success) throw new MarketHttpError(200, "The market returned an invalid public job board record.");
+  const job = parsed.data;
+  return {
+    job_id: job.jobId, title: job.title, description: job.description,
+    budget_amount: job.budgetAmount ?? null, budget_token: job.budgetToken,
+    kind: job.jobKind, status: job.status, tags: job.tags, posted_at: job.createdAt,
+    creator_name: job.creator?.displayName ?? null,
+    slots_available: job.currentMaxSlots, max_slots: job.maxSlots,
+    acceptance_window_days: job.acceptanceWindowDays, minimum_verification: job.minBuilderVerification,
+    entries_close_at: job.entriesCloseAt ?? null,
+  };
+}
 
 export class MarketApi {
   constructor(
@@ -59,6 +101,28 @@ export class MarketApi {
     } catch {
       throw new MarketHttpError(res.status, `The market's answer to ${path.split("?")[0]} is not JSON.`);
     }
+  }
+
+  /** Authenticated upstream, public output: only the board's public jobs still taking bids, never scoped /v1/jobs. */
+  async openJobs(query: BoardQuery = {}): Promise<OpenJobsPage> {
+    const offset = query.offset ?? 0;
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset > Number.MAX_SAFE_INTEGER - BOARD_PAGE_SIZE ||
+      (query.q !== undefined && typeof query.q !== "string") ||
+      (query.kind !== undefined && !["standard", "instant", "competition"].includes(query.kind)) ||
+      (query.sort !== undefined && !["recent", "budget"].includes(query.sort)))
+      throw new MarketHttpError(400, "Invalid public job board query.");
+    const params = new URLSearchParams({ sort: query.sort ?? "recent", limit: String(BOARD_PAGE_SIZE + 1), offset: String(offset) });
+    if (query.q !== undefined) params.set("q", query.q);
+    if (query.kind !== undefined) params.set("kind", query.kind);
+    const body = await this.request("GET", `/v1/jobs/board?${params}`, undefined, true);
+    if (!body || typeof body !== "object" || !Array.isArray(body.jobs) || body.jobs.length > BOARD_PAGE_SIZE + 1)
+      throw new MarketHttpError(200, "The market returned an invalid public job board page.");
+    const rows = (body.jobs as unknown[]).map(publicBoardJob);
+    return {
+      jobs: rows.slice(0, BOARD_PAGE_SIZE).filter((job): job is BoardJob => job !== null),
+      offset, next_offset: rows.length > BOARD_PAGE_SIZE ? offset + BOARD_PAGE_SIZE : null,
+      checked_at: new Date().toISOString(),
+    };
   }
 
   /** Listed agents matching `q` (public). */

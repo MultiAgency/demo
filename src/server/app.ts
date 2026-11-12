@@ -10,10 +10,13 @@ import { Engine, type Role, type Scenario, SCENARIOS, toUserError, UserError } f
 import { type EvidenceSource, FakeEvidence, GitHubEvidence } from "./evidence/github";
 import { NearAiJudge, RulesJudge } from "./judge";
 import { Market } from "./market/index";
-import { MarketApi } from "./market/api";
+import { MarketApi, MarketHttpError } from "./market/api";
+import { MultiAgencyOpenings } from "./jobs/openings";
 import { rpcDaoPolicy } from "./market/members";
 import { marketRoutes } from "./market/routes";
 import { makePlatform } from "./platform/index";
+import { reviewRoutes } from "./review/routes";
+import type { ReviewFetch } from "./review/hermes";
 import type { PlatformKit } from "./platform/port";
 
 /** Accounts the keyless demo signs for. Clearly fake names so nobody mistakes them for real accounts. */
@@ -46,9 +49,19 @@ export interface Runtime {
   evidence: EvidenceSource;
   /** The agent market, when the platform offers it (remote, or a stack started with `--market`). */
   market: Market | null;
+  /** Read-only public Market board, independent of SDK agency/worker setup. Never serialized. */
+  boardApi: MarketApi | null;
+  openings: MultiAgencyOpenings;
+  /** Offline Hermes transport injection for focused integration checks. */
+  reviewFetch?: ReviewFetch;
 }
 
 export interface RuntimeOptions {
+  reviewFetch?: ReviewFetch;
+  /** Offline transport injection for public-board checks; never falls back to a browser's Market session. */
+  boardApi?: MarketApi | null;
+  /** Public-source fixture injection; no existing app data or credentials are imported. */
+  openings?: MultiAgencyOpenings;
   /** The browser demo uses its explicit settlement control; automated stand-ins keep their existing default. */
   manualFakeSettlement?: boolean;
   /** Inject a platform (tests, demo scripts). Otherwise makePlatform(config). */
@@ -109,7 +122,11 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
         now: clock.now,
       })
     : null;
-  const rt = { engine, auth, kit, clock, config, evidence, market };
+  const boardToken = config.market.boardToken ?? config.market.worker?.token;
+  const boardApi = opts.boardApi !== undefined ? opts.boardApi
+    : boardToken ? new MarketApi(kit.market?.url ?? config.market.url ?? "https://market.near.ai", boardToken) : null;
+  const openings = opts.openings ?? new MultiAgencyOpenings();
+  const rt = { engine, auth, kit, clock, config, evidence, market, boardApi, openings, reviewFetch: opts.reviewFetch };
   return { ...rt, app: buildApp(rt) };
 }
 
@@ -123,7 +140,7 @@ const walletSig = z
   });
 
 export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session: SessionInfo | null } }> {
-  const { engine, auth, kit, clock, config, evidence, market } = rt;
+  const { engine, auth, kit, clock, config, evidence, market, boardApi, openings } = rt;
   const app = new Hono<{ Variables: { session: SessionInfo | null } }>().basePath("/api");
 
   app.onError((err, c) => {
@@ -133,9 +150,22 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
 
   // Railway's health check. The server answers only once its configuration was checked at startup (loadConfig).
   app.get("/health", (c) => c.json({ ok: true }));
+  // APIs and sign-in accept only the explicitly configured app host.
+  // Ignore forwarded host headers: they must never select an auth origin or another portal.
+  app.use("*", async (c, next) => {
+    if (config.auth.enforcePublicHost) {
+      const host = new URL(c.req.url).host;
+      if (new URL(config.auth.publicUrl).host !== host)
+        return c.json({ error: "This host is not configured for Paperwork." }, 421);
+      const origin = c.req.header("origin");
+      if (origin && origin !== config.auth.publicUrl)
+        return c.json({ error: "This origin is not configured for Paperwork." }, 403);
+    }
+    await next();
+  });
   app.on(["GET", "POST"], "/auth/*", (c) => auth.handler(c.req.raw));
   app.use("*", async (c, next) => {
-    c.set("session", c.req.path.startsWith("/api/auth/") ? null : await sessionFrom(auth, c.req.raw.headers));
+    c.set("session", c.req.path.startsWith("/api/auth/") ? null : await sessionFrom(auth, c.req.raw.headers, c.req.raw));
     await next();
   });
 
@@ -161,6 +191,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
       demo_accounts: kit.controls ? DEMO_ACCOUNTS : null,
       now: clock.now().toISOString(),
       judge: { kind: config.judge.kind, model: config.judge.kind === "near-ai" ? config.judge.model : null },
+      review: { enabled: !!config.review },
       auth: { required: config.auth.required, recipient: config.auth.recipient, network: "mainnet" },
       market: { enabled: !!market, worker: !!market?.worker.configured, owner: kit.market?.owner ?? null, dao: kit.market?.dao ?? null },
     };
@@ -169,8 +200,45 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
 
   app.get("/me", (c) => c.json({ session: c.get("session") }));
 
+  app.get("/jobs/mine", (c) => {
+    const session = c.get("session");
+    if (config.auth.required && !session) throw new UserError("Sign in with NEAR to see your private jobs.", 401);
+    // The keyless fallback uses its named builder. Production never accepts a caller-selected account.
+    const account = session?.accountId ?? DEMO_ACCOUNTS.contractor;
+    return c.json({ jobs: engine.jobsFor(account), demo: !config.auth.required });
+  });
+
+  app.get("/jobs/openings", async (c) => {
+    c.header("cache-control", "no-store");
+    try { return c.json(await openings.list()); }
+    catch { throw new UserError("Published MultiAgency openings could not be read. Try again or check MultiAgency's listings directly.", 502); }
+  });
+
+  // This endpoint projects only the Market's common PUBLIC board, never /v1/jobs or private assignments.
+  // Browsing grants no bid, award, hire, submission or payment authority.
+  app.get("/market/jobs", async (c) => {
+    const query = z.object({
+      q: z.string().trim().max(200).optional(),
+      kind: z.enum(["standard", "instant", "competition"]).optional(),
+      sort: z.enum(["recent", "budget"]).default("recent"),
+      offset: z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER - 50).default(0),
+    }).parse(c.req.query());
+    if (!boardApi) throw new UserError("The open job board is not connected. Open NEAR AI Agent Market directly, or ask the operator to configure its server-side board connection.", 503);
+    c.header("cache-control", "no-store");
+    try { return c.json(await boardApi.openJobs(query)); }
+    catch (error) {
+      if (error instanceof MarketHttpError) throw new UserError(`Open jobs could not be read from the Market (${error.status || "connection failed"}). Try again or open NEAR AI Agent Market directly.`, 502);
+      throw error;
+    }
+  });
+
   app.get("/contracts", (c) => {
     const s = c.get("session");
+    if (c.req.query("role") === "agency") {
+      if (config.auth.required && !s) return c.json([]);
+      const account = s?.accountId ?? DEMO_ACCOUNTS.representative;
+      return c.json(engine.listContracts(account).filter((job) => engine.parties(job.id).representative === account));
+    }
     return c.json(engine.listContracts(config.auth.required ? (s?.accountId ?? "\u0000") : undefined));
   });
 
@@ -246,6 +314,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   });
 
   // ---------- immutable reports and invoices; only v3 signed terms opt into this workflow
+  reviewRoutes(app, { engine, config, asRepresentative, fetch: rt.reviewFetch });
   app.get("/contracts/:id/submissions", (c) => {
     const id = c.req.param("id");
     asParty(c.get("session"), id);

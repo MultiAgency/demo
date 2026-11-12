@@ -63,3 +63,7 @@ PAPERWORK_DEMO_PORT=3005 bun run demo:full
 ```
 
 The default launcher starts its own fresh `multiagency-paperwork` stack using the unchanged verified snapshot guards. That older platform pin and the fresh-main results above are separate evidence. Follow the [manual walkthrough](full-demo.md).
+
+> **Domain confirmed 2026-11-11:** The target recorded above was superseded after confirming that `https://paperwork.multiagency.ai` redirects to Documenso's sign-in page. The user confirmed **`desk.multiagency.ai`** as Paperwork's final target; Documenso's hostname stays intact. The app/deployment identities and Jobs terminology are unchanged. This was a read-only host check and documentation correction; no DNS, Railway service or deployment changes were made. Current instructions are in [deploy.md](deploy.md).
+
+**2026-11-11 — separate Jobs entry:** `jobs.multiagency.ai` now has a local implementation focused on the existing listed-agent Market integration, sharing Desk's backend, database and deployment. [Workflow, reproduction and fresh verification](jobs-portal.md) distinguish offline evidence from hosted work and payment. Neither hostname was deployed or reconfigured.

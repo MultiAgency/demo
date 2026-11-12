@@ -157,6 +157,8 @@ async function submitRevision(revision: number) {
 async function marketJourney(builderRequest: string) {
   check(rt.market, "The combined app must expose its isolated market integration");
   await command("agency", "set", "viewport", "1440", "1000");
+  await click("agency", 'a[href="#/agency"]');
+  await pageWait("agency", "!!document.querySelector('a[href=\"#/market\"]')", "agency Market integration entry");
   await click("agency", 'a[href="#/market"]');
   await pageWait("agency", "document.body.innerText.includes('New agency')", "market navigation in the same app");
   await fill("agency", "Name", "Combined demo agency");
@@ -210,7 +212,7 @@ console.log("Paperwork browser walkthrough · SIMULATED accounts, signatures, pr
 console.log(`Artifacts: ${dir}`);
 try {
   await open("agency", `${base}/#/new`);
-  check(await evaluate<boolean>("agency", "document.title==='Paperwork'&&document.querySelector('h1')?.textContent==='New job'&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Jobs')"), "Expected Paperwork branding and job navigation");
+  check(await evaluate<boolean>("agency", "document.title==='Paperwork'&&document.querySelector('h1')?.textContent==='New job'&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Agency')&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Openings')"), "Expected Paperwork branding and Desk workspace navigation");
   await pageWait("agency", "!!document.querySelector('button[aria-label=\"Remove d3\"]')", "offer form");
   await click("agency", 'button[aria-label="Remove d3"]');
   await click("agency", 'button[aria-label="Remove d2"]');
@@ -269,6 +271,11 @@ try {
   await capture("agency", "03-approved-not-settled");
   step(`Agency approves the ${full ? "submission's" : "revised"} proposal; processing is visible with zero confirmed paid`);
 
+  await open("builder", `${base}/`);
+  await pageWait("builder", "document.querySelector('h1')?.textContent==='Assigned to me' && !!document.querySelector('#my-jobs-waiting')", "personal queue waits for confirmed payment");
+  check(await evaluate<boolean>("builder", "!document.querySelector('#my-jobs-completed')"), "An unsettled approval must not complete the personal queue");
+  await open("builder", builderUrl);
+
   await button("agency", "Settle approved payouts");
   const paid = await state(v => v.submissions[0]?.state === "settled", "confirmed settlement");
   await pageWait("agency", "document.body.innerText.includes('Confirmed settlement')", "agency settlement evidence");
@@ -294,6 +301,11 @@ try {
     check(await evaluate<boolean>(actor, `document.body.innerText.includes(${JSON.stringify(payment.request_id)})`), `${actor} must display the same payment identity`);
   }
   step("Both parties see the same confirmed settlement at desktop and mobile sizes; one successful payment");
+  await open("builder", `${base}/`);
+  await pageWait("builder", "document.querySelector('h1')?.textContent==='Assigned to me' && !!document.querySelector('#my-jobs-completed') && document.body.innerText.includes('Full scope payment confirmed')", "personal queue completion from confirmed settlement");
+  check((await rt.kit.controls!.transfers()).filter(p => p.status === "SUCCESS").length === 1, "Opening the personal queue must not create another transfer");
+  await capture("builder", "07-personal-confirmed-complete");
+  step("Assigned to me waits during processing and completes only after confirmed full-scope payment, without another transfer");
   const market = full ? await marketJourney(payment.request_id) : null;
   writeFileSync(join(dir, "receipt.json"), JSON.stringify({ simulated: true, scope: full ? "One browser app with builder payout and a separate marketplace service hire through SDK; no real wallet/payment" : "Builder job with simulated revision", automation: "agent-browser; scrollintoview before trusted clicks", job: contractId, terms_hash: paid.hash, submission: revised.id, invoice: revised.invoice.id, proposal: finalSubmission.judgment_id, request: payment.request_id, approval: payment.approval_vote_id, payment: payment.payment_correlation_id, tx_hash: payment.tx_hash, paid_usd: paid.paid_usd, successful_transfers: 1, market, steps, captures }, null, 2));
   console.log(`PASS · ${full ? "combined builder and market browser experience" : "complete browser job with revision"} · receipt ${join(dir, "receipt.json")}`);

@@ -6,6 +6,12 @@ Paperwork is MultiAgency's payroll app for signed builder jobs. A company and a 
 
 The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. The **Pay on merge** workflow remains available for v2 jobs; new v3 jobs explicitly sign the report/invoice and payment clauses.
 
+**desk.multiagency.ai** is Paperwork's single entry for private work, agency offers and approvals, public openings and connected [Agent Market](https://market.near.ai) work. Active projects without an opening are excluded. **Get started** connects existing applications, invitations and delivery flows. All routes use one backend, database, sign-in origin and deployment. See the [Desk walkthrough, source map and boundaries](docs/jobs-portal.md). The separate Jobs subdomain plan was dropped; `paperwork.multiagency.ai` remains Documenso. Nothing is deployed by these changes.
+
+Desk opens on **Assigned to me**: jobs where the signed-in account is the named builder or agency representative, grouped into **Needs your action**, **Waiting** and **Completed** from stored workflow evidence. **Agency** shows only jobs that account manages as the representative; **Openings** is public at `/#/openings`. No organization-wide membership access is inferred.
+
+Run `bun run demo:desk` for an interactive, offline Desk fixture on one local hostname, or `bun run demo:desk:check` for its browser check. These exercise public openings, private-job discovery, onboarding, Market pagination beyond 100 jobs and same-origin tab recovery against scripted sources; they do not demonstrate a hosted application, acceptance or payment. The older `demo:jobs` commands remain aliases for this same launcher.
+
 For **Jobs and Agent Market in one local app**, run `bun run demo:full` and open the URL it prints (default port **3002**). This starts a fresh SDK gateway and market simulator, keeping other checkouts untouched. See the [combined manual walkthrough](docs/full-demo.md) and [integration evidence](docs/full-integration-evidence.md); `bun run demo:full:check` checks both paths through the browser. All signatures and funds are simulated. The pinned simulator's worker/directory and recovery limits remain explicit.
 
 The [Paperwork review](docs/paperwork-review.md) records the final namespace, legacy signature/recovery handling and fresh checks against `--app multiagency-paperwork` stacks. The historical [Agency Work UI review](docs/agency-work-review.md) remains a dated record.
@@ -26,6 +32,8 @@ Paperwork's server holds only its app credential. In production it never holds a
 Tracks: Real-World Money, AI Security & Defense.
 
 ## Run it
+
+The optional **Review assistant** uses CopilotKit/AG-UI to prepare editable report feedback through Hermes and NEAR AI Cloud. Run `bun run demo:review` for the isolated scripted demonstration, or `bun run demo:review:check` for its browser check. Neither calls a hosted model or creates a payment. See [team-account setup and boundaries](docs/hermes-review.md).
 
 Prerequisites: Bun 1.4+ (if `bun install` says "Unknown lockfile version", run `bun upgrade`).
 
@@ -106,7 +114,7 @@ Choose **Pay on merge** when creating a job for this walkthrough. The new defaul
 
 ## How it works
 
-The app namespace is `multiagency-paperwork`: platform deployment, stack `--app` value and work-order signing recipient. The public target is `paperwork.multiagency.ai`; the local database is `data/paperwork.sqlite` (`/data/paperwork.sqlite` on the mounted deployment). App-specific environment and browser-storage prefixes are `PAPERWORK_` and `paperwork.`. The repository remains `MultiAgency/demo`.
+The app namespace is `multiagency-paperwork`: platform deployment, stack `--app` value and recipient for terms signatures. The public target is `desk.multiagency.ai`; `paperwork.multiagency.ai` already hosts Documenso and stays separate. The local database is `data/paperwork.sqlite` (`/data/paperwork.sqlite` on the mounted deployment). App-specific environment and browser-storage prefixes are `PAPERWORK_` and `paperwork.`. The repository remains `MultiAgency/demo`.
 
 Each job stores its signing recipient. New jobs use `multiagency-paperwork`; existing rows retain `covenant` and their original complete or partial signatures. The new default database path does not move an old file. To recover old records, use that original file through `DB_PATH`, its original `PLATFORM_DEPLOYMENT` and the credential for that deployment; the app refuses a database/deployment mismatch.
 

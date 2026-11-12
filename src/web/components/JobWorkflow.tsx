@@ -5,6 +5,7 @@ import type { AppConfig, ContractView, PayoutView, VoteAnswer } from "../types";
 import { SignInGate } from "./Account";
 import { type Act, ApprovalCard, ATTEMPT, StateNote } from "./Payouts";
 import { SignBox } from "./SignBox";
+import { ReviewAssistant } from "./ReviewAssistant";
 import { Alert, Badge, Button, Card, CardHeader, Disclosure, Mono, timeText, type Tone, usd } from "./ui";
 import { useSession } from "../session";
 
@@ -83,6 +84,9 @@ function CancelHeld({ p, config, act }: { p: PayoutView; config: AppConfig; act:
 
 export function AgencyJobWorkflow({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const session = useSession();
+  const reviewer = session.required ? session.account : "demo";
+  const reviewEnabled = config.review?.enabled ?? false;
   return <div className="stack">
     <Card>
       <CardHeader title="Submission and review" sub="Accepted job → builder report and invoice → proposal → agency approval → settlement" />
@@ -98,6 +102,15 @@ export function AgencyJobWorkflow({ c, config, act }: { c: ContractView; config:
         <div className="stack">
           <SubmissionDetails s={s} c={c} />
           {s.state === "submitted" ? <Button icon="bot" disabled={c.stage !== "active"} onClick={() => act(() => api("POST", `/submissions/${s.id}/propose`, {}))}>Propose compensation</Button> : null}
+          {reviewable ? <ReviewAssistant
+            key={`${reviewer}:${c.hash}:${s.id}:${s.state}:${s.judgment_id ?? ""}`}
+            c={c}
+            s={s}
+            enabled={reviewEnabled}
+            disabled={session.loading || (session.required && !session.account)}
+            existingFeedback={reasons[s.id] ?? ""}
+            onApply={(feedback) => setReasons((current) => ({ ...current, [s.id]: feedback }))}
+          /> : null}
           {reviewable ? <form className="job-change-form" onSubmit={(e) => { e.preventDefault(); void act(() => api("POST", `/submissions/${s.id}/changes`, { reason: reasons[s.id] ?? "" })); }}>
             <label className="field"><span className="field-label">Changes needed</span><textarea value={reasons[s.id] ?? ""} onChange={(e) => setReasons({ ...reasons, [s.id]: e.target.value })} rows={2} minLength={3} maxLength={2000} required /></label>
             <Button type="submit" variant="secondary" disabled={(reasons[s.id]?.trim().length ?? 0) < 3}>Request changes</Button>

@@ -88,12 +88,11 @@ export function GuidePage() {
 
       <section className="card card-pad">
         <h2 className="h2">Run it locally</h2>
-        <pre className="code">{`bun install
-bun run demo:job   # report and invoice on the platform stand-in: no keys, no network
-bun run demo:e2e   # legacy Pay on merge on the stand-in
-bun run demo       # this UI, on the stand-in
-bun run demo:stack # against the local MultiAgency platform stack
-bun test`}</pre>
+        <pre className="code">{`bun install --frozen-lockfile
+bun run demo:desk    # interactive offline workspace with simulated sources
+bun run demo:full    # isolated SDK stack and app; simulated funds
+bun run demo:browser # automated builder workflow with simulated payment
+bun run demo:e2e     # legacy Pay on merge on the stand-in`}</pre>
       </section>
     </div>
   );

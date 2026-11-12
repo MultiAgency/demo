@@ -19,8 +19,8 @@ const ids = {
 const tables = ["contracts", "judgments", "job_submissions", "job_invoices", "payout_attempts", "payout_lines", "events"];
 
 /** Disposable ledger fixture only: no runtime, provider, key or payment operation is created. */
-function fixture(state: "rejected" | "unknown" | "processing" | "paid" | "failed" = "rejected", proof = 0, legacy = false,
-  options: { resolution?: "reowe" | "rejected" | "arrived"; v2?: boolean; txHash?: string; refundTxHash?: string } = {}) {
+function fixture(state: "rejected" | "refused" | "unknown" | "processing" | "paid" | "failed" = "rejected", proof: number | string | null = 0, legacy = false,
+  options: { resolution?: "reowe" | "rejected" | "arrived" | "disputed"; v2?: boolean; txHash?: string; refundTxHash?: string; refundedAmount?: string; refundColumnMissing?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "paperwork-rejection-compat-"));
   directories.push(dir);
   const path = join(dir, "fixture.sqlite");
@@ -41,13 +41,15 @@ function fixture(state: "rejected" | "unknown" | "processing" | "paid" | "failed
       .run(ids.invoice, ids.submission, ids.contract, "COMPAT-INV-001", "300000000");
     db.query("INSERT INTO payout_attempts (request_id, kind, contract_id, seq, attempt, run_id, recipient, amount_atomic, state, correlation_id, approval_id, vote, vote_correlation_id, never_executed, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(ids.request, "payout", ids.contract, 1, 1, ids.judgment, terms.payee.address, "300000000", state,
-        ids.payment, ids.approval, state === "rejected" ? "reject" : "approve", ids.vote, proof, at, at);
-    db.query("UPDATE payout_attempts SET resolution = ?, tx_hash = ?, refund_tx_hash = ? WHERE request_id = ?")
-      .run(options.resolution ?? null, options.txHash ?? null, options.refundTxHash ?? null, ids.request);
+        ids.payment, ids.approval, state === "rejected" ? "reject" : "approve", ids.vote, proof ?? 0, at, at);
+    db.query("UPDATE payout_attempts SET resolution = ?, tx_hash = ?, refund_tx_hash = ?, refunded_amount = ? WHERE request_id = ?")
+      .run(options.resolution ?? null, options.txHash ?? null, options.refundTxHash ?? null, options.refundedAmount ?? null, ids.request);
     db.query("INSERT INTO payout_lines (request_id, deliverable_id, amount_atomic) VALUES (?, ?, ?)").run(ids.request, "d1", "300000000");
     db.query("INSERT INTO events (contract_id, at, kind, text) VALUES (?, ?, ?, ?)").run(ids.contract, at, "fixture", "Original payout identity retained");
-    // Model the earlier schema in this disposable fixture, never an application database.
+    // A malformed nullable proof column and the earlier absent-column schema are disposable fixtures only.
+    if (proof === null) db.exec("ALTER TABLE payout_attempts DROP COLUMN never_executed; ALTER TABLE payout_attempts ADD COLUMN never_executed INTEGER");
     if (legacy) db.exec("ALTER TABLE payout_attempts DROP COLUMN never_executed");
+    if (options.refundColumnMissing) db.exec("ALTER TABLE payout_attempts DROP COLUMN refunded_amount");
   } finally { db.close(); }
   return path;
 }
@@ -72,6 +74,18 @@ function refuse(path: string) {
   expect(message.toLowerCase()).toContain("reconcil");
   expect(message.toLowerCase()).not.toMatch(/delete|reset/);
 }
+
+function change(path: string, edit: (db: Database) => void) {
+  const db = new Database(path, { strict: true });
+  try { edit(db); }
+  finally { db.close(); }
+}
+
+const releaseCases = [
+  { name: "rejected", state: "rejected" as const, resolution: undefined },
+  { name: "failed/reowe", state: "failed" as const, resolution: "reowe" as const },
+  { name: "failed/rejected", state: "failed" as const, resolution: "rejected" as const },
+];
 
 test("a pre-proof rejected payout refuses before schema migration and preserves its complete ledger", () => {
   const path = fixture("rejected", 0, true);
@@ -130,53 +144,174 @@ test("repeated refusal cannot partially migrate an unsafe ledger into a subseque
   }
 });
 
-test("pre-proof v3 freeing manual resolutions refuse startup and preserve any already-created replacement identity", () => {
-  for (const resolution of ["reowe", "rejected"] as const) {
+for (const version of [2, 3] as const) {
+  for (const released of releaseCases) {
+    for (const proof of [
+      { name: "absent", value: 0, legacy: true },
+      { name: "zero", value: 0, legacy: false },
+      { name: "null", value: null, legacy: false },
+      { name: "malformed text", value: "true", legacy: false },
+      { name: "other integer", value: 2, legacy: false },
+      { name: "fraction", value: 0.5, legacy: false },
+    ]) {
+      test(`v${version} ${released.name} with ${proof.name} proof refuses twice without migration or record changes`, () => {
+        const path = fixture(released.state, proof.value, proof.legacy, { resolution: released.resolution, v2: version === 2 });
+        const before = snapshot(path);
+        refuse(path);
+        refuse(path);
+        expect(snapshot(path)).toEqual(before);
+      });
+    }
+
+    test(`v${version} ${released.name} with consistent proof reopens repeatedly without rewriting history`, () => {
+      const path = fixture(released.state, 1, false, { resolution: released.resolution, v2: version === 2 });
+      const before = snapshot(path);
+      openDb(path).close();
+      openDb(path).close();
+      expect(snapshot(path)).toEqual(before);
+    });
+
+    for (const evidence of [
+      { name: "payment transaction", fields: { txHash: "fixture-positive-tx" } },
+      { name: "refund transaction", fields: { refundTxHash: "fixture-refund-tx" } },
+      { name: "refunded amount", fields: { refundedAmount: "300000000" } },
+      { name: "zero refund observation", fields: { refundedAmount: "0" } },
+      { name: "malformed empty transaction", fields: { txHash: "" } },
+    ]) {
+      test(`v${version} ${released.name} proof cannot override ${evidence.name} evidence`, () => {
+        const path = fixture(released.state, 1, false, { resolution: released.resolution, v2: version === 2, ...evidence.fields });
+        const before = snapshot(path);
+        refuse(path);
+        refuse(path);
+        expect(snapshot(path)).toEqual(before);
+      });
+    }
+
     for (const legacy of [true, false]) {
-      const path = fixture("failed", 0, legacy, { resolution });
-      const db = new Database(path, { strict: true });
-      try {
-        // Earlier code may already have created a replacement after freeing the original uncertain amount.
-        db.query("INSERT INTO payout_attempts (request_id, kind, contract_id, seq, attempt, run_id, recipient, amount_atomic, state, correlation_id, created_at, updated_at) VALUES (?, 'payout', ?, 2, 1, ?, 'maria.demo', '300000000', 'unknown', ?, ?, ?)")
-          .run("compat-replacement-request", ids.contract, ids.judgment, "compat-replacement-payment", "2026-11-20T12:01:00Z", "2026-11-20T12:01:00Z");
-      } finally { db.close(); }
+      test(`v${version} ${released.name} refusal preserves an existing replacement with ${legacy ? "absent" : "zero"} proof`, () => {
+        const path = fixture(released.state, 0, legacy, { resolution: released.resolution, v2: version === 2 });
+        change(path, (db) => {
+          // Earlier code may already have created a replacement after freeing the original uncertain amount.
+          db.query("INSERT INTO payout_attempts (request_id, kind, contract_id, seq, attempt, run_id, recipient, amount_atomic, state, correlation_id, created_at, updated_at) VALUES (?, 'payout', ?, 2, 1, ?, 'maria.demo', '300000000', 'unknown', ?, ?, ?)")
+            .run("compat-replacement-request", ids.contract, ids.judgment, "compat-replacement-payment", "2026-11-20T12:01:00Z", "2026-11-20T12:01:00Z");
+        });
+        const before = snapshot(path);
+        refuse(path);
+        refuse(path);
+        expect(snapshot(path)).toEqual(before);
+        expect(before.rows.payout_attempts!.map((row) => row.request_id)).toEqual([ids.request, "compat-replacement-request"]);
+      });
+    }
+  }
+
+  for (const state of ["unknown", "processing", "paid", "failed"] as const) {
+    test(`v${version} ordinary ${state} records still migrate missing proof without changing their identities`, () => {
+      const path = fixture(state, 0, true, { v2: version === 2 });
+      const before = snapshot(path);
+      openDb(path).close();
+      const after = snapshot(path);
+      const { never_executed, ...retained } = after.rows.payout_attempts![0]!;
+      expect(never_executed).toBe(0);
+      expect(retained).toEqual(before.rows.payout_attempts![0]!);
+      for (const table of tables.filter((table) => table !== "payout_attempts")) expect(after.rows[table]).toEqual(before.rows[table]);
+    });
+  }
+
+  for (const resolution of ["arrived", "disputed"] as const) {
+    for (const legacy of [true, false]) {
+      test(`v${version} manual ${resolution} retains its existing commitment and compatibility with ${legacy ? "absent" : "zero"} proof`, () => {
+        const path = fixture("failed", 0, legacy, { resolution, v2: version === 2, txHash: "fixture-reported-payment" });
+        const before = snapshot(path);
+        openDb(path).close();
+        openDb(path).close();
+        const after = snapshot(path);
+        const { never_executed, ...retained } = after.rows.payout_attempts![0]!;
+        expect(never_executed).toBe(0);
+        const { never_executed: beforeProof, ...beforeRetained } = before.rows.payout_attempts![0]!;
+        expect(retained).toEqual(beforeRetained);
+        for (const table of tables.filter((table) => table !== "payout_attempts")) expect(after.rows[table]).toEqual(before.rows[table]);
+      });
+    }
+  }
+
+  for (const proof of [0, 1] as const) {
+    for (const evidence of [
+      { name: "payment transaction", fields: { txHash: "fixture-positive-tx" } },
+      { name: "refund transaction", fields: { refundTxHash: "fixture-refund-tx" } },
+      { name: "refunded amount", fields: { refundedAmount: "300000000" } },
+    ]) {
+      test(`v${version} refused with proof ${proof} and ${evidence.name} cannot free conflicting payment history`, () => {
+        const path = fixture("refused", proof, false, { v2: version === 2, ...evidence.fields });
+        const before = snapshot(path);
+        refuse(path);
+        refuse(path);
+        expect(snapshot(path)).toEqual(before);
+      });
+    }
+  }
+
+  for (const legacy of [false, true]) {
+    test(`v${version} ordinary refused without counterevidence remains compatible with ${legacy ? "missing" : "present"} proof/refund columns`, () => {
+      const path = fixture("refused", 0, legacy, { v2: version === 2, refundColumnMissing: legacy });
+      const before = snapshot(path);
+      openDb(path).close();
+      const after = snapshot(path);
+      const { never_executed, refunded_amount, ...retained } = after.rows.payout_attempts![0]!;
+      const { never_executed: beforeProof, refunded_amount: beforeRefund, ...beforeRetained } = before.rows.payout_attempts![0]!;
+      expect(never_executed).toBe(0);
+      expect(refunded_amount).toBeNull();
+      expect(retained).toEqual(beforeRetained);
+      for (const table of tables.filter((table) => table !== "payout_attempts")) expect(after.rows[table]).toEqual(before.rows[table]);
+    });
+  }
+
+  test(`v${version} an older consistent proof-bearing release receives only a null refund observation column`, () => {
+    const path = fixture("failed", 1, false, { resolution: "reowe", v2: version === 2, refundColumnMissing: true });
+    const before = snapshot(path);
+    openDb(path).close();
+    openDb(path).close();
+    const after = snapshot(path);
+    const { refunded_amount, ...retained } = after.rows.payout_attempts![0]!;
+    expect(refunded_amount).toBeNull();
+    expect(retained).toEqual(before.rows.payout_attempts![0]!);
+    for (const table of tables.filter((table) => table !== "payout_attempts")) expect(after.rows[table]).toEqual(before.rows[table]);
+  });
+
+  test(`v${version} unsafe older releases refuse before adding the refund observation column`, () => {
+    for (const state of ["failed", "refused", "rejected"] as const) {
+      const path = fixture(state, 0, true, { resolution: state === "failed" ? "reowe" : undefined, v2: version === 2,
+        txHash: state === "refused" ? "fixture-contradictory-tx" : undefined, refundColumnMissing: true });
+      const before = snapshot(path);
+      expect(before.rows.payout_attempts![0]!).not.toHaveProperty("refunded_amount");
+      refuse(path);
+      refuse(path);
+      expect(snapshot(path)).toEqual(before);
+    }
+  });
+}
+
+for (const released of releaseCases) {
+  for (const terms of ["not JSON", '{"v":1}', '{"v":999}', "{}", "null"]) {
+    test(`${released.name} cannot bypass proof checks through unsupported terms ${terms}`, () => {
+      const path = fixture(released.state, 0, false, { resolution: released.resolution });
+      change(path, (db) => db.query("UPDATE contracts SET terms = ? WHERE id = ?").run(terms, ids.contract));
       const before = snapshot(path);
       refuse(path);
       refuse(path);
       expect(snapshot(path)).toEqual(before);
-      expect(before.rows.payout_attempts!.map((r) => r.request_id)).toEqual([ids.request, "compat-replacement-request"]);
-    }
+    });
   }
-});
 
-test("v3 freeing manual resolutions reopen only with non-execution proof and no contradictory transaction evidence", () => {
-  for (const resolution of ["reowe", "rejected"] as const) {
-    const safePath = fixture("failed", 1, false, { resolution });
-    const before = snapshot(safePath);
-    openDb(safePath).close();
-    expect(snapshot(safePath)).toEqual(before);
-    for (const evidence of [{ txHash: "fixture-positive-tx" }, { refundTxHash: "fixture-refund-tx" }]) {
-      const unsafePath = fixture("failed", 1, false, { resolution, ...evidence });
-      const unsafeBefore = snapshot(unsafePath);
-      refuse(unsafePath);
-      expect(snapshot(unsafePath)).toEqual(unsafeBefore);
-    }
-  }
-});
-
-test("manual arrived and v2 legacy failure review retain their existing compatibility behavior", () => {
-  const arrived = fixture("failed", 0, false, { resolution: "arrived" });
-  const arrivedBefore = snapshot(arrived);
-  openDb(arrived).close();
-  expect(snapshot(arrived)).toEqual(arrivedBefore);
-  for (const resolution of ["reowe", "rejected"] as const) {
-    const legacy = fixture("failed", 0, true, { resolution, v2: true });
-    const before = snapshot(legacy);
-    openDb(legacy).close();
-    const after = snapshot(legacy);
-    const { never_executed, ...retained } = after.rows.payout_attempts![0]!;
-    expect(never_executed).toBe(0);
-    expect(retained).toEqual(before.rows.payout_attempts![0]!);
-    for (const table of tables.filter((table) => table !== "payout_attempts")) expect(after.rows[table]).toEqual(before.rows[table]);
-  }
-});
+  test(`${released.name} cannot bypass proof checks through a missing parent contract`, () => {
+    const path = fixture(released.state, 0, false, { resolution: released.resolution });
+    change(path, (db) => {
+      // Deliberately damaged disposable history: the proof check must not hide it behind an inner join.
+      db.exec("PRAGMA foreign_keys = OFF");
+      db.query("UPDATE payout_attempts SET contract_id = ? WHERE request_id = ?").run("missing-parent-contract", ids.request);
+    });
+    const before = snapshot(path);
+    refuse(path);
+    refuse(path);
+    expect(snapshot(path)).toEqual(before);
+  });
+}

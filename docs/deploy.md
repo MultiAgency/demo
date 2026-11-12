@@ -1,11 +1,15 @@
 # Deploying the app server
 
 The app server, with the web app it serves, is configured for Railway: project `paperwork`, one service `server`, built from this
-repository's `Dockerfile` with the settings in `.railway/railway.ts`. Its target is `paperwork.multiagency.ai`.
+repository's `Dockerfile` with the settings in `.railway/railway.ts`. Its target is `desk.multiagency.ai`.
+
+`paperwork.multiagency.ai` already hosts Documenso. Keep that hostname and service intact; the Paperwork app uses `desk.multiagency.ai` while retaining deployment `multiagency-paperwork` and Railway project `paperwork`.
+
+All of Paperwork lives at `desk.multiagency.ai`: private work, agency offers and approvals, public openings, onboarding and connected Market work. Use `PUBLIC_URL=https://desk.multiagency.ai` for the single service and mounted database. Public openings remain shareable at `/#/openings`; private views retain their named-party authorization. The separate Jobs host plan was dropped. Remove any nonempty `PAPERWORK_JOBS_PUBLIC_URL` from local/service configuration; startup rejects that retired setting. No browser state, accepted terms or pending payment is migrated between origins. See the [Desk walkthrough](jobs-portal.md). Hostname configuration and deployment remain pending authorization.
 
 **Not deployed yet.** Production deploys are paused (workspace `AGENTS.md`), and the market's live hires wait for the
 platform's first staging hire, run by the owner with small amounts. Staging comes first: this service against the
-platform at `api.dev.multiagency.ai`, on its Railway domain or a staging subdomain, not `paperwork.multiagency.ai`.
+platform at `api.dev.multiagency.ai`, on its Railway domain or a staging subdomain, not `desk.multiagency.ai`.
 `api.dev.multiagency.ai` runs on mainnet: real agents, owners and funds. When the platform's production host
 (`api.multiagency.ai`) exists, the same service moves there by changing `PLATFORM_URL` and the credential, which is
 issued per host.
@@ -41,16 +45,19 @@ Existing job rows retain their original `covenant` signing recipient, including 
 | `PLATFORM_CREDENTIAL` | the `tap_…` token (secret) |
 | `REQUIRED_MOUNT` | `/data` |
 | `DB_PATH` | `/data/paperwork.sqlite` |
-| `PUBLIC_URL` | `https://<host>`, the service's domain. Sign-in names this host, so it isn't changed once owners have signed in |
+| `PUBLIC_URL` | `https://<host>`, the Paperwork entry (production target `https://desk.multiagency.ai`) |
 | `BETTER_AUTH_SECRET` | `openssl rand -base64 32` (secret) |
 | `SIWN_RECIPIENT` | the NEP-413 recipient sign-in names (default `multiagentic.near`) |
 | `NEAR_RPC_URL` | optional: NEAR RPC for key checks and DAO roles (default `https://rpc.mainnet.fastnear.com`) |
 | `GITHUB`, `GITHUB_TOKEN` | `github`, and a token for the GitHub API's rate limit (secret) |
 | `NEARAI_API_KEY` | optional: the NEAR AI Cloud judge (secret); without it the rule-based judge runs |
 | `MARKET_URL` | optional: the market's HTTP API (default `https://market.near.ai`) |
+| `PAPERWORK_MARKET_BOARD_TOKEN` | optional server-held `aat_` token for the public Market board. Independent of worker/webhook/agency setup; falls back to the configured worker token. Never browser-visible |
 | `MARKET_AGENT_TOKEN`, `MARKET_WEBHOOK_SECRET`, `MARKET_WORKER_AGENCY` | optional, all three or none: the worker side (secrets). The market's webhook URL is `<PUBLIC_URL>/api/market/webhook` |
 
 `PORT` and `RAILWAY_VOLUME_MOUNT_PATH` are Railway's. `.env.example` lists the rest, each with a default.
+
+Published MultiAgency openings use anonymous reads of `https://multiagency.ai/api/settings` and NEARN's public sponsor catalog. No credential is needed for that source. Market's board API requires its own agent token even though it returns the same public set to each caller; without one, that source shows an unavailable state and a direct Market link. Neither source forwards the visitor's cookies or creates a bid, application or payment.
 
 ## Service settings
 
@@ -93,7 +100,7 @@ git worktree remove /tmp/paperwork-deploy
 ```
 
 The first deploy: set the variables, `railway config apply`, deploy, then `railway domain` for the service. Staging uses
-the domain Railway shows; `paperwork.multiagency.ai` gets a CNAME at it once production is unpaused. Set `PUBLIC_URL` to the
+the domain Railway shows; `desk.multiagency.ai` gets a CNAME at it once production is unpaused. Set `PUBLIC_URL` to the
 domain before the first owner signs in.
 
 Then: `GET https://<host>/api/health` answers `{"ok":true}`, `/api/config` shows `"platform":"remote"` and the

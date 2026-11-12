@@ -20,18 +20,22 @@ export interface Config {
   githubToken: string | null;
   /** The agent's judge. NEAR AI Cloud when NEARAI_API_KEY is set, otherwise rule-based. */
   judge: { kind: "rules" | "near-ai"; apiKey: string | null; model: string; baseUrl: string; assessmentTimeoutMs: number };
+  /** Dedicated review profile under the Hermes team account. Never sent to the browser. */
+  review: { url: string; apiKey: string; model: string; provider: string; timeoutMs: number } | null;
   /** Check for new merges on a timer (ms). 0 = only when "Run agent" is pressed. */
   pollMs: number;
   /** Sign in with NEAR (Better-Auth + better-near-auth). */
-  auth: { secret: string | null; publicUrl: string; recipient: string; required: boolean };
+  auth: { secret: string | null; publicUrl: string; enforcePublicHost: boolean; recipient: string; required: boolean };
   /**
    * The agent market (src/server/market). `url` is the market's HTTP API (the local stack's own market overrides it).
    * The worker's token and webhook secret are server secrets: never in /api/config, events, logs or URLs.
    */
-  market: { url: string | null; worker: { token: string; secret: string; agencyId: string } | null };
+  market: { url: string | null; boardToken: string | null; worker: { token: string; secret: string; agencyId: string } | null };
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
+  if (env.PAPERWORK_JOBS_PUBLIC_URL)
+    throw new Error("Remove PAPERWORK_JOBS_PUBLIC_URL; use PUBLIC_URL for the single Paperwork app origin.");
   // A production image never falls back to the keyless stand-in (and its demo controls) because a variable is missing.
   if (env.NODE_ENV === "production" && !env.PLATFORM) throw new Error("Set PLATFORM (remote, or fake for the keyless stand-in) when NODE_ENV=production.");
   const platform = (env.PLATFORM ?? "fake") as Config["platform"];
@@ -67,17 +71,40 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       baseUrl: env.NEARAI_BASE_URL || "https://cloud-api.near.ai/v1",
       assessmentTimeoutMs: Number(env.PAPERWORK_ASSESSMENT_TIMEOUT_MS ?? 30_000),
     },
+    review: env.PAPERWORK_HERMES_URL && env.PAPERWORK_HERMES_API_KEY ? {
+      url: reviewEndpoint(env.PAPERWORK_HERMES_URL),
+      apiKey: env.PAPERWORK_HERMES_API_KEY,
+      model: env.PAPERWORK_HERMES_MODEL || env.NEARAI_MODEL || "z-ai/glm-5.3-flash",
+      provider: env.PAPERWORK_HERMES_PROVIDER || "custom:near",
+      timeoutMs: Number(env.PAPERWORK_REVIEW_TIMEOUT_MS ?? 90_000),
+    } : null,
     pollMs: env.AGENT_POLL_MS ? Number(env.AGENT_POLL_MS) : 0,
     auth: {
       secret: env.BETTER_AUTH_SECRET || null,
       publicUrl: env.PUBLIC_URL || `http://localhost:${env.PORT ?? 3000}`,
+      enforcePublicHost: !!env.PUBLIC_URL || production || env.NODE_ENV === "production",
       recipient: env.SIWN_RECIPIENT || "multiagentic.near",
       required: production || env.REQUIRE_AUTH === "true",
     },
-    market: { url: env.MARKET_URL || null, worker: null },
+    market: { url: env.MARKET_URL || null, boardToken: env.PAPERWORK_MARKET_BOARD_TOKEN || null, worker: null },
   };
 
+  cfg.auth.publicUrl = publicOrigin(cfg.auth.publicUrl, "PUBLIC_URL");
+  if (!!env.PAPERWORK_HERMES_URL !== !!env.PAPERWORK_HERMES_API_KEY)
+    throw new Error("Set PAPERWORK_HERMES_URL and PAPERWORK_HERMES_API_KEY together.");
+  if (cfg.review) {
+    const url = new URL(cfg.review.url);
+    if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+      throw new Error("PAPERWORK_HERMES_URL requires HTTPS except on loopback.");
+    if (!Number.isSafeInteger(cfg.review.timeoutMs) || cfg.review.timeoutMs < 1000 || cfg.review.timeoutMs > 300_000)
+      throw new Error("PAPERWORK_REVIEW_TIMEOUT_MS must be an integer between 1000 and 300000.");
+    if (cfg.review.apiKey.trim().length < 16 || /[\r\n]/.test(cfg.review.apiKey))
+      throw new Error("PAPERWORK_HERMES_API_KEY must be a valid server credential of at least 16 characters.");
+  }
+
   const workerVars = [env.MARKET_AGENT_TOKEN, env.MARKET_WEBHOOK_SECRET, env.MARKET_WORKER_AGENCY];
+  if (cfg.market.boardToken && !cfg.market.boardToken.startsWith("aat_"))
+    throw new Error("PAPERWORK_MARKET_BOARD_TOKEN must be a server-held aat_ agent token.");
   if (workerVars.some(Boolean)) {
     if (!workerVars.every(Boolean)) throw new Error("The market worker needs MARKET_AGENT_TOKEN, MARKET_WEBHOOK_SECRET and MARKET_WORKER_AGENCY together.");
     if (!env.MARKET_AGENT_TOKEN!.startsWith("aat_")) throw new Error("MARKET_AGENT_TOKEN must be the agent's aat_ token.");
@@ -99,6 +126,23 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!Number.isFinite(cfg.consentGraceDays) || cfg.consentGraceDays < 0) throw new Error("CONSENT_GRACE_DAYS must be a number of days");
   if (!Number.isFinite(cfg.statusPollMs) || cfg.statusPollMs <= 0) throw new Error("STATUS_POLL_MS must be a positive number of ms");
   return cfg;
+}
+
+/** Only explicit origins become sign-in hosts; never accept paths, credentials or wildcard subdomains. */
+function publicOrigin(value: string, variable: string): string {
+  const url = URL.canParse(value) ? new URL(value) : null;
+  if (!url || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash || url.hostname.includes("*"))
+    throw new Error(`${variable} must be an http(s) origin without credentials, path, query or fragment.`);
+  return url.origin;
+}
+
+/** Team gateways may expose a dedicated profile at /p/<profile>. */
+function reviewEndpoint(value: string): string {
+  const url = URL.canParse(value) ? new URL(value) : null;
+  if (!url || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.hostname.includes("*") ||
+    (url.pathname !== "/" && !/^\/p\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/?$/.test(url.pathname)))
+    throw new Error("PAPERWORK_HERMES_URL must be an http(s) origin, optionally /p/<profile>, without credentials, query or fragment.");
+  return `${url.origin}${url.pathname === "/" ? "" : url.pathname.replace(/\/$/, "")}`;
 }
 
 /**
