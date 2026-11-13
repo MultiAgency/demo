@@ -226,14 +226,23 @@ export class Engine {
 
   async getContract(id: string): Promise<ContractView> {
     this.row(id);
+    let setupError: string | null = null;
     await this.mutex.run(id, async () => {
+      try {
+        await this.onboarding.reconcile(id);
+      } catch (err) {
+        this.log(`setup status ${id}: ${errText(err)}`);
+        setupError = err instanceof UserError ? err.message : "The platform status check failed. Refresh status to try again.";
+        return; // Preserve the saved view and do not advance other work after a failed setup observation.
+      }
       try {
         await this.followUpLocked(id);
       } catch (err) {
         this.log(`follow-up ${id}: ${errText(err)}`);
       }
     });
-    return this.view(id);
+    const view = await this.view(id);
+    return setupError ? { ...view, next_step: { kind: "wait", label: "Setup status could not refresh", retry_ms: 5000, error: setupError } } : view;
   }
 
   // ================================================================ term signatures (NEP-413)
@@ -1228,9 +1237,11 @@ export class Engine {
       if (saved.kind && saved.request) return { kind: "dao_vote", retry_ms: 2000, label: "Waiting for the DAO vote", request: saved.request };
       if (saved.kind) return { kind: "wait", retry_ms: 2000, label: "Recovering the original DAO access request" };
       const p = JSON.parse(a.pending_sign) as { step: "setup" | "consent_payout" | "consent_owner"; message: string; nonce: string; recipient: string };
-      return { kind: "sign", step: p.step, label: "Sign in your wallet", sign: { account_id: a.owner, message: p.message, recipient: p.recipient, nonce: p.nonce } };
+      return { kind: "sign", step: p.step, label: p.step === "setup" ? "Authorize platform setup" : p.step === "consent_payout" ? "Authorize payout requests until the job ends" : "Authorize owner-action preparation and read access after the job ends", sign: { account_id: a.owner, message: p.message, recipient: p.recipient, nonce: p.nonce } };
     }
     const s = this.d.db.query("SELECT * FROM owner_steps WHERE organization = ? AND kind != 'approval_vote' ORDER BY created_at DESC, rowid DESC LIMIT 1").get(a.organization) as OwnerStepRow | null;
+    if (stage === "policy_pending") return { kind: "wait", retry_ms: 2000, label: "Waiting for the signed policy to be in force" };
+    if (s && (s.state === "submitted" || s.state === "unknown")) return { kind: "wait", retry_ms: 2000, label: "Checking the original signed action; do not sign again" };
     if (s && s.state === "prepared") return stepView(s, a.owner, s.standard === "dao" ? "Vote in the DAO" : "Sign in your wallet");
     return null;
   }

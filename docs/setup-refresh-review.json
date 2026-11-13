@@ -1,0 +1,81 @@
+{
+  "recorded_at": "2026-11-13T03:50:11.374915+00:00",
+  "base_commit": "422eacfd6135db691f53ad1c774b1e30f270ce50",
+  "candidate": "uncommitted local changes; not deployed",
+  "source_sha256": {
+    "PROGRESS.md": "18468755d6c0835e1211c1b7e650b7b3a2e23715557a671b0ae288b2657fc317",
+    "TASKS.md": "165ad1059ee75b0142c5d04744e835689733042101d09dbdc6770c6725d3aa1e",
+    "scripts/demo-browser.ts": "f8528b0e2beb12d9cfbe879225c75330baa2326b55147abf8d312c24f7efe623",
+    "src/server/engine.ts": "868af2b27478f568a80c3c31834cb798690349104a3bd6b41c7eff38ca1a5971",
+    "src/server/onboarding.ts": "d13d2142ecd68a74bbea32a3ad51854a48c8e36c2d9f3df750e23f2597b3893f",
+    "src/shared/views.ts": "4c91a55bb578e404110eb8cef0639939220641b6b8d1569cb07fe9a081c8f4a5",
+    "src/web/pages/Contract.tsx": "4452e4754522f5f5df90bcc782846cf827a4a021c2f4fff49e989c97c58e4f33",
+    "tests/onboarding-refresh.test.ts": "9ea2791b5cf5b02db5d57593a1d3af05b061541bcd1d805fa9aab89d0762c1e9"
+  },
+  "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+  "gateway_pin_unchanged": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+  "checks": [
+    {
+      "command": "bun run typecheck",
+      "result": "pass"
+    },
+    {
+      "command": "bun --no-env-file test",
+      "result": "1567 pass, 0 fail, 10525 assertions, 69 files; rerun after final review fix"
+    },
+    {
+      "command": "bun --no-env-file scripts/demo-browser.ts",
+      "result": "pass; simulated external creation recognized on reload and external policy completion by automatic polling; full revised job settled once; desktop/mobile captures"
+    },
+    {
+      "command": "bun scripts/check-sdk-pin.ts",
+      "result": "pass; pins unchanged"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "evidence_directory": "data/release-evidence/setup-refresh",
+  "browser_job": "c_5048d896ad77",
+  "scope": "Observe only existing setup work on representative refresh; no new prepare/file/submit during reconciliation; distinguish consent substeps; one authoritative UI snapshot",
+  "limitations": [
+    "All new acceptance is offline with fixture accounts, signatures, provider and payment settlement.",
+    "Initial sandbox runs could not bind loopback ports; approved reruns passed without weakening assertions.",
+    "Not committed, pushed or deployed. Hosted behavior of this correction is unverified.",
+    "No hosted funding, payment or DAO acceptance was performed.",
+    "Consent submission with an unknown outcome still requires reconciliation; this change does not invent lost-signature or lost-filing recovery."
+  ],
+  "reviewed_at": "2026-11-13T03:52:43.697522+00:00",
+  "browser_verified_source_sha256": {
+    "src/server/engine.ts": "b704d02f819a2bb32c1261b4d5045d6052a53359726fa27a87a5b295a4b5d854",
+    "src/server/onboarding.ts": "d13d2142ecd68a74bbea32a3ad51854a48c8e36c2d9f3df750e23f2597b3893f",
+    "src/web/pages/Contract.tsx": "6c202eebec4c57e39ec01653c2ee3feefa929f5a19f9f77813690fe7c51508bb",
+    "scripts/demo-browser.ts": "f8528b0e2beb12d9cfbe879225c75330baa2326b55147abf8d312c24f7efe623",
+    "tests/onboarding-refresh.test.ts": "723747bd4bf3b2f5f9e70ea4c34b082289df5585022d4833b1d08c03e2b37a9f"
+  },
+  "browser_evidence_boundary": "Browser walkthrough passed before the final failed-status-check hardening; that error path was then verified by regression tests and the complete offline suite. Browser was not rerun for the error-only rendering change.",
+  "reviewed_file_set": [
+    "PROGRESS.md",
+    "TASKS.md",
+    "scripts/demo-browser.ts",
+    "src/server/engine.ts",
+    "src/server/onboarding.ts",
+    "src/shared/views.ts",
+    "src/web/pages/Contract.tsx",
+    "tests/onboarding-refresh.test.ts",
+    "docs/setup-refresh-review.json"
+  ],
+  "review_findings": [
+    {
+      "problem": "A thrown setup observation could hide the job on refresh.",
+      "resolution": "Preserve the saved view, display the check error, skip further workflow follow-up for that failed read and recover on subsequent refresh.",
+      "verification": "DAO observation transport failure regression retains signatures and stage, does not refile and then advances after recovery."
+    },
+    {
+      "problem": "Progress notes conflated Market setup closure with Payables admission.",
+      "resolution": "Distinguished the closed Market window and subsequently confirmed Payables admission; marked subsequent hosted setup progress as owner-reported."
+    }
+  ],
+  "proposed_commit_message": "Fix setup status reconciliation and consent progress"
+}

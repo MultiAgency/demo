@@ -1,10 +1,16 @@
 # Tasks
 
-Paperwork is deployed at https://desk.multiagency.ai from `ef73b58`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-ef73b58.json). Scoped wallet login and both exact job-terms signatures are complete. DAO/setup/registration/payment actions remain separately unapproved.
+Paperwork is deployed at https://desk.multiagency.ai from `ef73b58`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-ef73b58.json). Scoped wallet login and both exact job-terms signatures are complete. The owner subsequently supervised registration and wallet-owned setup through policy revision 2; funding and payment remain unapproved. These are user-reported hosted checkpoints, separate from the retained deployment receipt.
 
 Current pins, completed acceptance and remaining gates: [release-status.json](docs/release-status.json). Dated implementation checkpoints below are historical evidence.
 
 Work on one task at a time, with a concrete result and an appropriate check. Routine implementation choices within an authorized task do not need another approval round; changes to authority or live operations follow [RULES.md](RULES.md).
+
+## Current task: setup status reconciliation
+
+- [x] Make ordinary representative refresh observe existing owner actions and DAO votes without preparing, filing or submitting new actions.
+- [x] Use one server snapshot for setup actions; distinguish payout consent from owner/read consent and provide Refresh status throughout setup.
+- [x] Finish final offline browser verification and record the exact local candidate in [setup refresh review](docs/setup-refresh-review.json). No deployment is included.
 
 ## Selected priority: payment and recovery
 

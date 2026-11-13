@@ -1,4 +1,5 @@
 /** Actual browser UI walkthrough; all accounts, signatures and payments are fixtures. */
+import type { Database } from "bun:sqlite";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -234,9 +235,29 @@ try {
   step("Agency and builder sign the same immutable terms through separate browser sessions");
 
   for (let i = 0; i < 30 && (await view()).stage !== "active"; i++) {
+    const pending = (await view()).next_step;
+    if (!stack && pending?.kind === "owner_step" && (pending.confirm || pending.sign) && (pending.action === "agent_create" || pending.action === "policy_update")) {
+      const originalUrl = pending.confirm?.url ?? "";
+      // Complete only the isolated fake provider action. The UI must observe it without Check action/Continue.
+      if (pending.confirm) await rt.kit.controls!.completeConfirm!(originalUrl);
+      else {
+        const sign = pending.sign!;
+        const a = rt.engine.onboarding.agentRow(contractId)!;
+        const result = await rt.kit.platform.agent(contractId, a.agent!).ownerSubmit(pending.correlation_id,
+          { standard: "nep413", payload: { message: sign.message, recipient: sign.recipient, nonce: sign.nonce } }, await rt.kit.devSigner!.sign413(sign));
+        check(result.ok, "The isolated provider must accept the external fixture signature");
+        const db = (rt.engine as unknown as { d: { db: Database } }).d.db;
+        db.query("UPDATE owner_steps SET state = 'submitted' WHERE correlation_id = ?").run(pending.correlation_id);
+      }
+      if (pending.action === "agent_create") await command("agency", "reload");
+      await pageWait("agency", `![...document.querySelectorAll('a')].some(a=>a.href===${JSON.stringify(originalUrl)}) && document.body.innerText.includes(${JSON.stringify(pending.action === "agent_create" ? "4 of 8 done" : "7 of 8 done")})`, "external setup completion reconciles without a status-button click");
+      step(`${pending.action}: ${pending.action === "agent_create" ? "page reload" : "automatic polling"} observes external confirmation without preparing the next owner action`);
+      continue;
+    }
     await actionOrDone("agency", "^(Continue|Sign \\(|Confirm \\(demo\\)|Fund \\$)", async () => (await view()).stage === "active", "builder setup action");
   }
   await state(v => v.stage === "active", "funded platform agent");
+  if (!stack) check(steps.some(s => s.startsWith("agent_create:")) && steps.some(s => s.startsWith("policy_update:")), "Both external completion refresh checks must run");
   step("Agency completes setup, signed policy and simulated funding using the checklist");
   const first = await submitRevision(1);
   step("Builder submits report, invoice and evidence; no payout is yet requested");

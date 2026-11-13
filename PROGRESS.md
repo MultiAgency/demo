@@ -1,14 +1,20 @@
 # Progress
 
+## Setup refresh correction · local work
+
+Ordinary representative job reads now reconcile existing creation, grant, policy and DAO-vote outcomes under the job mutex. Refresh never prepares a new owner action or files a DAO proposal. Policy completion still requires the newer revision and full signed-policy match. The setup UI uses that single snapshot, offers Refresh status at every step and distinguishes payout consent from owner/read consent. Existing account-scoped polling and return-to-tab refresh remain in use. A failed setup status check keeps the saved checklist visible, reports an error and skips further follow-up during that check.
+
+Owner-reported hosted progress for `c_a2002ec56bf1` is 7 of 8 steps: policy revision 2 in force, funding not performed here. This local UX correction is not deployed and changes no SDK/gateway pin or live authority. Funding, payment and DAO hosted acceptance remain separate gates. Offline checks and evidence boundaries are recorded in [setup refresh review](docs/setup-refresh-review.json).
+
 Current release and deployment status: [release-status.json](docs/release-status.json). Paperwork source `ef73b58` is deployed at https://desk.multiagency.ai; scoped nonfinancial acceptance passes. [Exact source, image and acceptance record](docs/deployment-update-ef73b58.json). The dated checkpoints below preserve their original evidence and then-open limitations.
 
 ## Current checkpoint — November 12, 2026 (America/New_York)
 
-`ef73b58` is live on deployment `99d46b9a-85b2-4943-8841-bdba2105864c`. All 105 source/SDK inputs, runtime/frontend artifacts, TLS and private/public access checks pass. The original 50,000 MB volume, SQLite records, signatures and invitation binding are preserved; no setup or financial records were created.
+`ef73b58` is live on deployment `99d46b9a-85b2-4943-8841-bdba2105864c`. All 105 source/SDK inputs, runtime/frontend artifacts, TLS and private/public access checks pass. The original 50,000 MB volume, SQLite records, signatures and invitation binding are preserved; no setup or financial records were created during deployment acceptance.
 
-The unchanged SDK 0.5.9 passed six isolated consumer scenarios against gateway source `39eefe118`, manifest `3f50539c…`, currently bound to deployment `62cb5775…`. This is separate compatibility evidence, not a repository repin. Setup admission is closed; no maintenance start-command override or host-wide executor-off state is claimed. No Market/executor resume is authorized. Native-backup availability was accepted by the owner; completion time and restore remain unverified.
+The unchanged SDK 0.5.9 passed six isolated consumer scenarios against gateway source `39eefe118`, manifest `3f50539c…`, currently bound to deployment `62cb5775…`. This is separate compatibility evidence, not a repository repin. The temporary Market setup window was closed; Payables setup admission is separate and was subsequently confirmed by the coordinator. No maintenance start-command override or host-wide executor-off state is claimed. No Market/executor resume is authorized. Native-backup availability was accepted by the owner; completion time and restore remain unverified.
 
-Signed-in registration UI/quote review is next. Registration, setup, DAO actions, funding and payments require their own scope. The earlier checkpoints below retain their original then-open gates; current status supersedes those historical statements.
+Subsequent owner-supervised registration and wallet setup reached policy revision 2 in force, according to the hosted UI supplied by the owner. Funding and payments remain unapproved; DAO hosted acceptance is separate. The earlier checkpoints below retain their original then-open gates; current status supersedes those historical statements.
 
 Historical update **2026-11-11** after the offline Hermes/key-setup review. The local milestone covers both Report and invoice (v3) and Pay on merge (v2).
 

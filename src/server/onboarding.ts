@@ -133,46 +133,74 @@ export class Onboarding {
           if (!o.ok || o.value.status !== "APPLIED" || o.value.revision === null || o.value.digest === null) return null;
           return { type: "policy_update", expectedPolicy: { revision: o.value.revision, digest: o.value.digest }, changes: policyChanges(terms) };
         });
-      case "policy_pending": {
-        const o = await this.handle(a).overview();
-        if (!o.ok) return wait("Waiting for the platform to read the policy");
-        const ov = o.value;
-        if (ov.status === "FAILED") {
-          // Stop and tell the owner; don't prepare a new edit. The platform relays the provider's FAILED without a
-          // recovery rule, and a new policy_update needs the owner's signature against the current revision anyway.
-          const signed = this.latestStep(a.organization, "policy_update");
-          if (signed && signed.state !== "failed") {
-            this.setStep(signed.correlation_id, { state: "failed", failure_code: "policy_failed" });
-            this.d.event(id, "alert", `The platform reports the policy edit FAILED (revision ${ov.revision}). Nothing can be paid until a revision applies.`);
-          }
-          throw new UserError(`The platform reports the policy edit FAILED (revision ${ov.revision}). Nothing can be paid until a revision applies; check the agent's policy history before signing a new edit.`, 409);
-        }
-        if (ov.notInForce !== null || !ov.synced || ov.status !== "APPLIED") return wait("Waiting for the policy to be in force");
-        // An earlier revision still in force must not end the wait: the signed edit has to land above the one it was prepared against.
-        const preparedAt = preparedRevision(this.latestStep(a.organization, "policy_update"));
-        if (preparedAt !== null && (ov.revision === null || ov.revision <= preparedAt)) return wait("Waiting for the signed policy revision to apply");
-        const problem = policyProblem(ov, terms);
-        if (problem) throw new UserError(`The applied policy does not match the terms: ${problem.detail}`, 409);
-        this.setAgent(a.organization, { stage: "ready", policy_revision: ov.revision, policy_digest: ov.digest });
-        this.d.event(id, "policy", `Policy in force (revision ${ov.revision}): only ${terms.payee.address}, owner approval on every payout, at most the largest deliverable per payment.`);
-        return { kind: "done" };
-      }
+      case "policy_pending":
+        return this.observePolicy(id, a, terms);
       case "ready":
         return { kind: "done" };
     }
   }
 
-  private async daoAccess(id: string, a: PlatformAgentRow, kind: "setup" | "consent"): Promise<NextStep> {
+  private async observePolicy(id: string, a: PlatformAgentRow, terms: Terms): Promise<NextStep> {
+    const o = await this.handle(a).overview();
+    if (!o.ok) return wait("Waiting for the platform to read the policy");
+    const ov = o.value;
+    if (ov.status === "FAILED") {
+      // Stop and tell the owner; don't prepare a new edit. The platform relays the provider's FAILED without a
+      // recovery rule, and a new policy_update needs the owner's signature against the current revision anyway.
+      const signed = this.latestStep(a.organization, "policy_update");
+      if (signed && signed.state !== "failed") {
+        this.setStep(signed.correlation_id, { state: "failed", failure_code: "policy_failed" });
+        this.d.event(id, "alert", `The platform reports the policy edit FAILED (revision ${ov.revision}). Nothing can be paid until a revision applies.`);
+      }
+      throw new UserError(`The platform reports the policy edit FAILED (revision ${ov.revision}). Nothing can be paid until a revision applies; check the agent's policy history before signing a new edit.`, 409);
+    }
+    if (ov.notInForce !== null || !ov.synced || ov.status !== "APPLIED") return wait("Waiting for the policy to be in force");
+    // An earlier revision still in force must not end the wait: the signed edit has to land above the one it was prepared against.
+    const preparedAt = preparedRevision(this.latestStep(a.organization, "policy_update"));
+    if (preparedAt !== null && (ov.revision === null || ov.revision <= preparedAt)) return wait("Waiting for the signed policy revision to apply");
+    const problem = policyProblem(ov, terms);
+    if (problem) throw new UserError(`The applied policy does not match the terms: ${problem.detail}`, 409);
+    this.setAgent(a.organization, { stage: "ready", policy_revision: ov.revision, policy_digest: ov.digest });
+    this.d.event(id, "policy", `Policy in force (revision ${ov.revision}): only ${terms.payee.address}, owner approval on every payout, at most the largest deliverable per payment.`);
+    return { kind: "done" };
+  }
+
+  /** Observe only saved work. Never prepare, file, sign or submit a new action during a status read. */
+  async reconcile(id: string): Promise<void> {
+    const { row } = this.d.contract(id);
+    let a = this.agentRow(row.organization);
+    if (!a || !row.rep_sig || !row.contractor_sig || row.frozen) return;
+    if (this.isDao(id) && a.pending_sign) {
+      const saved = JSON.parse(a.pending_sign);
+      if (saved.request && (saved.kind === "setup" || saved.kind === "consent"))
+        await this.daoAccess(id, a, saved.kind, true);
+    }
+    a = this.agentRow(row.organization)!;
+    const kind = a.stage === "needs_create" ? "agent_create" : a.stage === "needs_grant" ? "grant_issue" : a.stage === "needs_policy" ? "policy_update" : null;
+    if (kind) {
+      const saved = this.latestStep(a.organization, kind);
+      if (saved) {
+        const observed = await this.pollStep(saved.correlation_id);
+        // A successful creation can precede the identity becoming readable. Reapply locally, without resubmission.
+        if (observed.state === "success") await this.applySuccess(observed);
+      }
+    }
+    a = this.agentRow(row.organization)!;
+    if (a.stage === "policy_pending") await this.observePolicy(id, a, this.d.contract(id).terms);
+  }
+
+  private async daoAccess(id: string, a: PlatformAgentRow, kind: "setup" | "consent", observeOnly = false): Promise<NextStep> {
     const platform = this.d.platform;
     if (!platform.daoSetup || !platform.daoConsent) throw new UserError("This platform does not support DAO payout access.", 409);
     const terms = this.d.contract(id).terms;
     const readOnly = kind === "consent" && !!a.payout_consent_id;
     const expiresAt = kind === "setup" ? new Date(this.d.now().getTime() + SETUP_TTL_MS).toISOString()
       : new Date(Math.min(Date.parse(endInstant(terms)) + (readOnly ? this.d.graceDays * 86_400_000 : 0), this.d.now().getTime() + MAX_CONSENT_MS)).toISOString();
-    if (Date.parse(expiresAt) <= this.d.now().getTime() + 120_000) throw new UserError("The job ends too soon for DAO consent.", 409);
+    if (!observeOnly && Date.parse(expiresAt) <= this.d.now().getTime() + 120_000) throw new UserError("The job ends too soon for DAO consent.", 409);
     let saved = a.pending_sign ? JSON.parse(a.pending_sign) as { kind: string; request?: DaoRequest; message: string } : null;
     const api = kind === "setup" ? platform.daoSetup : platform.daoConsent;
     if (saved && saved.kind !== kind) throw new UserError("A different DAO access request is unresolved.", 409);
+    if (observeOnly && !saved?.request) return wait("Waiting for an existing DAO request");
     if (!saved) {
       const message = kind === "setup" ? platform.setupMessage({ organization: a.organization, owner: a.owner, expiresAt })
         : platform.consentMessage({ organization: a.organization, owner: a.owner, agent: a.agent!, agentId: a.agent_id!, scopes: readOnly ? ["read"] : ["read", "payout"], expiresAt });
@@ -196,7 +224,7 @@ export class Onboarding {
     if (kind === "setup" && "agent" in result && typeof result.agent === "string") this.setAgent(a.organization, { agent: result.agent, setup_consent_id: result.consent.id, stage: "needs_create", pending_sign: null });
     else if (readOnly) this.setAgent(a.organization, { owner_consent_id: result.consent.id, owner_consent_expires_at: result.consent.expiresAt, stage: "needs_grant", pending_sign: null });
     else this.setAgent(a.organization, { payout_consent_id: result.consent.id, payout_consent_expires_at: result.consent.expiresAt, stage: "needs_consent", pending_sign: null });
-    return this.next(id);
+    return observeOnly ? { kind: "done" } : this.next(id);
   }
 
   private signRequest(a: PlatformAgentRow, step: SignStep, messageFor: (expiresAt: string) => string, expiresAt: string, label: string): NextStep {

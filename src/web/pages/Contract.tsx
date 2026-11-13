@@ -89,7 +89,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
       {config.demo_controls ? <SimBar c={c} reload={load} /> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      {setup ? <Setup c={c} config={config} act={act} /> : <Dashboard c={c} config={config} verify={verify} act={act} />}
+      {setup ? <Setup c={c} config={config} act={act} reload={load} /> : <Dashboard c={c} config={config} verify={verify} act={act} />}
     </div>
   );
 }
@@ -112,7 +112,7 @@ function currentStep(c: ContractView): StepId | undefined {
   return SETUP.find((s) => s.stage === st && s.id !== "rep-sign" && s.id !== "contractor-sign")?.id;
 }
 
-function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
+function Setup({ c, config, act, reload }: { c: ContractView; config: AppConfig; act: Act; reload: () => Promise<void> }) {
   const current = currentStep(c);
   const currentPhase = SETUP.find((s) => s.id === current)?.phase ?? "live";
   const doneCount = SETUP.filter((s) => stepState(c, s, current) === "done").length;
@@ -135,12 +135,13 @@ function Setup({ c, config, act }: { c: ContractView; config: AppConfig; act: Ac
 
         <Card pad={false}>
           <div className="card-pad-x">
-            <CardHeader title="Set up this job" sub={`${doneCount} of ${SETUP.length} done`} />
+            <CardHeader title="Set up this job" sub={`${doneCount} of ${SETUP.length} done`} actions={<Button variant="secondary" size="sm" onClick={reload}>Refresh status</Button>} />
             <Progress value={doneCount} max={SETUP.length} />
+            <p className="muted small" role="status">Status refreshes automatically, including when you return from the platform. Each new signature still needs your approval.</p>
           </div>
           <ol className="checklist">
             {SETUP.map((s) => (
-              <SetupRow key={s.id} step={s} c={c} config={config} act={act} state={stepState(c, s, current)} />
+              <SetupRow key={s.id} step={s} c={c} config={config} act={act} reload={reload} state={stepState(c, s, current)} />
             ))}
           </ol>
         </Card>
@@ -192,7 +193,7 @@ function stepDetail(c: ContractView, id: StepId): string | null {
   }
 }
 
-function SetupRow({ step, c, config, act, state }: { step: (typeof SETUP)[number]; c: ContractView; config: AppConfig; act: Act; state: "done" | "current" | "todo" }) {
+function SetupRow({ step, c, config, act, reload, state }: { step: (typeof SETUP)[number]; c: ContractView; config: AppConfig; act: Act; reload: () => Promise<void>; state: "done" | "current" | "todo" }) {
   const [help, setHelp] = useState(false);
   const n = SETUP.findIndex((s) => s.id === step.id) + 1;
   const detail = (state === "done" ? stepDetail(c, step.id) : null) ?? step.short;
@@ -220,13 +221,13 @@ function SetupRow({ step, c, config, act, state }: { step: (typeof SETUP)[number
             ))}
           </ul>
         ) : null}
-        {state === "current" ? <StepAction step={step.id} c={c} config={config} act={act} /> : null}
+        {state === "current" ? <StepAction step={step.id} c={c} config={config} act={act} reload={reload} /> : null}
       </div>
     </li>
   );
 }
 
-function StepAction({ step, c, config, act }: { step: StepId; c: ContractView; config: AppConfig; act: Act }) {
+function StepAction({ step, c, config, act, reload }: { step: StepId; c: ContractView; config: AppConfig; act: Act; reload: () => Promise<void> }) {
   const session = useSession();
   const token = links.get(c.id);
 
@@ -274,18 +275,17 @@ function StepAction({ step, c, config, act }: { step: StepId; c: ContractView; c
     case "fund":
       return <DepositCard c={c} config={config} act={act} />;
     default:
-      return <NextStepAction c={c} config={config} act={act} />;
+      return <NextStepAction c={c} config={config} act={act} reload={reload} />;
   }
 }
 
 /** The platform onboarding steps, driven by the server's NextStep. */
-function NextStepAction({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
+function NextStepAction({ c, config, act, reload }: { c: ContractView; config: AppConfig; act: Act; reload: () => Promise<void> }) {
   const session = useSession();
-  const [step, setStep] = useState<NextStep | null>(c.next_step);
-  useEffect(() => setStep(c.next_step), [c.next_step]);
-
-  const fetchNext = () => act(async () => setStep(await api<NextStep>("POST", `/contracts/${c.id}/onboarding/next`)));
-  const run = (s: NextStep) => act(async () => setStep(await completeStep(config, c.id, s, session.signWorkflow)));
+  // One authoritative snapshot: an older polling response cannot replace a newly completed step locally.
+  const step = c.next_step;
+  const fetchNext = () => act(() => api<NextStep>("POST", `/contracts/${c.id}/onboarding/next`));
+  const run = (s: NextStep) => act(() => completeStep(config, c.id, s, session.signWorkflow));
 
   if (!step)
     return (
@@ -304,19 +304,19 @@ function NextStepAction({ c, config, act }: { c: ContractView; config: AppConfig
         </div>
       );
     case "dao_vote":
-      return <DaoProposal proposal={step.request} onCheck={fetchNext} />;
+      return <DaoProposal proposal={step.request} onCheck={reload} />;
     case "owner_step":
       return (
         <div className="check-action col">
           <span className="small">
             <strong>{step.label}.</strong> {step.summary}
           </span>
-          {step.dao ? <DaoProposal proposal={step.dao} onCheck={fetchNext} /> : null}
+          {step.dao ? <DaoProposal proposal={step.dao} onCheck={reload} /> : null}
           {step.sign ? <SignBox config={config} req={step.sign} label="Sign" onSign={() => run(step)} /> : null}
           {step.confirm ? <ConfirmLink config={config} url={step.confirm.url} expiresAt={step.confirm.expires_at} onDemoComplete={() => run(step)} /> : null}
           {!config.demo_controls ? (
-            <Button variant="secondary" size="sm" onClick={fetchNext}>
-              Check action
+            <Button variant="secondary" size="sm" onClick={reload}>
+              Refresh status
             </Button>
           ) : null}
         </div>
@@ -324,21 +324,13 @@ function NextStepAction({ c, config, act }: { c: ContractView; config: AppConfig
     case "wait":
       return (
         <div className="check-action">
-          <Spinner /> <span className="muted small">{step.label}</span>
-          <WaitPoll ms={step.retry_ms} onTick={fetchNext} />
+          {step.error ? <Alert tone="danger">{step.error}</Alert> : <><Spinner /> <span className="muted small">{step.label}</span></>}
+          <Button variant="secondary" size="sm" onClick={reload}>Refresh status</Button>
         </div>
       );
     case "done":
       return null;
   }
-}
-
-function WaitPoll({ ms, onTick }: { ms: number; onTick: () => Promise<void> }) {
-  useEffect(() => {
-    const t = setTimeout(() => void onTick(), Math.max(1000, ms));
-    return () => clearTimeout(t);
-  }, [ms, onTick]);
-  return null;
 }
 
 function DepositCard({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
