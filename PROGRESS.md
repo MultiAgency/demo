@@ -1,6 +1,14 @@
 # Progress
 
-Current release and deployment status: [release-status.json](docs/release-status.json). Paperwork source `2cad167` is deployed at https://desk.multiagency.ai; scoped nonfinancial acceptance passes. [Exact source, image and acceptance record](docs/deployment-acceptance.json). The dated checkpoints below preserve their original evidence and then-open limitations.
+Current release and deployment status: [release-status.json](docs/release-status.json). Paperwork source `ef73b58` is deployed at https://desk.multiagency.ai; scoped nonfinancial acceptance passes. [Exact source, image and acceptance record](docs/deployment-update-ef73b58.json). The dated checkpoints below preserve their original evidence and then-open limitations.
+
+## Current checkpoint — November 12, 2026 (America/New_York)
+
+`ef73b58` is live on deployment `99d46b9a-85b2-4943-8841-bdba2105864c`. All 105 source/SDK inputs, runtime/frontend artifacts, TLS and private/public access checks pass. The original 50,000 MB volume, SQLite records, signatures and invitation binding are preserved; no setup or financial records were created.
+
+The unchanged SDK 0.5.9 passed six isolated consumer scenarios against gateway source `39eefe118`, manifest `3f50539c…`, currently bound to deployment `62cb5775…`. This is separate compatibility evidence, not a repository repin. Setup admission is closed; no maintenance start-command override or host-wide executor-off state is claimed. No Market/executor resume is authorized. Native-backup availability was accepted by the owner; completion time and restore remain unverified.
+
+Signed-in registration UI/quote review is next. Registration, setup, DAO actions, funding and payments require their own scope. The earlier checkpoints below retain their original then-open gates; current status supersedes those historical statements.
 
 Historical update **2026-11-11** after the offline Hermes/key-setup review. The local milestone covers both Report and invoice (v3) and Pay on merge (v2).
 
@@ -57,7 +65,7 @@ No deployment or live financial action was performed. The original empty-volume 
 
 ## Next
 
-Keep the reviewed local follow-up separate from live source 2cad167. Prepare the exact setup and registration actions/costs for separate approval; do not redeploy or register an account from a local test pass. Remote CI and the scoped deployment/nonfinancial checks pass. Scoped hosted wallet login, cancellation, refusal and both job-terms signatures pass. DAO setup/quorum, USDC registration, funding and payment remain unapproved; see [current release status](docs/release-status.json).
+The reviewed app update is deployed from ef73b58; current exact-head CI, Linux packaging and read-only hosted acceptance pass. Prepare the exact setup and registration actions/costs for separate approval; do not redeploy or register an account from a local test pass. Remote CI and the scoped deployment/nonfinancial checks pass. Scoped hosted wallet login, cancellation, refusal and both job-terms signatures pass. DAO setup/quorum, USDC registration, funding and payment remain unapproved; see [current release status](docs/release-status.json).
 
 Existing manual demos remain untouched under the user's local run/freeze confirmation. Production deployments/restarts remain paused; local checks grant no live-operation authority.
 

@@ -18,13 +18,13 @@
     "ai": "Rules proposer; paid model services disabled"
   },
   "sequencing": [
-    "Final combined manifest and platform staging-ready handoff",
-    "Pin and verify exact SDK/gateway artifacts; rerun offline wallet/DAO acceptance and packaging",
-    "Freeze Paperwork source/frontend/container; confirm deployment scope and origin",
-    "Owner approves exact hosted actions and ceilings",
-    "Wallet-owned job first: sign-in, terms, setup/consent/grant/policy, funding, immutable submission, held payout, explicit approval, independently confirmed builder receipt",
-    "Review evidence, then separately approve DAO-owned run with exact proposal/quorum requirements",
-    "Observe original identities after refresh; hosted restart only with separate operational approval"
+    "Completed: retained SDK/gateway artifact verification and initial deployment",
+    "Completed: exact-head ef73b58 CI, native Linux packaging, six isolated consumer scenarios against gateway39eefe118, and approved state-preserving app update",
+    "Next: read-only signed-in registration UI and fresh cost quote",
+    "Separately approve exact registration transaction and agency setup/consent/grant actions before execution",
+    "Separately approve funding and one wallet-owned payment run with independently confirmed receipt",
+    "Review wallet evidence, then separately approve any DAO-owned run and exact proposal/quorum actions",
+    "Refresh original identities; any hosted restart or further deployment needs a new scoped approval"
   ],
   "current_pins": {
     "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
@@ -57,13 +57,25 @@
   "latest_local_review": "docs/local-release-review.json",
   "latest_v2_acceptance": "docs/v2-acceptance.json",
   "current_release_status": "docs/release-status.json",
-  "deployment_acceptance": "docs/deployment-acceptance.json",
-  "live_action_scope": "Owner-approved resources, credential binding, configuration/DNS and exact app deployment with anonymous nonfinancial checks completed; later separately approved two account logins, cancellation, one unsigned/unfunded draft, hackbot.near GET-only refusal checks and both exact job-terms signatures are complete",
+  "deployment_acceptance": "docs/deployment-update-ef73b58.json",
+  "live_action_scope": "Owner-approved resources, credential binding, configuration/DNS and exact app deployment with anonymous nonfinancial checks completed; later separately approved two account logins, cancellation, one unsigned/unfunded draft, hackbot.near GET-only refusal checks and both exact job-terms signatures are complete; separately approved state-preserving ef73b58 app update and read-only acceptance complete, with no additional wallet or financial action",
   "live_financial_actions_performed": false,
   "existing_wallet_job": {
     "id": "c_a2002ec56bf1",
     "terms_hash": "a2002ec56bf163b7cb0330afdf2ee9257267d6d55d204804d4cc41bc6aebd763",
     "status": "Both terms signed; needs_setup; payee USDC registration missing; no agent or funds",
     "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/terms-signatures-acceptance.json"
-  }
+  },
+  "latest_exact_release_consumer": "data/release-evidence/consumer39eefe-sdk059/consumer-verification.json",
+  "operational_gateway": {
+    "deployment_id": "62cb5775-8ea6-4d24-9351-942a893c4517",
+    "source": "39eefe11802c062676621290a13d3caa5ccf24e6",
+    "image": "sha256:1f7b65aecf3d2b57516b94b72af80fff5b198eb65e13c34e86ddac2acec73b1e",
+    "setup_admission_closed": true,
+    "maintenance_override_claimed": false,
+    "package_manifest_sha256": "3f50539cf51ddfb2d7bde4c4a969ffb4f527c0d0b3b4a883ae7e9742feb0dfe9",
+    "retained_baseline_snapshot_pin_unchanged": true,
+    "compatibility_evidence": "Six isolated retained-SDK consumer scenarios passed; simulated provider/chain only"
+  },
+  "next_step": "Read-only signed-in registration UI/quote walkthrough, followed only by separately scoped transaction/setup approvals."
 }

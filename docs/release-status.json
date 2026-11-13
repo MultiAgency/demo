@@ -1,27 +1,29 @@
 {
-  "as_of": "2026-11-13",
+  "as_of": "2026-11-12T21:36:19.126949-05:00",
   "scope": "Dated release/deployment status; not standing operational authorization",
-  "validated_code_commit": "049387dd1e62899db6e31ebe9cf8919789f360c1",
+  "validated_code_commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
   "pins": {
     "sdk_version": "0.5.9",
     "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
     "platform_source": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
-    "gateway_candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40"
+    "gateway_candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+    "scope": "Retained SDK and baseline gateway artifact pins; current compatible runtime is recorded separately in deployed_gateway."
   },
   "sdk_publication": "Coordinator verified public npm archive byte-identical to retained tested artifact; no repin required",
   "local_evidence": {
     "v2": "docs/v2-acceptance.json",
     "packaging": "docs/local-release-review.json",
     "final_consumer_checkpoint": "docs/final-consumer-252cba1.json",
-    "tests": 1549,
-    "assertions": 10377,
+    "tests": 1562,
+    "assertions": 10473,
     "typecheck": "passed",
     "workflow_lint": "passed",
-    "linux_container_smoke": "arm64 and amd64 passed offline; amd64 used emulation"
+    "linux_container_smoke": "Native Linux AMD64 ef73b58 CI passed; earlier arm64/emulation receipts remain historical.",
+    "latest_consumer": "data/release-evidence/consumer39eefe-sdk059/consumer-verification.json"
   },
   "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
   "remaining": [
-    "Qualify corrected exact commit in remote CI; the green 39e521d run masks two browser failures and is not browser acceptance",
+    "Read-only signed-in registration UI/quote walkthrough remains unverified; previous builder browser closed. No registration transaction is authorized.",
     "DAO membership/quorum, agent setup/consents/grants, USDC registration, funding and independently confirmed payment remain unverified and unapproved; scoped wallet login, cancellation, job refusal and both exact job-terms signatures pass",
     "Market-route/shared-authority and historical recovery limitations remain outside the app nonfinancial acceptance",
     "Provider-response-loss G14 continuation, DAO SIGKILL recovery and real historical installation remain unverified",
@@ -29,9 +31,9 @@
     "App credential expires 2026-11-19T21:07:23.584Z; renewal requires separate authorization"
   ],
   "authorization": "Owner-approved deployment/nonfinancial acceptance completed. No additional deployment/restart, credential rotation, wallet action or live financial action authorized.",
-  "deployed_source_commit": "2cad16722a12ad208f042fb161184e0d4ae661ca",
-  "deployment_acceptance": "docs/deployment-acceptance.json",
-  "local_followup": "Registration UX, payout identity/commitment hardening and documentation/IaC alignment committed in 39e521d; corrective header/CI follow-up local. Runtime remains 2cad167. See Git for the latest local commit and ci_qualification for the outstanding remote gate.",
+  "deployed_source_commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
+  "deployment_acceptance": "docs/deployment-update-ef73b58.json",
+  "local_followup": "Reviewed code is deployed. Cleanup is documentation/evidence/scratch only; no additional application deployment is required for these status updates.",
   "wallet_login_acceptance": {
     "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/wallet-checks-summary.json",
     "accounts": [
@@ -52,8 +54,28 @@
     "status": "Both scoped NEP-413 terms signatures recorded on hosted source 2cad167; no funds moved",
     "payee_registered": false
   },
-  "local_registration": "docs/payee-registration.md; local offline acceptance only, not deployed or authorized for a live storage deposit",
   "ci_qualification": {
+    "pushed_commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43341675512",
+    "github_conclusion": "success",
+    "browser_acceptance_accepted": true,
+    "positive_receipts_verified": true,
+    "native_linux_container_smoke": "passed",
+    "receipt": "data/release-evidence/ci-ef73b58/verified-ci.json"
+  },
+  "initial_deployment_acceptance": "docs/deployment-acceptance.json",
+  "deployed_gateway": {
+    "deployment_id": "62cb5775-8ea6-4d24-9351-942a893c4517",
+    "source": "39eefe11802c062676621290a13d3caa5ccf24e6",
+    "image": "sha256:1f7b65aecf3d2b57516b94b72af80fff5b198eb65e13c34e86ddac2acec73b1e",
+    "setup_admission_closed": true,
+    "maintenance_override_claimed": false,
+    "package_manifest_sha256": "3f50539cf51ddfb2d7bde4c4a969ffb4f527c0d0b3b4a883ae7e9742feb0dfe9",
+    "retained_baseline_snapshot_pin_unchanged": true,
+    "compatibility_evidence": "Six isolated retained-SDK consumer scenarios passed; simulated provider/chain only"
+  },
+  "registration_flow": "Deployed in ef73b58; offline quote/guards/UI verified. Fresh hosted signed-in quote and live transaction remain unverified.",
+  "historical_rejected_ci": {
     "pushed_commit": "39e521d6054609d536093f6748e31742958e65c4",
     "run": "https://github.com/MultiAgency/demo/actions/runs/43340276379",
     "github_conclusion": "success",

@@ -1,0 +1,65 @@
+{
+  "as_of": "2026-11-12T21:36:19.126949-05:00",
+  "scope": "Completed owner-approved app update and read-only acceptance; no standing operational authorization",
+  "result": "PASS",
+  "origin": "https://desk.multiagency.ai",
+  "source_commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
+  "deployment_id": "99d46b9a-85b2-4943-8841-bdba2105864c",
+  "instance_id": "1f213940-4bc9-481b-9b56-4926e86bf942",
+  "image_digest": "sha256:c98b60690f01d63e0daa3d0a25be53d8b3ad40f72f1d87aa93b52c66f3473738",
+  "runtime": {
+    "platform": "linux",
+    "arch": "x64",
+    "bun": "1.4.2"
+  },
+  "source_sdk_inputs_verified": 105,
+  "checks": [
+    "strict HTTPS health",
+    "auth/config and private job refusals",
+    "minimal public terms verification",
+    "all served frontend files match running manifest"
+  ],
+  "preservation": {
+    "original_volume": true,
+    "size_mb": 50000,
+    "all_original_records_and_implicit_row_ids": true,
+    "both_terms_signatures_and_invitation_binding": true,
+    "credentials_unchanged": true,
+    "no_agent_setup_or_payment_records": true
+  },
+  "sdk": {
+    "version": "0.5.9",
+    "tarball_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+    "repinned": false
+  },
+  "gateway": {
+    "deployment_id": "62cb5775-8ea6-4d24-9351-942a893c4517",
+    "source": "39eefe11802c062676621290a13d3caa5ccf24e6",
+    "image": "sha256:1f7b65aecf3d2b57516b94b72af80fff5b198eb65e13c34e86ddac2acec73b1e",
+    "setup_admission_closed": true,
+    "maintenance_override_claimed": false,
+    "package_manifest_sha256": "3f50539cf51ddfb2d7bde4c4a969ffb4f527c0d0b3b4a883ae7e9742feb0dfe9",
+    "retained_baseline_snapshot_pin_unchanged": true,
+    "compatibility_evidence": "Six isolated retained-SDK consumer scenarios passed; simulated provider/chain only"
+  },
+  "ci": {
+    "commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43341675512",
+    "result": "PASS; positive browser/privacy/v2 and native Linux container receipts verified",
+    "tests": 1562,
+    "assertions": 10473
+  },
+  "evidence": {
+    "deployment": "data/release-evidence/paperwork-stage-b-ef73b58-platform39eefe/deployment-completion.json",
+    "ci": "data/release-evidence/ci-ef73b58/verified-ci.json",
+    "consumer": "data/release-evidence/consumer39eefe-sdk059/consumer-verification.json"
+  },
+  "remaining": [
+    "Fresh signed-in registration UI/quote not inspected: existing builder browser CDP endpoint was closed. No new browser sign-in was initiated.",
+    "No live USDC registration, setup, consent, DAO, funding or payment acceptance.",
+    "Railway backup completion time/restore remain unverified and were explicitly accepted by owner for this stage.",
+    "DAO clean handoff and wallet SIGKILL fixture coverage do not establish DAO SIGKILL or G14 provider-response-loss recovery."
+  ],
+  "credential_expires_at": "2026-11-19T21:07:23.584Z",
+  "no_additional_deployment_restart_credentials_or_financial_actions_authorized": true
+}

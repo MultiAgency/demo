@@ -1,6 +1,6 @@
 # Tasks
 
-Paperwork is deployed at https://desk.multiagency.ai from `2cad167`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-acceptance.json). Scoped wallet login and both exact job-terms signatures are complete. DAO/setup/registration/payment actions remain separately unapproved.
+Paperwork is deployed at https://desk.multiagency.ai from `ef73b58`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-ef73b58.json). Scoped wallet login and both exact job-terms signatures are complete. DAO/setup/registration/payment actions remain separately unapproved.
 
 Current pins, completed acceptance and remaining gates: [release-status.json](docs/release-status.json). Dated implementation checkpoints below are historical evidence.
 
