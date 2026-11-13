@@ -1,105 +1,49 @@
 # Tasks
 
-Paperwork is deployed at https://desk.multiagency.ai from `3ee5b41`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-3ee5b41.json). Scoped wallet login and both exact job-terms signatures are complete. The owner subsequently supervised registration and wallet-owned setup through policy revision 2; funding and payment remain unapproved. These are user-reported hosted checkpoints, separate from the retained deployment receipt.
-
-Current pins, completed acceptance and remaining gates: [release-status.json](docs/release-status.json). Dated implementation checkpoints below are historical evidence.
+Production (`desk.multiagency.ai`) runs frozen candidate `0791b0e2` as deployment `c5808392`; scoped nonfinancial acceptance passes ([deployment receipt](docs/deployment-readiness-0791b0e2.json)). Current pins and gates: [release-status.json](docs/release-status.json). Completed task sections and their dated notes: [task history](docs/archive/tasks-2026-11.md).
 
 Work on one task at a time, with a concrete result and an appropriate check. Routine implementation choices within an authorized task do not need another approval round; changes to authority or live operations follow [RULES.md](RULES.md).
 
-## Current task: stable deposit instructions
+## Current task: review hardening and environment split (local, 2026-11-13)
 
-- [x] Identify address allocation being mistaken for a read in refresh/funding preflight.
-- [x] Reuse valid instructions and persist uncertain allocation state without schema changes or replacement requests.
-- [x] Verify concurrent lookups, legacy reuse, invalid/expired/unknown replies and database reopen without reallocation.
-- [ ] Review/commit the local correction, obtain exact-head CI and a separately approved app update. Reconcile the platform's unknown allocation before hosted funding acceptance.
+- [x] Verify review findings; reproduce both proof defects and the anonymous demo controls.
+- [x] Require a successful FAILED payment read for proof and retain observed REFUNDED status; add v2/v3 regressions.
+- [x] Gate demo controls by the simulated action's access rule when sign-in is required.
+- [x] Restrict production stand-in startup to a Railway-generated staging origin; document both environments.
+- [x] Close review findings: inspector/preview report `counterevidence`, shared public verification result, replayed webhook signatures dropped.
+- [x] Close product gaps: v2 judge deadline, paginated GitHub evidence that refuses partial lists.
+- [x] Split the payout ledger and request/observation state machine out of `engine.ts`; SDK restart demo passes.
+- [x] Journey fixes: builder submissions after partial settlement and before setup, request-changes flow and banner, API error codes/JSON 404s, AA status ink tokens, mobile sign-in name, skip link, labels; remove duplicate demo aliases.
+- [x] Consolidate status documents; archive dated checkpoints verbatim.
+- [x] Import a public Agent Market job into a v3 offer as signed `market_source`; refuse platform setup/funding until the Market job is closed.
+- [x] Market-settled jobs (path A, user-approved): signed variant without a NEAR payee, assessment-only review, acceptance recorded from the Market job's `completed` status.
+- [ ] Optional, per agency: a non-spending Market MCP grant to read richer job state. Needs a test account's sign-in to confirm its scopes and tools.
+- [x] Duplicated staging environment (copied production variables) deleted 2026-11-13; recreate empty with keyless settings when needed.
+- [x] Deploy frozen candidate `0791b0e2`, with protected snapshot and preserved-record verification.
+- [x] Review and qualify the later working tree: release candidate `eac99283` reviewed, frozen and deployed 2026-11-13 ([receipt](docs/deployment-update-eac99283.json)).
+- [x] Interactive wallet sign-in on `eac99283` confirmed by the owner (2026-11-13).
+- [ ] Optional: create an empty staging environment and deploy the keyless stand-in (production now carries the startup guard).
 
-## Wallet funding button
+## Funding recovery (deployed inert in `eac99283`; attempt resolution local)
 
-- [x] Add an explicit wallet-review button using the pinned SDK's registration + transfer actions and the signed scope amount.
-- [x] Verify identity/network, fresh deposit/policy/authority/zero balance, local duplicate-send protection and exact minimum display.
-- [x] Add focused transaction regressions and desktop/mobile fixture browser coverage to CI.
-- [x] Review and commit the local funding change with outstanding deployment documentation.
-- [x] Obtain CI on 3ee5b41 and complete the separately approved app update/read-only acceptance.
-- [ ] Supervise hosted funding UI and review the exact wallet transaction under separate approval. No live transfer is authorized.
+- [x] Add representative-only read/review and durable single-attempt preparation, exact credit/fee/remainder checks, and explicit wallet review without resetting legacy records.
+- [x] Add unit and offline browser regression coverage for blocked evidence, duplicate/lost replies, expiry, account switching and existing markers.
+- [x] Evidence-based attempt resolution (`funded` / `not_received`), one unresolved attempt per job, and a verified, fail-closed schema rebuild (local, not deployed).
+- [ ] Platform/SDK owner reviews and supplies the trusted read-only reconciliation and destination-outcome contracts. Current remote adapter stays unavailable.
+- [ ] Resolve original allocation/provider readiness, then qualify the recovery path before any hosted funding.
 
-## Completed task: setup status reconciliation
+## Open gates
 
-- [x] Make ordinary representative refresh observe existing owner actions and DAO votes without preparing, filing or submitting new actions.
-- [x] Use one server snapshot for setup actions; distinguish payout consent from owner/read consent and provide Refresh status throughout setup.
-- [x] Finish final offline browser verification and record the exact local candidate in [setup refresh review](docs/setup-refresh-review.json). The separately approved app update is complete; see [deployment receipt](docs/deployment-update-f85f2c3.json).
+- **Funding:** provider owner must investigate internal request records using the reviewed reconciliation receipt and separate gateway audit findings. Binding is unrecoverable from the inspected gateway records; provider-side recoverability remains unknown. A historical 0.01 USDC credit is reported; it does not clear address reuse, additional funding or payout readiness. Preserve markers and the zero-balance guard. See [reported findings](docs/provider-reconciliation-summary.json).
+- **Ownership modes:** prove wallet and DAO workflows with simulated funds, including rejected/expired votes, unrelated actors, lost replies, restart and same-payment observation. Live budgets, fee limits, signatures and deployment stay separately authorized.
+- **Hermes:** verify authenticated profile Runs connectivity and actual NEAR routing under the operational boundary.
 
-## Selected priority: payment and recovery
+## Backlog
 
-Selected 2026-11-11 for the local milestone covering both Report and invoice and Pay on merge. Public verification and the complete walkthroughs follow this work.
+Candidates, not agreed priorities. Split one into executable steps when it is selected.
 
-- [x] Approve the policy requiring positive platform non-execution proof for new and existing v2/v3 jobs before failed-payment budget release, with review of older exceptions.
-- [x] Specify the historical recovery sequence and required stand-in/SDK acceptance cases in [Recovery and local acceptance](docs/recovery-acceptance.md).
-- [x] Build the standalone read-only inspector against disposable historical fixtures: inventory original/replacement IDs without migrations, auth, timers or send-capable calls. Command and supported snapshot format: [inspect a snapshot](docs/recovery-acceptance.md#inspect-a-snapshot).
-- [x] Extend `Engine.resolve()` and startup compatibility checks to both workflows. Retain transaction/refund counterevidence and failed-payment identity across contradictory observations; unsafe historical ledgers refuse startup before migration.
-- [x] Verify engine/authenticated HTTP refusals without writes or new payout requests, valid proof, unchanged unsafe-ledger refusal, safe reopen and original identities across fixture response loss/database reopen.
-- [x] Add one-job allowlisted SDK status collection and a review-only correction preview, with explicit binding, redaction, deadlines and unchanged source snapshots. [Command and limits](docs/recovery-acceptance.md#collect-evidence-and-preview-one-job).
-- [x] Correct preview reporting: refunded success claims are excluded from the matched status-report subtotal and remain visible; valid SDK refunds/unknown statuses retain commitment. Verified pure preview and installed-SDK/CLI regressions, including related attempts and normal successful transaction evidence.
-- [x] Verify one collector journey against an isolated SDK stack: original request/correlation retained, all four read procedures complete, snapshot/source unchanged, provider payment count unchanged and owned processes stopped. [Receipt and limits](docs/recovery-acceptance.md#sdk-collector-integration-checkpoint).
-- [x] Define one restoration-only correction contract with explicit before/after accounting, evidence/verification limits and refusal cases. [First correction contract](docs/recovery-acceptance.md#first-correction-contract-restore-one-commitment).
-- [x] Implement that reviewed correction transaction in memory against disposable fixtures; preserve prior records/evidence and test refusal without source mutation, exact replay and stale/conflicting observations.
-- [x] Add a restoration-only private export command with durable completion, verified completed-bundle reuse and disposable process-interruption/lost-result tests. [Usage and handoff limits](docs/recovery-acceptance.md#export-a-restoration-bundle).
-- [x] Rehearse whole-database blocker inventory and supervised handoff on disposable exports: both-version stand-in full/partial/unknown cases and v3 SDK processing/restart/original full settlement. The mixed-history copy remains blocked. [Scope and evidence](docs/recovery-acceptance.md#whole-database-recovery-rehearsal).
-- [x] Complete the required base v2/v3 local acceptance matrix: full v2 browser and independent v2 merge-judgment SIGKILL/restart now pass, alongside final-gateway full-scope SDK completion. Provider-response-loss continuation and historical installation remain separately unsupported/unverified; see docs/v2-acceptance.json.
-
-The proof/startup guard, collector/preview, restoration/export and scoped disposable handoff rehearsal are verified. Real historical provenance and unsupported recovery cases remain unresolved; provider-response-loss continuation and real historical installation remain unverified. The approved privacy boundary and its browser matrix are implemented. The remaining v2 payment browser and independent v2 process-restart cases now pass; fresh receipts are in docs/v2-acceptance.json. Existing Hermes work remains recorded below.
-
-## Hermes report-review assistant
-
-The user requested Hermes with NEAR AI Cloud, the MultiAgency team account and latest stable integration releases on 2026-11-11.
-
-- [x] Add a separate stored-data review projection without platform follow-up or compensation actions.
-- [x] Bridge authenticated Hermes Runs to CopilotKit/AG-UI with scoped ephemeral streams.
-- [x] Validate citations and add editable feedback, explicit apply and cancellation.
-- [x] Resolve latest stable dependencies; document team-profile setup and limits.
-- [x] Complete the isolated desktop/mobile browser check and final source checks.
-- [x] Prepare the inactive `paperwork-review` team profile and a one-request synthetic hosted check; verify saved restrictions without credentials.
-- [x] Review the local key-setup helper and hosted-check diagnostics offline; fix completion/escaped-key validation, pin the helper origin and recheck key state after its prompt. [Current review and remaining race](docs/hermes-review.md#offline-key-setup-review-checkpoint--2026-11-11).
-- [ ] Verify authenticated profile Runs connectivity and actual NEAR routing under the existing operational boundary. User-reported Chat output and a prior key-save acknowledgement do not establish this connection, provider origin, effective isolation or the requested hosted-version update.
-
-Offline implementation and the hosted connection have separate evidence. See [Hermes review](docs/hermes-review.md).
-
-## Next: private jobs and limited public verification
-
-- [x] Approve private full details for new and existing v2 jobs, with limited public verification; [access contract](docs/recovery-acceptance.md#v2-privacy--approved).
-- [x] Enforce named-party full-job/detailed-verification reads and own-role signing requests. Authorize protected reads before SDK work, remove owner-only fields from builder views and use generic refusals/no-cache responses.
-- [x] Add the minimal public verification projection without raw identity/financial/consent data, and render it without an unauthorized full-job read in `src/web/pages/Verify.tsx`.
-- [x] Correct the claim that the funded total caps the job.
-- [x] Complete the privacy browser matrix for new/existing v2 and v3: named/unrelated/anonymous reads, own-role signing requests, original legacy recipient/signature/invitation preservation, refused-refresh clearing and public-only desktop/mobile Verify. Run `bun run demo:privacy:browser`; receipts identify exact unchanged pins. The named base payment/SDK/restart branches now pass; hosted and exceptional recovery limits are in docs/release-status.json.
-
-Done when the public view exposes only the approved fields, party/representative access follows the matrix, existing signatures/invitations remain valid, and the funding explanation matches the accounting boundary. The current defects are recorded in [PROGRESS.md](PROGRESS.md).
-
-## Required before accepting both agency ownership modes
-
-User requirement, 2026-11-12: builder jobs must work for wallet owner `multiagentic.near` and DAO owner `agentic.sputnik-dao.near`, with builder/payee `buildr.near` and attacker fixture role `hackr.near`. These are planned account roles, not permission to sign or spend. DAO representative authority remains to be verified from the DAO policy.
-
-- [x] Review the platform-owned DAO payout action contract supplied in the local SDK 0.5.9 handoff. Initial contract-review tarball SHA-256 `68a9924c224a3c7969c72243cefeb4e37864e0973f61e9c671bb39bd2759600b` (historical, superseded by the current release pin): `payout` is a DAO consent scope; payout-agent creation, payout grants and approval votes are admitted; `read,payout` covers requests while a consent containing `owner` is refused. Earlier 0.5.7/0.5.8 refusals are superseded by this candidate contract, not by a hosted rollout. Do not substitute treasury/Market authority or wallet credentials.
-- [x] Adopt the SDK 0.5.9 candidate reproducibly and obtain an immutable matching gateway snapshot. The byte-verified published tarball is pinned under `vendor/multiagency-sdk` with checksum/provenance; the Docker build copies it before dependency installation. Current matching snapshot `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40` is pinned in `gateway-pin.json` and verified with the platform-owned verifier. Extend the payout port/client to retain DAO proposal replies, omit wallet ownership on DAO creation, use the `payout` grant label and never call wallet `owner/submit` for DAO actions. Follow the platform handoff in `sdk/docs/app-access.md`.
-- [x] Add explicitly signed optional DAO ownership to v3 report/invoice terms, distinct from the human representative; retain existing jobs' original terms, hashes, recipients and wallet ownership without reinterpretation.
-- [x] Route DAO setup, consents, creation, grant, policy and exact payout approval through supported platform proposals. Platform and chain checks retain membership, action permission, quorum, expiry and revocation authority; representative authentication alone cannot authorize spending. The human signs job terms, while each DAO action requires its own passed proposal. Actual hosted membership/quorum and wallet filing remain unverified.
-- [ ] Prove wallet and DAO workflows with simulated funds, including rejected/expired votes, unrelated actors, lost replies, restart and same-payment observation. Keep live budgets, fee limits, signatures and deployment separately authorized.
-
-The local implementation now supports v3 DAO-owned builder jobs. Terms signatures belong to the named human representative and builder; they do not prove membership or grant spending authority. DAO action authority remains enforced by the platform and on-chain proposals. Simulated rejection/revision/settlement and original-approval recovery in a second app process pass; this does not establish SIGKILL recovery for the new DAO path, hosted wallet voting or mainnet settlement. See the DAO recipe in docs/job-demo.md.
-
-## Short backlog
-
-- Separate Market task observation from payment completion and address authority renewal/worker pagination.
-- Define recovery for lost job-creation replies and invitations.
-
-These are candidates, not agreed priorities. Additional source/application and platform dependencies remain in PROGRESS. Split a candidate into executable steps when it is selected.
-
-Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent filing with saved text can create a new gateway request hash. Saved-body reuse is not recovery of that unknown request; only known IDs are polled. The paired release review records quota/unsigned-request impact, with no demonstrated duplicate payout. The final combined committed platform/SDK artifacts were adopted and revalidated offline on 2026-11-12; current pins and receipts are recorded in PROGRESS.md. SDK publication and local Linux/container packaging are complete; remote CI and hosted acceptance remain separate gates.
-
-
-## Local packaging and CI checkpoint
-
-- [x] Review complete combined diff; fix production frontend asset restart failure and exclude inactive vendor artifacts from image/context.
-- [x] Build/smoke Linux arm64 and amd64 images with networking disabled; preserve full production frontend and image artifacts.
-- [x] Add read-only offline CI and validate with actionlint; local equivalent checks pass. Reviewed-head and merged-main remote CI passed.
-- [x] Prepare explicit reviewed commit file set without staging or committing; exclude four inactive `0018f553` artifacts.
-
-The two remaining local v2 acceptance branches now pass; see docs/v2-acceptance.json. The reviewed code is committed at `049387d`; push/merge/remote CI and scoped nonfinancial deployment are complete; financial/operational limits remain separate. This checkpoint is not publication/deployment clearance.
+- Lost job-creation replies and invitations: a durable creation identity needs a decision on who generates the invitation token (it is an authorization credential).
+- Offline demos still load the wallet selector's manifest and icons from external hosts; create the wallet client lazily or bundle its assets.
+- Agent-facing API: attention actions that name their route, one workflow identifier across endpoints (`report_invoice` vs `report_and_invoice`), and a non-browser authentication path.
+- Market: separate task observation from payment completion; authority renewal; worker pagination beyond 100 assignments.
+- 16-job ceiling per deployment (platform#46): an upstream fix or one agent per company (authorization change).

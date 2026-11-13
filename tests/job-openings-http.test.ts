@@ -135,7 +135,7 @@ test("source failures return generic 502 errors, while a valid empty feed remain
       const response = await request(ctx.rt, DESK);
       expect(response.status).toBe(502);
       const body = await response.json();
-      expect(body).toEqual({ error: "Published MultiAgency openings could not be read. Try again or check MultiAgency's listings directly." });
+      expect(body).toEqual({ error: "Published MultiAgency openings could not be read. Try again or check MultiAgency's listings directly.", code: "upstream_unavailable" });
       expect(body.openings).toBeUndefined();
       expect(body.checked_at).toBeUndefined();
       expect(JSON.stringify(body)).not.toContain("PRIVATE-");

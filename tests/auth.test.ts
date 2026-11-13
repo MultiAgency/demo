@@ -54,3 +54,20 @@ describe("access rules when sign-in is required", () => {
     expect((await rt.app.request("/api/contracts", json(DEMO_TERMS))).status).toBe(201);
   });
 });
+
+describe("API errors are machine-readable", () => {
+  test("malformed bodies are 400, unknown routes are JSON 404s, and each error carries a code", async () => {
+    const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", REQUIRE_AUTH: "true" }));
+    for (const body of ["not json", ""]) {
+      const res = await rt.app.request("/api/contracts", { method: "POST", headers: { "content-type": "application/json" }, body });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "The request body must be valid JSON.", code: "invalid_request" });
+    }
+    const missing = await rt.app.request("/api/no-such-route");
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("content-type")).toContain("application/json");
+    expect(await missing.json()).toEqual({ error: "No such API route.", code: "not_found" });
+    const signedOut = await rt.app.request("/api/contracts", json(DEMO_TERMS));
+    expect(await signedOut.json()).toMatchObject({ code: "sign_in_required" });
+  });
+});

@@ -7,7 +7,7 @@ import { bindAppDeployment, openDb } from "../src/server/db";
 import { migrateMarket } from "../src/server/market/db";
 import { canonicalJson } from "../src/shared/canonical";
 import { DEMO_TERMS, JOB_DEMO_TERMS } from "../src/shared/demo";
-import { parseTerms, termsHash } from "../src/shared/terms";
+import { parsePlatformTerms, termsHash } from "../src/shared/terms";
 
 // Disposable databases only; no application state, credentials, SDK calls or funds are used.
 const directories: string[] = [];
@@ -41,7 +41,7 @@ for (const source of ["contracts", "market_agencies"] as const) {
     try {
       migrateMarket(db);
       if (source === "contracts") {
-        const terms = parseTerms(JOB_DEMO_TERMS);
+        const terms = parsePlatformTerms(JOB_DEMO_TERMS);
         db.query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, organization, signing_recipient) VALUES (?, ?, ?, ?, ?, ?, ?)")
           .run("original-job", canonicalJson(terms), termsHash(terms), at, "original-private-link-hash", "original-organization", "covenant");
         db.query("INSERT INTO payout_attempts (request_id, kind, contract_id, seq, attempt, recipient, amount_atomic, state, correlation_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
@@ -72,7 +72,7 @@ test("migration pins pre-Paperwork v2/v3 records to their original signing domai
       payee_registered INTEGER, frozen INTEGER NOT NULL DEFAULT 0
     )`);
     for (const input of [DEMO_TERMS, JOB_DEMO_TERMS]) {
-      const terms = parseTerms(input);
+      const terms = parsePlatformTerms(input);
       old.query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, rep_sig, organization) VALUES (?, ?, ?, ?, ?, ?, ?)")
         .run(`original-v${terms.v}`, canonicalJson(terms), termsHash(terms), at, `original-v${terms.v}-link-hash`,
           JSON.stringify({ account_id: terms.representative.near_account, public_key: "fixture-key", signature: "original-saved-signature", nonce: "original-saved-nonce", signed_at: at }),

@@ -5,7 +5,7 @@ import type { Database } from "bun:sqlite";
 import type { Fail, OwnerAction, OwnerPrepared, Platform, Res, Signed413 } from "./platform/port";
 import type { NextStep } from "../shared/views";
 import { policyChanges, policyProblem } from "../shared/policy-request";
-import { endInstant, type Terms } from "../shared/terms";
+import { capsAtScope, payoutEndInstant, type PlatformTerms } from "../shared/terms";
 import type { ContractRow, OwnerStepRow, PlatformAgentRow } from "./db";
 import { UserError } from "./engine";
 import { nonceToString, randomNonce } from "./nep413";
@@ -22,7 +22,7 @@ export interface OnboardingDeps {
   now: () => Date;
   graceDays: number;
   event: (contractId: string, kind: string, text: string) => void;
-  contract: (id: string) => { row: ContractRow; terms: Terms };
+  contract: (id: string) => { row: ContractRow; terms: PlatformTerms };
 }
 
 type SignStep = "setup" | "consent_payout" | "consent_owner";
@@ -43,7 +43,7 @@ export class Onboarding {
     return this.d.db.query("SELECT * FROM platform_agents WHERE organization = ?").get(organization) as PlatformAgentRow | null;
   }
 
-  private ensureAgent(row: ContractRow, terms: Terms): PlatformAgentRow {
+  private ensureAgent(row: ContractRow, terms: PlatformTerms): PlatformAgentRow {
     const existing = this.agentRow(row.organization);
     if (existing) return existing;
     const now = this.iso();
@@ -115,7 +115,7 @@ export class Onboarding {
       }
       case "needs_consent": {
         if (this.isDao(id)) return this.daoAccess(id, a, "consent");
-        const end = Date.parse(endInstant(terms));
+        const end = Date.parse(payoutEndInstant(terms));
         if (end <= now.getTime() + 2 * 60_000) throw new UserError("The job ends too soon to give Paperwork access.");
         const cap = now.getTime() + MAX_CONSENT_MS;
         if (!a.payout_consent_id) {
@@ -140,7 +140,7 @@ export class Onboarding {
     }
   }
 
-  private async observePolicy(id: string, a: PlatformAgentRow, terms: Terms): Promise<NextStep> {
+  private async observePolicy(id: string, a: PlatformAgentRow, terms: PlatformTerms): Promise<NextStep> {
     const o = await this.handle(a).overview();
     if (!o.ok) return wait("Waiting for the platform to read the policy");
     const ov = o.value;
@@ -161,7 +161,7 @@ export class Onboarding {
     const problem = policyProblem(ov, terms);
     if (problem) throw new UserError(`The applied policy does not match the terms: ${problem.detail}`, 409);
     this.setAgent(a.organization, { stage: "ready", policy_revision: ov.revision, policy_digest: ov.digest });
-    this.d.event(id, "policy", `Policy in force (revision ${ov.revision}): only ${terms.payee.address}, owner approval on every payout, at most the largest deliverable per payment.`);
+    this.d.event(id, "policy", `Policy in force (revision ${ov.revision}): only ${terms.payee.address}, owner approval on every payout, at most the ${capsAtScope(terms) ? "scope total" : "largest deliverable"} per payment.`);
     return { kind: "done" };
   }
 
@@ -195,7 +195,7 @@ export class Onboarding {
     const terms = this.d.contract(id).terms;
     const readOnly = kind === "consent" && !!a.payout_consent_id;
     const expiresAt = kind === "setup" ? new Date(this.d.now().getTime() + SETUP_TTL_MS).toISOString()
-      : new Date(Math.min(Date.parse(endInstant(terms)) + (readOnly ? this.d.graceDays * 86_400_000 : 0), this.d.now().getTime() + MAX_CONSENT_MS)).toISOString();
+      : new Date(Math.min(Date.parse(payoutEndInstant(terms)) + (readOnly ? this.d.graceDays * 86_400_000 : 0), this.d.now().getTime() + MAX_CONSENT_MS)).toISOString();
     if (!observeOnly && Date.parse(expiresAt) <= this.d.now().getTime() + 120_000) throw new UserError("The job ends too soon for DAO consent.", 409);
     let saved = a.pending_sign ? JSON.parse(a.pending_sign) as { kind: string; request?: DaoRequest; message: string } : null;
     const api = kind === "setup" ? platform.daoSetup : platform.daoConsent;

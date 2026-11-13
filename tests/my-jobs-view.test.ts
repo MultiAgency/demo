@@ -28,14 +28,17 @@ test("accepted builder summaries open the existing authenticated view without cr
   expect(html).not.toContain("Signed scope");
 });
 
-test("an unsigned builder can view terms but must return to the agency's original invitation before acceptance", () => {
-  const html = render([{ ...job, builder_accepted: false, stage: "needs_signatures",
-    attention: { state: "needs_action", summary: "Review the offered terms", detail: "Acceptance requires the original invitation.", actions: [{ role: "builder", label: "Review offered terms" }] },
-  }]);
-  expect(html).toContain("original private invitation link");
-  expect(html).toContain("That link is still required before you can sign");
-  expect(html).toContain('class="btn btn-secondary btn-sm" href="#/c/c_original/sign">View offered terms</a>');
+test("a signed-in unsigned builder is sent to review and sign; the keyless demonstration still points to the invitation", () => {
+  const unsigned: MyJob = { ...job, builder_accepted: false, stage: "needs_signatures",
+    attention: { state: "needs_action", summary: "Review the offered terms", detail: "Open the job to review and sign.", actions: [{ role: "builder", label: "Review offered terms" }] },
+  };
+  const html = render([unsigned]);
+  expect(html).not.toContain("invitation link");
+  expect(html).toContain('class="btn btn-primary btn-sm" href="#/c/c_original/sign">Review and sign terms</a>');
   expect(html).toContain("Setup: Awaiting signatures");
+  const demo = render([unsigned], true);
+  expect(demo).toContain("original private invitation link");
+  expect(demo).toContain('class="btn btn-secondary btn-sm" href="#/c/c_original/sign">View offered terms</a>');
   expect(html).not.toContain("?t=");
   expect(html).not.toContain("Signed scope");
 });

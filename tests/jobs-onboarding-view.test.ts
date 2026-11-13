@@ -42,7 +42,7 @@ test("the guide starts with published openings and separates applications from a
   expect(html).not.toContain("active projects");
   expect(html).toContain("An application does not promise hiring or payment");
   expect(html).toContain("Signing is free and off-chain");
-  expect(html).toContain("Keep the original invitation link");
+  expect(html).toContain("find the offer under Assigned to me");
   expect(html).toContain("The agency explicitly approves the payout or requests changes");
   expect(html).toContain("confirmed settlement");
   expect(html).toContain("Paperwork sign-in does not sign you in to Market");

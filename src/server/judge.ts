@@ -1,6 +1,7 @@
 import { z } from "zod";
-import type { Terms } from "../shared/terms";
+import type { MergeTerms } from "../shared/terms";
 import { endInstant, startInstant } from "../shared/terms";
+import type { Config } from "./config";
 import type { PullRequest } from "./evidence/github";
 
 /** Completion levels a judge may give a deliverable. Coarse on purpose: easy to audit, hard to game. */
@@ -44,11 +45,11 @@ export interface Judgment {
  */
 export interface Judge {
   readonly kind: Judgment["judge"];
-  judge(terms: Terms, prs: PullRequest[], previous: Record<string, Level>, window: { since: string; until: string }): Promise<Judgment>;
+  judge(terms: MergeTerms, prs: PullRequest[], previous: Record<string, Level>, window: { since: string; until: string }): Promise<Judgment>;
 }
 
 /** Contract rules that run before any judge and cannot be overridden by it. */
-export function precheck(terms: Terms, pr: PullRequest, window: { since: string; until: string }): string[] {
+export function precheck(terms: MergeTerms, pr: PullRequest, window: { since: string; until: string }): string[] {
   const fails: string[] = [];
   if (pr.author !== terms.contractor.github) fails.push(`authored by ${pr.author}, not ${terms.contractor.github}`);
   if (!terms.repos.includes(pr.repo)) fails.push(`${pr.repo} is not a repo in this job`);
@@ -71,7 +72,7 @@ function snap(x: number): Level {
   return LEVELS.reduce((best, l) => (Math.abs(l - clamped) < Math.abs(best - clamped) ? l : best), 0 as Level);
 }
 
-function review(terms: Terms, prs: PullRequest[], window: { since: string; until: string }): PrReview[] {
+function review(terms: MergeTerms, prs: PullRequest[], window: { since: string; until: string }): PrReview[] {
   return prs.map((pr) => {
     const fails = precheck(terms, pr, window);
     return {
@@ -89,7 +90,7 @@ function review(terms: Terms, prs: PullRequest[], window: { since: string; until
   });
 }
 
-function finish(terms: Terms, judge: Judgment["judge"], reviews: PrReview[], raw: DeliverableJudgment[], previous: Record<string, Level>, extra: Partial<Judgment> & { escalate?: boolean; why?: string } = {}): Judgment {
+function finish(terms: MergeTerms, judge: Judgment["judge"], reviews: PrReview[], raw: DeliverableJudgment[], previous: Record<string, Level>, extra: Partial<Judgment> & { escalate?: boolean; why?: string } = {}): Judgment {
   // Completion never goes down: re-running is safe and never claws back.
   const deliverables = terms.scope.map((d): DeliverableJudgment => {
     const j = raw.find((x) => x.id === d.id);
@@ -121,7 +122,7 @@ function finish(terms: Terms, judge: Judgment["judge"], reviews: PrReview[], raw
 export class RulesJudge implements Judge {
   readonly kind = "rules" as const;
 
-  async judge(terms: Terms, prs: PullRequest[], previous: Record<string, Level>, window: { since: string; until: string }): Promise<Judgment> {
+  async judge(terms: MergeTerms, prs: PullRequest[], previous: Record<string, Level>, window: { since: string; until: string }): Promise<Judgment> {
     const reviews = review(terms, prs, window);
     const sums = new Map<string, { total: number; prs: string[] }>();
     reviews.forEach((r, i) => {
@@ -157,6 +158,34 @@ const AiOutput = z.object({
   confidence: z.enum(["high", "low"]).default("low"),
 });
 
+export type JobFetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/** Bound both headers and body reads, including a client that ignores abort. No late result can become a proposal. */
+export async function readAssessment(config: Config["judge"], body: string, send: JobFetch) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error("AI assessment timed out; no proposal was recorded. The work remains available for review.");
+      controller.abort(error);
+      reject(error);
+    }, config.assessmentTimeoutMs);
+  });
+  try {
+    const read = async () => {
+      const res = await send(`${config.baseUrl}/chat/completions`, {
+        method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
+        body, signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`NEAR AI Cloud returned ${res.status}; no proposal was recorded.`);
+      return res.json();
+    };
+    return await Promise.race([read(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * NEAR AI Cloud judge (OpenAI-compatible API at cloud-api.near.ai). Pull request text is treated as
  * untrusted data; the output is parsed strictly, clamped to known deliverables and levels, and any
@@ -164,16 +193,12 @@ const AiOutput = z.object({
  */
 export class NearAiJudge implements Judge {
   readonly kind = "near-ai" as const;
-  constructor(
-    private apiKey: string,
-    private model: string,
-    private baseUrl = "https://cloud-api.near.ai/v1",
-  ) {}
+  constructor(private config: Config["judge"], private send: JobFetch = fetch) {}
 
-  async judge(terms: Terms, prs: PullRequest[], previous: Record<string, Level>, window: { since: string; until: string }): Promise<Judgment> {
+  async judge(terms: MergeTerms, prs: PullRequest[], previous: Record<string, Level>, window: { since: string; until: string }): Promise<Judgment> {
     const reviews = review(terms, prs, window);
     const eligible = prs.filter((_, i) => reviews[i]!.eligible);
-    if (eligible.length === 0) return finish(terms, "near-ai", reviews, [], previous, { model: this.model });
+    if (eligible.length === 0) return finish(terms, "near-ai", reviews, [], previous, { model: this.config.model });
 
     const system = [
       "You review merged pull requests against a signed scope of deliverables and judge how complete each deliverable is.",
@@ -188,15 +213,9 @@ export class NearAiJudge implements Judge {
       pull_requests: eligible.map((p) => ({ key: `${p.repo}#${p.number}`, title: p.title, description: p.body.slice(0, 4000), merged_at: p.merged_at })),
     });
 
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify({ model: this.model, temperature: 0, response_format: { type: "json_object" }, messages: [{ role: "system", content: system }, { role: "user", content: user }] }),
-    });
-    if (!res.ok) throw new Error(`NEAR AI Cloud returned ${res.status}`);
-    const body = (await res.json()) as { id?: string; model?: string; choices?: { message?: { content?: string } }[] };
+    const body = (await readAssessment(this.config, JSON.stringify({ model: this.config.model, temperature: 0, response_format: { type: "json_object" }, messages: [{ role: "system", content: system }, { role: "user", content: user }] }), this.send)) as { id?: string; model?: string; choices?: { message?: { content?: string } }[] };
     const parsed = AiOutput.safeParse(JSON.parse(body.choices?.[0]?.message?.content ?? "{}"));
-    if (!parsed.success) return finish(terms, "near-ai", reviews, [], previous, { model: this.model, completion_id: body.id, escalate: true, why: "the judge's answer could not be read" });
+    if (!parsed.success) return finish(terms, "near-ai", reviews, [], previous, { model: this.config.model, completion_id: body.id, escalate: true, why: "the judge's answer could not be read" });
 
     const ids = new Set(terms.scope.map((d) => d.id));
     const keys = new Set(eligible.map((p) => `${p.repo}#${p.number}`));
@@ -214,7 +233,7 @@ export class NearAiJudge implements Judge {
       .filter((d) => ids.has(d.id))
       .map((d) => ({ id: d.id, completion: snap(d.completion), prs: d.prs.filter((k) => keys.has(k)), reason: d.reason }));
     return finish(terms, "near-ai", reviews, raw, previous, {
-      model: body.model ?? this.model,
+      model: body.model ?? this.config.model,
       completion_id: body.id,
       escalate: parsed.data.confidence === "low",
       why: "the judge was not confident",

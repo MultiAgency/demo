@@ -1,7 +1,7 @@
-import { JOB_PAYMENT_TERMS, type TermsInput, USDC_NEAR } from "./terms";
+import { JOB_PAYMENT_TERMS, type MergeTermsInput, type PlatformTermsInput, USDC_NEAR } from "./terms";
 
 /** The demo job. Fake account names so nobody mistakes them for real accounts. */
-export const DEMO_TERMS: TermsInput = {
+export const DEMO_TERMS: MergeTermsInput = {
   v: 2,
   company: "Acme Labs",
   representative: { near_account: "acme.demo" },
@@ -20,7 +20,7 @@ export const DEMO_TERMS: TermsInput = {
 };
 
 /** One agency, one builder, one report/invoice job. All identities are fixtures. */
-export const JOB_DEMO_TERMS: TermsInput = {
+export const JOB_DEMO_TERMS: PlatformTermsInput = {
   ...DEMO_TERMS,
   v: 3,
   acceptance: "report_and_invoice",

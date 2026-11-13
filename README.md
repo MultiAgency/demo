@@ -6,36 +6,34 @@ Paperwork is MultiAgency's payroll app for signed builder jobs. A company and a 
 
 The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. The **Pay on merge** workflow remains available for v2 jobs; new v3 jobs explicitly sign the report/invoice and payment clauses.
 
-**desk.multiagency.ai** is Paperwork's single entry for private work, agency offers and approvals, public openings and connected [Agent Market](https://market.near.ai) work. Active projects without an opening are excluded. **Get started** connects existing applications, invitations and delivery flows. All routes use one backend, database, sign-in origin and deployment. See the [Desk walkthrough, source map and boundaries](docs/jobs-portal.md). The separate Jobs subdomain plan was dropped; `paperwork.multiagency.ai` remains Documenso. Paperwork is deployed at https://desk.multiagency.ai from `ef73b58`; anonymous nonfinancial acceptance passes. Railway calls this single environment `staging`. Scoped hosted wallet login and job-terms acceptance pass; DAO/setup/registration/payment acceptance remains separately unverified; see [deployment acceptance](docs/deployment-update-ef73b58.json).
-
-Desk opens on **Assigned to me**: jobs where the signed-in account is the named builder or agency representative, grouped into **Needs your action**, **Waiting** and **Completed** from stored workflow evidence. **Agency** shows only jobs that account manages as the representative; **Openings** is public at `/#/openings`. No organization-wide membership access is inferred.
-
-Run `bun run demo:desk` for an interactive, offline Desk fixture on one local hostname, or `bun run demo:desk:check` for its browser check. These exercise public openings, private-job discovery, onboarding, Market pagination beyond 100 jobs and same-origin tab recovery against scripted sources; they do not demonstrate a hosted application, acceptance or payment. The older `demo:jobs` commands remain aliases for this same launcher.
-
-For **Jobs and Agent Market in one local app**, run `bun run demo:full` and open the URL it prints (default port **3002**). This starts a fresh SDK gateway and market simulator, keeping other checkouts untouched. See the [combined manual walkthrough](docs/full-demo.md) and [integration evidence](docs/full-integration-evidence.md); `bun run demo:full:check` checks both paths through the browser. All signatures and funds are simulated. The pinned simulator's worker/directory and recovery limits remain explicit.
-
-The [Paperwork review](docs/paperwork-review.md) records the final namespace, legacy signature/recovery handling and fresh checks against `--app multiagency-paperwork` stacks. The historical [Agency Work UI review](docs/agency-work-review.md) remains a dated record.
-
-```bash
-bun run demo:job
-PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_LOST_REPLY=1 bun run demo:job
-```
-
-These complete one job on the existing **platform stand-in**, with simulated signatures and settlement. See the [workflow map](docs/workflow-map.md), [exact demonstration steps](docs/job-demo.md), [current evidence](docs/job-evidence.md) and [verified Agent Market boundary](docs/market-boundary.md). The job's sole payment path is the platform held payout. Market x402 delivery settles automatically; standard market jobs add automatic acceptance deadlines. Neither is silently substituted for explicit agency review.
-
-Run the complete two-party browser check with `bun run demo:browser` ([browser proof](docs/browser-demo.md)). Run `bun run demo:job:restart` to create a fresh isolated SDK stack and verify a lost app response followed by a full app process restart ([restart proof](docs/job-restart.md)). No stack path is required. The [careful review](docs/review-2026-11-11.md) records the safety fixes and remaining platform cases. The [wallet signing adapter](docs/wallet-signing.md) reuses the existing sign-in client and has local fixture checks; hosted login, cancellation, private-job refusal and both exact terms signatures are verified. New registration UI/quote and financial actions remain unverified. The [staging acceptance plan](docs/staging-acceptance.md) performs no hosted action.
+**desk.multiagency.ai** is Paperwork's single entry for private work, agency offers and approvals, public openings and connected [Agent Market](https://market.near.ai) work. Desk opens on **Assigned to me**: jobs where the signed-in account is the named builder or agency representative, grouped into **Needs your action**, **Waiting** and **Completed** from stored workflow evidence. **Agency** shows only jobs that account manages as the representative; **Openings** is public at `/#/openings`. No organization-wide membership access is inferred. See the [Desk walkthrough, source map and boundaries](docs/jobs-portal.md).
 
 > The judge decides how much. The company approves each payout. The signed terms decide the most it could ever be.
 
 Paperwork's server holds only its app credential. In production it never holds an owner or provider key; the keyless demo and the local stack use a demo signer.
 
-Tracks: Real-World Money, AI Security & Defense.
+**Status:** current deployment, pins and open gates are in [PROGRESS.md](PROGRESS.md) and [release-status.json](docs/release-status.json); environments are in [deploy.md](docs/deploy.md#environments). Tracks: Real-World Money, AI Security & Defense.
 
 ## Run it
 
-The optional **Review assistant** uses CopilotKit/AG-UI to prepare editable report feedback. Its direct NEAR backend uses the official Inference SDK with encrypted Chat Completions and verified model responses. Run `bun run demo:review` for the isolated scripted demonstration, or `bun run demo:review:check` for its browser check. Neither calls a hosted model or creates a payment. See [NEAR setup, verification and the synthetic check](docs/review.md); the [Hermes connection investigation](docs/hermes-review.md) is retained separately.
+Prerequisites: Bun 1.4+ (if `bun install` says "Unknown lockfile version", run `bun upgrade`). Everything below is simulated: signatures, provider, chain and funds.
 
-Prerequisites: Bun 1.4+ (if `bun install` says "Unknown lockfile version", run `bun upgrade`).
+| Command | What it shows | Needs |
+| --- | --- | --- |
+| `bun run demo:e2e` | The whole flow headless in about 10 seconds on the in-process platform stand-in | nothing |
+| `bun run demo:job` | One report/invoice job to confirmed settlement; add `PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_LOST_REPLY=1` for requested changes and a lost reply ([steps](docs/job-demo.md)) | nothing |
+| `bun run demo` | The app in the browser at `localhost:3000` on the stand-in (`PORT=3001` if taken). Public openings read live sources. | network for openings |
+| `bun run demo:desk` | Offline Desk fixture: openings, private-job discovery, onboarding; `demo:desk:check` runs it in a browser | nothing |
+| `bun run demo:browser` | The complete two-party job in a browser ([proof](docs/browser-demo.md)) | `agent-browser` |
+| `bun run demo:privacy:browser` | v2/v3 access matrix: party, unrelated and anonymous reads, public Verify | `agent-browser` |
+| `bun run demo:market:browser` | A Market-settled job in a browser against a fixture Market: import, settlement choice, report, assessment and Market acceptance, with no platform payment | `agent-browser` |
+| `bun run demo:review` | The Review assistant against a scripted model; `demo:review:check` in a browser ([setup](docs/review.md)) | nothing |
+| `bun run demo:job:restart` | A fresh isolated SDK stack: lost app reply, full process restart, same identities, one payment ([proof](docs/job-restart.md)) | platform checkout, Node 24 |
+| `bun run demo:full` | Jobs and Agent Market in one app on a fresh SDK gateway and market simulator ([walkthrough](docs/full-demo.md)); `demo:full:check` in a browser | platform checkout, Node 24 |
+
+`bun test` and `bun run typecheck` cover the rest offline. Workflow and boundary references: [workflow map](docs/workflow-map.md), [Agent Market boundary](docs/market-boundary.md), [wallet signing](docs/wallet-signing.md).
+
+The optional **Review assistant** uses CopilotKit/AG-UI to prepare editable report feedback. Its direct NEAR backend uses the official Inference SDK with encrypted Chat Completions and verified model responses. Run `bun run demo:review` for the isolated scripted demonstration, or `bun run demo:review:check` for its browser check. Neither calls a hosted model or creates a payment. See [NEAR setup, verification and the synthetic check](docs/review.md); the [Hermes connection investigation](docs/hermes-review.md) is retained separately.
 
 ### Keyless, on the platform stand-in
 
@@ -72,7 +70,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 (MultiAgency/platform#42). Paperwork pins the final combined local `@multiagency/sdk` 0.5.9 artifact from signed platform commit `252cba1d1e6642a5ea9f42ea4927f982423ed8e1`, with matching gateway candidate `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40`. Pins and the authoritative offline-only handoff are in `vendor/multiagency-sdk`; SDK 0.5.9 is now published with byte-identical content; Paperwork retains its verified vendored pin. This does not establish a deployed gateway or authorize rollout. The dated [staging record committed at `764197a`](https://github.com/MultiAgency/platform/blob/764197a/docs/platform-staging.md) reports platform 0.5.7 deployed from source `cc90604`; its older production record reports 0.5.4. The recorded public health checks expose no version, so do not infer today's hosted capability from them. See [release and hosted observations](docs/market-boundary.md#release-and-hosted-checks--2026-11-11). The owner's freeze link and recovering a lost setup reply through `reservations` also need 0.5.5.
+Approving a held withdrawal needs platform 0.5.5 or later (MultiAgency/platform#42). Paperwork pins `@multiagency/sdk` 0.5.9 from platform commit `252cba1d1e6642a5ea9f42ea4927f982423ed8e1`, with gateway candidate `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40`; pins and the offline handoff are in `vendor/multiagency-sdk`. A pin does not establish a deployed gateway; hosted observations are in [market-boundary.md](docs/market-boundary.md#release-and-hosted-checks--2026-11-11).
 
 ## Hire and work on the agent market
 
@@ -125,7 +123,7 @@ New browser state uses `paperwork.*`. Recovery can read a legacy pending submiss
 ```
 signed scope ──setup──▶ one platform Organization and agent per job
   payee            ──▶ policy withdrawals = [payee]           (provider-enforced)
-  largest item     ──▶ limits.per_transaction = largest       (provider-enforced)
+  signed cap       ──▶ limits.per_transaction = cap           (provider-enforced)
   every payout     ──▶ owner_approval = true                  (held until the company votes)
   end date         ──▶ Paperwork's payout consent expires at the end
   scope total      ──▶ the agent is funded with the total (information on Verify, not a cap)
@@ -135,7 +133,7 @@ merged PR ──precheck──▶ judge ──▶ owed = value × completion −
 ```
 
 - **The company approves every payout.** Nothing is paid by default after a merge: the platform's payout policy holds every payout for the owner. The representative approves or rejects each one with an `approval_vote`; the platform checks the vote against the provider's request before the owner signs. A rejected payout's PRs stay out of later runs.
-- **Money stays bounded whatever the judge says.** The policy refuses any other payee and any payment above the largest deliverable, and the company approves every payout. Paperwork requests only what is owed against the scope, counting every payout that may have moved. The agent is funded with the scope total and Verify shows paid + balance against it, but that is information, not a cap: the company could deposit more, and the daily and monthly limits reset.
+- **Money stays bounded whatever the judge says.** The policy refuses any other payee and any payment above the signed per-payment cap (the largest deliverable, or the scope total where the terms sign that), and the company approves every payout. Paperwork requests only what is owed against the scope, counting every payout that may have moved. The agent is funded with the scope total and Verify shows paid + balance against it, but that is information, not a cap: the company could deposit more, and the daily and monthly limits reset.
 - **Only under the policy both parties signed.** Before every payout request Paperwork checks the whole live policy (actions, assets, owner approval, payee, per-payment, daily and monthly limits, USD budget) against what it signed. Any difference and nothing is requested, with an alert, and Verify turns red. A new revision that still matches (a freeze and unfreeze) is fine. It also checks the payout grant, which the platform issues for 30 days, and asks the representative to issue it again when it runs out.
 - **Never twice.** Each attempt is saved with its requestId before the call. A lost reply is followed with `payouts/status`, never resent under a new id. Only a `refused` answer (nothing sent) frees the amount for a new attempt. A `failed` payout stays committed until the representative says whether it arrived.
 - **One open judgment per job.** A run while a payout is open waits. A judgment closes approved, rejected, or dropped by the representative.
@@ -151,7 +149,7 @@ The limit: the platform hosts at most 16 agents per deployment and never release
 ## What we claim, and what we don't
 
 We claim:
-- each job has its own platform agent whose policy, read back from the platform, allows only withdrawals of USDC to the payee, no single payment above the largest deliverable, and owner approval on every payout;
+- each job has its own platform agent whose policy, read back from the platform, allows only withdrawals of USDC to the payee, no single payment above the signed per-payment cap, and owner approval on every payout;
 - Paperwork requests a payout only while the whole live policy matches what both parties signed;
 - the agent is funded with the scope total; Verify shows paid + balance against it, as information (the company could deposit more);
 - Paperwork's payout consent ends at the job end;

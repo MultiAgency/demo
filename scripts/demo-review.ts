@@ -208,7 +208,7 @@ if (!checking) {
   try {
     await command("open", url);
     await command("set", "viewport", "1440", "1000");
-    await waitFor("document.title==='Paperwork'&&!!document.querySelector('.review-assistant')", "report review UI");
+    await waitFor("document.title.endsWith('Paperwork')&&!!document.querySelector('.review-assistant')", "report review UI");
     await evaluate(`(() => {
       const original = window.fetch.bind(window);
       window.__reviewMutations = [];

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { judgeJob, type JobFetch } from "../src/server/job-judge";
+import { judgeJob } from "../src/server/job-judge";
+import type { JobFetch } from "../src/server/judge";
 import { loadConfig, type Config } from "../src/server/config";
 import { DEMO_TERMS } from "../src/shared/demo";
 import { jobSubmissionSchema } from "../src/shared/jobs";
@@ -144,4 +145,15 @@ describe("optional job AI assessor — injected unit fixtures", () => {
     for (const value of ["", "0", "-1", "1.5", "NaN", "Infinity", "2147483648"])
       expect(() => loadConfig({ PAPERWORK_ASSESSMENT_TIMEOUT_MS: value })).toThrow(/PAPERWORK_ASSESSMENT_TIMEOUT_MS/);
   });
+});
+
+test("the pay-on-merge judge aborts a stalled NEAR AI response at the same assessment deadline", async () => {
+  const { NearAiJudge } = await import("../src/server/judge");
+  const judgeConfig = { ...config, assessmentTimeoutMs: 30 };
+  let signal: AbortSignal | undefined;
+  const judge = new NearAiJudge(judgeConfig, async (_url, init) => { signal = init.signal ?? undefined; return new Promise<Response>(() => {}); });
+  const terms = { ...DEMO_TERMS, start: "2026-11-01", end: "2026-11-30" };
+  const pr = { repo: terms.repos[0]!, number: 1, title: "Add CSV export", body: "", author: terms.contractor.github.toLowerCase(), merged_by: "acme-lead", merged_at: "2026-11-10T12:00:00.000Z", url: "https://github.invalid/1" };
+  await expect(judge.judge(terms, [pr], {}, { since: "2026-11-01T00:00:00.000Z", until: "2026-11-30T23:59:59.000Z" })).rejects.toThrow("timed out");
+  expect(signal?.aborted).toBe(true);
 });

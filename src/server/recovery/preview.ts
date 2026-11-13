@@ -154,7 +154,7 @@ function preview(inspection: LedgerInspection, input: EvidenceCollection): Recov
     const heldForAttempt = held.filter(row => row.correlation_id === correlation);
     if (heldForAttempt.length) reasons.push("held_payment_reported");
     if (heldForAttempt.some(row => row.approval_id !== attempt.approval_id || (row.request !== null && !requestMatches(attempt, row.request)))) reasons.push("held_request_mismatch");
-    const storedCounter = counterevidence(attempt) || attempt.state === "paid" || attempt.resolution === "arrived";
+    const storedCounter = counterevidence(attempt) || attempt.counterevidence !== null || attempt.state === "paid" || attempt.resolution === "arrived";
     const liveCounter = payment !== null && (counterevidence(payment) || payment.destination_tx_hash !== null);
     if (storedCounter) reasons.push("stored_transfer_or_arrival_evidence");
     if (liveCounter) reasons.push("observed_transfer_or_refund_evidence");
@@ -162,7 +162,7 @@ function preview(inspection: LedgerInspection, input: EvidenceCollection): Recov
     const proof = payout?.state === "failed" && payout.status === "FAILED" && payout.never_executed === true && payment?.status === "FAILED";
     const paid = payout?.state === "succeeded" && payout.status === "SUCCESS" && payment?.status === "SUCCESS";
     const successReported = payout?.state === "succeeded" || payout?.status === "SUCCESS" || payment?.status === "SUCCESS";
-    const refundReported = refundEvidence(attempt) || (payment !== null && refundEvidence(payment)) ||
+    const refundReported = refundEvidence(attempt) || attempt.counterevidence === "payment status REFUNDED" || (payment !== null && refundEvidence(payment)) ||
       payout?.status === "REFUNDED" || payment?.status === "REFUNDED";
     if (refundReported) reasons.push("refund_reported");
     if (successReported && refundReported) reasons.push("success_refund_conflict");

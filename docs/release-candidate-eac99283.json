@@ -1,0 +1,529 @@
+{
+ "as_of": "2026-11-13T21:17:12Z",
+ "result": "RELEASE_CANDIDATE_FROZEN_NOT_DEPLOYED",
+ "scope": "Frozen local release candidate for a future production update. No deployment, hosted read or live action was performed for this record.",
+ "base_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
+ "source": {
+  "kind": "frozen_uncommitted_tree",
+  "manifest_sha256": "eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108",
+  "inputs": 119,
+  "method": "The image inputs admitted by Dockerfile and .dockerignore (Dockerfile, package.json, bun.lock, tsconfig.json, scripts/build-web.ts, the vendored SDK tarball, every file under src/), in byte-sorted path order, one 'shasum -a 256' line each ('<sha256>  <path>' and a newline); the manifest hash is the sha256 of that listing. Not comparable by method with the 116-input manifest recorded for 0791b0e2."
+ },
+ "toolchain": {
+  "bun": "1.4.2"
+ },
+ "checks_in_frozen_snapshot": {
+  "typecheck": "passed",
+  "tests_passed": 1661,
+  "tests_failed": 0,
+  "assertions": 11441,
+  "test_files": 81,
+  "passed": [
+   "demo:browser",
+   "demo:market:browser",
+   "demo:desk:check",
+   "demo:privacy:browser",
+   "demo:review:check",
+   "scripts/demo-v2-browser.ts",
+   "scripts/demo-funding-browser.ts",
+   "scripts/demo-funding-recovery-browser.ts",
+   "demo:e2e",
+   "demo:job with PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_LOST_REPLY=1",
+   "scripts/build-web.ts (3 files)"
+  ],
+  "all_simulated": true
+ },
+ "checks_by_reviewer_on_identical_live_tree": [
+  "SDK demo:job:restart",
+  "local docker build and scripts/check-container.ts (ARM64)",
+  "independent manifest recomputation, identical listing"
+ ],
+ "before_any_deployment": [
+  "The user's direct, exact authorization in the deploying session",
+  "A protected production snapshot",
+  "The three rollback queries in docs/deploy.md run on that snapshot, results recorded",
+  "Recompute this manifest from the export being deployed and compare"
+ ],
+ "known_limits": [
+  "Funding recovery is present but inert: no platform adapter implements its read contract; a recorded attempt has no resolution path and must be fixed before any adapter is enabled",
+  "Forward-only once any new-kind record exists; see docs/deploy.md"
+ ],
+ "files": [
+  {
+   "sha256": "31ba2776619669e6c9bca76ace0c1bd39681f408f40da6702bb336539bea8eda",
+   "path": "Dockerfile"
+  },
+  {
+   "sha256": "2c7cde5ec79ae1f185a387566d0c1af81f63b0eb96fe10324325beabea93cad8",
+   "path": "bun.lock"
+  },
+  {
+   "sha256": "5cd3db8aed2d327821534bd03142131ad95374ad57208be4a2719736ff1a305f",
+   "path": "package.json"
+  },
+  {
+   "sha256": "de3bc5975246078ad2cfffe0ffc82a54695fa1cb1e09fe1c10c86c02a073dd48",
+   "path": "scripts/build-web.ts"
+  },
+  {
+   "sha256": "8aa45f0b4528697303cd1ba02c17b40b6b21848af75adf3fe7d7c8fb53da46a4",
+   "path": "src/agent/client.ts"
+  },
+  {
+   "sha256": "60399ec3493000881282e4eb5053990a1ed5fb23bf855144177753a61387e125",
+   "path": "src/server/app.ts"
+  },
+  {
+   "sha256": "3e4a76812ce73bb0807093ddc0aa6d4391f99706c18d11dce1dee582ed831609",
+   "path": "src/server/auth.ts"
+  },
+  {
+   "sha256": "c9641763ca3f1a85f6c806a2033e1f2264f3180c37eca4347146adcab0ff435f",
+   "path": "src/server/config.ts"
+  },
+  {
+   "sha256": "1c2ca7bf989c0fae8ddc37412f61fe78ce448a8965d70abe601f90429965de1c",
+   "path": "src/server/db.ts"
+  },
+  {
+   "sha256": "a87545607430c8fbd24fbf1236472b0c2d820adf5d3c6daf73bb304318c45f4d",
+   "path": "src/server/engine.ts"
+  },
+  {
+   "sha256": "6c64d416c449255522af496417db5edbbd2f9d4581310c8ad8c01301aa176f88",
+   "path": "src/server/errors.ts"
+  },
+  {
+   "sha256": "39d70e00c45b23c1b38ba1e742de21c759d8478b888b32851c543e8762704d7e",
+   "path": "src/server/evidence/github.ts"
+  },
+  {
+   "sha256": "5cf47738a53d1df0abaf6cc20d66b656778aeb9f4f1273a972a7d934ec85816f",
+   "path": "src/server/frontend.ts"
+  },
+  {
+   "sha256": "02806477b9dcc8d27d486b52590d74b64979a4d8e0eb8d9c5bb356bfe243623b",
+   "path": "src/server/index.ts"
+  },
+  {
+   "sha256": "43aa6ae08a31f062dd1df69c884a60b368340756db4b76b92f5664ddba53beaa",
+   "path": "src/server/job-judge.ts"
+  },
+  {
+   "sha256": "e2e1145338c2a8db7d63a9bd9efa8a5fd7e0384e8d3a5b6f811f8a99d1c5c948",
+   "path": "src/server/jobs/attention.ts"
+  },
+  {
+   "sha256": "6fc746e51b18e93d0e9f56bfc1adfb37238acbf224525f8d18a954a8f44c25bc",
+   "path": "src/server/jobs/openings.ts"
+  },
+  {
+   "sha256": "6a4169ae01c4aed064edbfe8e585fc98320fde3e02d85459bf7f461ccf0a927d",
+   "path": "src/server/jobs/read-queries.ts"
+  },
+  {
+   "sha256": "9218cda58919447f26af508b83e9cf519b64174d87e9796e162f4549d95ffa83",
+   "path": "src/server/judge.ts"
+  },
+  {
+   "sha256": "3ea66ef2ff8f38d6b7c1995a5f9fd6ea30c7662a7ce23c0f37bb7cac8cd4ee65",
+   "path": "src/server/ledger.ts"
+  },
+  {
+   "sha256": "3aefd8256983723aca34e2574e23eeadb3fe818fb032a1af9c965eab0e1af4b8",
+   "path": "src/server/market/agencies.ts"
+  },
+  {
+   "sha256": "76884093908e8dd4b2b512d18ef25414c611dce99d6d6897e17b7bb48355d165",
+   "path": "src/server/market/api.ts"
+  },
+  {
+   "sha256": "30296fd560d6d69006be8acc64218728fbe93ab0bad8f2ca563c97fd74d0fbff",
+   "path": "src/server/market/db.ts"
+  },
+  {
+   "sha256": "79543e487f4e39f1c1b8ee3abe60d05a6aac06a4f54306dc8e50d811e82eccb0",
+   "path": "src/server/market/hires.ts"
+  },
+  {
+   "sha256": "227d428f0eca8292322f93b56db876b81cb69fe527e212c65dd9d570723f35c1",
+   "path": "src/server/market/index.ts"
+  },
+  {
+   "sha256": "795ffae2f41880de5d98a293e8eb2cae08d99b8e7e7759f721796f1f7b2ec726",
+   "path": "src/server/market/members.ts"
+  },
+  {
+   "sha256": "ffc244520f64fa0a2811b970025d2bf2c8c13d01fbd436ab69b766dba449fe0e",
+   "path": "src/server/market/port.ts"
+  },
+  {
+   "sha256": "c49bc4d92c96207156aa6dd5ca5fdccd99a84174ecd464c7d0ec3531d6997141",
+   "path": "src/server/market/routes.ts"
+  },
+  {
+   "sha256": "adbd94d6444c226f2f910180afa0e1e0776115f1e76ab4573ff4ff11b979b80d",
+   "path": "src/server/market/sdk.ts"
+  },
+  {
+   "sha256": "6fbb8ad61d387f55ae04ebbea387355d3ef1f838fa45e2e1e0358ade2b6c58c5",
+   "path": "src/server/market/worker.ts"
+  },
+  {
+   "sha256": "0003bad72fc7f51162c21c09024650f0e54640f3a1d3d597e085c026176f2bc2",
+   "path": "src/server/nep413.ts"
+  },
+  {
+   "sha256": "b4bbafa34df815c2f3be07c111af3f1789622ca6a0b2219894585e90a5ca643a",
+   "path": "src/server/onboarding.ts"
+  },
+  {
+   "sha256": "20559ea3cf3357f1a662eb4f9b1d3d29f5af51156eea429b9a4e446e3dab4eea",
+   "path": "src/server/payout-follower.ts"
+  },
+  {
+   "sha256": "e2715a5154c5fb86fa0c0a82c26015b8cc8ddbfb225cb0e09f5c0d9eab3939a9",
+   "path": "src/server/payouts.ts"
+  },
+  {
+   "sha256": "f89aa2ce5f046a8d4b9a806f1c6343fb392b70115883dd6f43587f8a19381b0c",
+   "path": "src/server/platform/chain.ts"
+  },
+  {
+   "sha256": "2e5dbf92778137fb431a33113c3800200f8ec61e17c4c5ffffeadfadb542d6fb",
+   "path": "src/server/platform/client.ts"
+  },
+  {
+   "sha256": "f0ac55cc29a3a4e6111dfe0c8033ba62d309c2983fc526a934feb870bd1fb61b",
+   "path": "src/server/platform/fake.ts"
+  },
+  {
+   "sha256": "9473a4f29c72b119f7b8e521cfebda5ce072c2e5779c8471489a9c334585698f",
+   "path": "src/server/platform/index.ts"
+  },
+  {
+   "sha256": "54dcfd487f055adef5fefb3efab085bf13c4553fd29b58bf68b8b6e3fefba0aa",
+   "path": "src/server/platform/port.ts"
+  },
+  {
+   "sha256": "d0b5111b2527dd78d4a3214fbf98293f10f34da9664395140e26eee8b8708a49",
+   "path": "src/server/platform/signer.ts"
+  },
+  {
+   "sha256": "acf061a9410a542b2a4ab2e8c5373187c8d2b5f8ad17f2f5d712c64794f46443",
+   "path": "src/server/platform/stack.ts"
+  },
+  {
+   "sha256": "d0a0ceaebbeea7df34bd2b10778b5600a67ddde621a04e1ea5710e89e033a898",
+   "path": "src/server/recovery/collect.ts"
+  },
+  {
+   "sha256": "45f35e0a1fd1810f0062e4efd0107f0822d3ca9b071c46970398686213081e66",
+   "path": "src/server/recovery/compatibility.ts"
+  },
+  {
+   "sha256": "35cf9cc037de02637d7758f2f99c38a81914d5dd53037ad112e635c92d2cd6b2",
+   "path": "src/server/recovery/evidence.ts"
+  },
+  {
+   "sha256": "5180d448895e02b98be0238aeef7953b8e26beb34d12eb77d85cc0bdb127a86d",
+   "path": "src/server/recovery/export.ts"
+  },
+  {
+   "sha256": "5c09c21a4d67f84e2bc9c0bd6c8a197366af8093dc34acaed9c67b88c2beb891",
+   "path": "src/server/recovery/inspect.ts"
+  },
+  {
+   "sha256": "22909af8d66509427f61a116b0548516a2a311015b3b18da234570cfa5a73ed4",
+   "path": "src/server/recovery/preview.ts"
+  },
+  {
+   "sha256": "585d92d9246a5bd6643edce5c212e223d0146a865ad31194f8bbddd46da228ad",
+   "path": "src/server/recovery/restore.ts"
+  },
+  {
+   "sha256": "39cf82cb324ebaaefa9706d5f3773cf3b4371f335c6f7f5a00d007bfaa8a5c74",
+   "path": "src/server/recovery/sdk-reader.ts"
+  },
+  {
+   "sha256": "f243168503a74b6f4be9415621f94a56d83feb435f48ce7df0829e637eb3749a",
+   "path": "src/server/review/agent.ts"
+  },
+  {
+   "sha256": "db6838e4964c64f94c669d379af3a8973ff8f08c069c4cbc2754f26387ff44ca",
+   "path": "src/server/review/common.ts"
+  },
+  {
+   "sha256": "50f76eaddfe4ecb2b3bf70816f366b6e6df9708093f6d5a458e9f524adec9a42",
+   "path": "src/server/review/hermes.ts"
+  },
+  {
+   "sha256": "a28cc066ab7096e1d54d97035dc4a7ed7c21012cac6f623d07be42346331c9a8",
+   "path": "src/server/review/near-client.ts"
+  },
+  {
+   "sha256": "acbb638f7aff3362ed5c8478cde9dfd7f23613f16b6400b35e88c0bbb6667f42",
+   "path": "src/server/review/near.ts"
+  },
+  {
+   "sha256": "c8691d121b43bdd6c3929df66515a09bab0e180efaec22bac60de88a92bdb79f",
+   "path": "src/server/review/privacy.ts"
+  },
+  {
+   "sha256": "635ea022fead28863e9c45dfc43727a2b615175da77fe3d82952683ca4f981fb",
+   "path": "src/server/review/routes.ts"
+  },
+  {
+   "sha256": "dec48fdf0e58c790399712143a4a52acfcb7f0cf2c024407bbb033d88f48f4f3",
+   "path": "src/server/review/types.ts"
+  },
+  {
+   "sha256": "4769016dda4e833c4a6cfd90338ca12a9fb2305cd693a197e87044de6864c1fe",
+   "path": "src/shared/agent-contracts.ts"
+  },
+  {
+   "sha256": "bc230a932cc3d392dca198b3fd5f11ee488b9613c38885dc6cd4dcdf92aacd1c",
+   "path": "src/shared/canonical.ts"
+  },
+  {
+   "sha256": "9923355c1d24cfc4decb85ac9bc3f0e3fd50652cec2223525aeb09ffb8d9653e",
+   "path": "src/shared/clauses.ts"
+  },
+  {
+   "sha256": "95a2b8d6e781e1b3b8c77666cdb47596250ff4bf82da80e1234ce463cc1f3384",
+   "path": "src/shared/demo.ts"
+  },
+  {
+   "sha256": "8b8f353825b0af21ed6883c31b941443349ab64d731cdb9c840fbb99e1e4dbda",
+   "path": "src/shared/funding-recovery.ts"
+  },
+  {
+   "sha256": "2bbb0b6cbd6b16f98c7f43cbf228518c8b2965f02c52f9146972cfdcf43cceaf",
+   "path": "src/shared/job-actions.ts"
+  },
+  {
+   "sha256": "30f510ae23336184145c7f99dd3ce475cbc46d1fde6120eba1ef12d34700fa74",
+   "path": "src/shared/job-openings.ts"
+  },
+  {
+   "sha256": "a9fe2275e6df97724bafdbb090752e0ffabf5e2bfc0b6fc02698ff6acf6ddbe4",
+   "path": "src/shared/jobs.ts"
+  },
+  {
+   "sha256": "d36b58effe5514acb5bc73e2925f235729d4d36ae7c7b0c94e0d6bd3a486ead9",
+   "path": "src/shared/market-board.ts"
+  },
+  {
+   "sha256": "8338ce4837d4f01f5db10bc135972c3a597fdd0938d99b7c6841fa57963837a0",
+   "path": "src/shared/market.ts"
+  },
+  {
+   "sha256": "017b795b58634a092bc9f5459ade64abe73cfa84b01fec1a6513a77f4f8116d8",
+   "path": "src/shared/money.ts"
+  },
+  {
+   "sha256": "29581084d0bb60bae989daee522bd265d74a5a256075b1ccc1ece2fd20de5a54",
+   "path": "src/shared/my-jobs.ts"
+  },
+  {
+   "sha256": "9896a99eb5e26ca2ed763050f3dad2ca7ec2a3517e35fecf4178ce99fb696b8d",
+   "path": "src/shared/nep413.ts"
+  },
+  {
+   "sha256": "77513d834ff2219db08fbd8b60d28366cdcf3b172c080003bcbb90548e81253d",
+   "path": "src/shared/policy-request.ts"
+  },
+  {
+   "sha256": "e6b234fdae02db397173172a85472e359a07621042be9fc6e12ff5b0d3f987bc",
+   "path": "src/shared/registration.ts"
+  },
+  {
+   "sha256": "065ff1e424cdf1d2cd38d17f3733ef61d9375df9441869ae7023d197cc97623d",
+   "path": "src/shared/review.ts"
+  },
+  {
+   "sha256": "30a2c806e5a1c3a7a1609492984b8e955aba00a40b645a5db107ed64f9e68ebf",
+   "path": "src/shared/terms.ts"
+  },
+  {
+   "sha256": "d34b1273539b945eeacf717dde892e3af6bd67fccd5d63dd7ae1b6e94d50b766",
+   "path": "src/shared/views.ts"
+  },
+  {
+   "sha256": "f128bacfe9cbe1f6afac810e01839e8a6942e4708ca25bc6d098577a5e626823",
+   "path": "src/web/account-resource.ts"
+  },
+  {
+   "sha256": "247ec9c3b28125dca61a123adec642b53bae0d3e74506e3e8b4fee1a610d5543",
+   "path": "src/web/api.ts"
+  },
+  {
+   "sha256": "35d26ea66c86da9701e4f4b467913481ffeae910761cea34c775c5dacb7f8eaa",
+   "path": "src/web/assets.d.ts"
+  },
+  {
+   "sha256": "abfa64b63809f883c0a481e2a3a4d8a7121064ae7f5561ba04ce2d898340a4db",
+   "path": "src/web/auth-lifecycle.ts"
+  },
+  {
+   "sha256": "484574b1d357fda6a9efc5af6afc45719aee27811011db71ff8461ef196f8b62",
+   "path": "src/web/components/Account.tsx"
+  },
+  {
+   "sha256": "b1ac368f5845a7385e2823484ba898d5aa6399b23b8dded4d8c45e7bb02579d5",
+   "path": "src/web/components/BrandMark.tsx"
+  },
+  {
+   "sha256": "07e28be2603d9067ae31dad0c01dde15ae83b5677211d2a56aca7c416bf139d0",
+   "path": "src/web/components/DaoProposal.tsx"
+  },
+  {
+   "sha256": "3d117c627a086ef42bdc157885e22e1a7cf749ae11ff3d70659459d31bcde066",
+   "path": "src/web/components/FundingRecovery.tsx"
+  },
+  {
+   "sha256": "4b9f4bc27dff9187d5c0ea75d8c27c1700f2991be41e667a53973123b1356fef",
+   "path": "src/web/components/JobFunding.tsx"
+  },
+  {
+   "sha256": "c202a682894514f9565822b7992791336f661878fe499f72f377b36ba743158a",
+   "path": "src/web/components/JobWorkflow.tsx"
+  },
+  {
+   "sha256": "6a01ef491a7d0b64f472c04885b10f8dfd855920bcfa5ba18e0d51bf085bbee8",
+   "path": "src/web/components/PayeeRegistration.tsx"
+  },
+  {
+   "sha256": "75c630a7ee7f2d2f41fdcaff9bf78545c1bb6b26daa6b9e2c55a534651810bfc",
+   "path": "src/web/components/Payouts.tsx"
+  },
+  {
+   "sha256": "a7c9185974bdd5a6ee0cd4cb3647f9baccffb90f54f82ab77d66c40dcd627846",
+   "path": "src/web/components/PolicyCard.tsx"
+  },
+  {
+   "sha256": "ebe8992c967013ce35a9a3d43ebffa3d237834601d8d3bff5d38ea789242fa30",
+   "path": "src/web/components/ReviewAssistant.tsx"
+  },
+  {
+   "sha256": "18fae4458b687aba8003975c89d69ecd46c69381892867dd59ed844006bd43e6",
+   "path": "src/web/components/SignBox.tsx"
+  },
+  {
+   "sha256": "3dde47fcb1fc891036dd157fe4c72bc475fb2d331183bf402696c303f8b23267",
+   "path": "src/web/components/icons.tsx"
+  },
+  {
+   "sha256": "2ccc474fc5e53135e0b0d78a7d367f5b0842221898719c5ee50db8d6f0b3ea49",
+   "path": "src/web/components/ui.tsx"
+  },
+  {
+   "sha256": "e033436b0d85864eeb77bc1ed9b5c41805023a504117fae09135698280021aac",
+   "path": "src/web/funding.ts"
+  },
+  {
+   "sha256": "8976f4ca20d10acb8e72e5de99d8432f9ed4640b4faee2ee6dfe1fc4833e893b",
+   "path": "src/web/guide.ts"
+  },
+  {
+   "sha256": "ea5637754afb34cd8c4a8aa9e908730b35683c5700bf4f59beadd69df3e09208",
+   "path": "src/web/index.html"
+  },
+  {
+   "sha256": "3f4522293af7e6c20f4e9e27cbbfc5e1b8d7b167f08774dec344f59a5b4d826a",
+   "path": "src/web/job-draft.ts"
+  },
+  {
+   "sha256": "f91fa5f50790ead7abf4b0016fa17d927c45716275e70ac55b6422cc452564e1",
+   "path": "src/web/main.tsx"
+  },
+  {
+   "sha256": "3cb952a1999c91185edd5e14262b2b79f7d3926682000930941add0693c1076d",
+   "path": "src/web/market-board-resource.ts"
+  },
+  {
+   "sha256": "3c9988876042d5dddc36a587d865bde3fe867201b60ede0d0a316ede0362cc66",
+   "path": "src/web/pages/Contract.tsx"
+  },
+  {
+   "sha256": "1d5ba16a7f5523d7d3e6c1051904f321cc28581705c1e5b5a48dc40b61da45cf",
+   "path": "src/web/pages/ContractorSign.tsx"
+  },
+  {
+   "sha256": "806d7bc485efbb30743ecb03e7db243672c5c5fd34dea8613936ddaf5dd807c9",
+   "path": "src/web/pages/Guide.tsx"
+  },
+  {
+   "sha256": "7aa73036e8a58d4df8fb30c24fde721abf14955d275917b73eba215736cd759c",
+   "path": "src/web/pages/Home.tsx"
+  },
+  {
+   "sha256": "2a3dc2f1f3eff9c518567abecac60be0281989969a3183183f097411b0295474",
+   "path": "src/web/pages/Jobs.tsx"
+  },
+  {
+   "sha256": "7420c430b75f406b8c4993a1bc5ed165a2f61c17132dd6486b3a53d69d03edf1",
+   "path": "src/web/pages/JobsOnboarding.tsx"
+  },
+  {
+   "sha256": "fd3f427dceb2f6f8ebc2511ea99dc623540c16e506f39af01c58307dac74dd01",
+   "path": "src/web/pages/Market.tsx"
+  },
+  {
+   "sha256": "0d2a860607c027597b17574d9203f3f18ad84a873db0e2eedfbdc70ae292539f",
+   "path": "src/web/pages/MyJobs.tsx"
+  },
+  {
+   "sha256": "78204b0d98869f146712929fa17d045a6a51d5d3866500ab855796be3c80ac9a",
+   "path": "src/web/pages/NewContract.tsx"
+  },
+  {
+   "sha256": "5f35b3cb4b4698a0911218cb6d7ce47bf217befe0435adb26be3b8910a308b40",
+   "path": "src/web/pages/OpenJobs.tsx"
+  },
+  {
+   "sha256": "c106e2f5c5779c35e1b4670a24abe8f5355684f5393a33d06081200b876acdc8",
+   "path": "src/web/pages/PublishedOpenings.tsx"
+  },
+  {
+   "sha256": "4a86ff2391c2154d423ef5c42249534556d9524eae47fe50e28b44244d0588b4",
+   "path": "src/web/pages/Verify.tsx"
+  },
+  {
+   "sha256": "5b6ec2b81cccdf42bb03822ae64a48a473fc3f828ddba0ac669f555f8f61f739",
+   "path": "src/web/registration.ts"
+  },
+  {
+   "sha256": "51a1cba5fdc9ed07a01d2cbc93e0b5e670c41a90714695ce27c840907101efb3",
+   "path": "src/web/review-assistant.css"
+  },
+  {
+   "sha256": "6dbaed009d5cc7e24d09350a8b1fd22ffd2d4f6d0f0feb2b2d985e63295dd860",
+   "path": "src/web/session.tsx"
+  },
+  {
+   "sha256": "6edb5b037d68b7b555e1be4d2d3525b63abd347f53ea032b30794e0f3968ccbb",
+   "path": "src/web/styles.css"
+  },
+  {
+   "sha256": "575f581e35510068b04f115139be05580895a760356f504b438da47c37c5d912",
+   "path": "src/web/types.ts"
+  },
+  {
+   "sha256": "87db0116242b19e5ff62d2cd0e9c10d79756b029e804402d1b5481a6d995f528",
+   "path": "src/web/useAccountResource.tsx"
+  },
+  {
+   "sha256": "1c9d3ef03c6ddd5aceb558243552e2f4ee8c13fe89132b372bc64d8f9c326eac",
+   "path": "src/web/wallet-signing.ts"
+  },
+  {
+   "sha256": "93380e7aff79a0f14b474f22ef3b1cb64bfa525dd23760a2de261c961d9cb9dd",
+   "path": "tsconfig.json"
+  },
+  {
+   "sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+   "path": "vendor/multiagency-sdk/multiagency-sdk-0.5.9-252cba1.tgz"
+  }
+ ]
+}

@@ -7,7 +7,9 @@ import { createRuntime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import { startServer } from "../src/server/index";
 import type { ContractView } from "../src/shared/views";
+import { payeeOf } from "../src/shared/terms";
 type Actor = "agency" | "builder";
+const keyboard = process.argv.includes("--keyboard");
 const dir = mkdtempSync(join(process.env.PAPERWORK_DEMO_ARTIFACTS ?? tmpdir(), "paperwork-v2-browser-"));
 const sessions: Record<Actor, string> = { agency: `paperwork-v2-agency-${process.pid}`, builder: `paperwork-v2-builder-${process.pid}` };
 const opened = new Set<Actor>();
@@ -47,16 +49,22 @@ async function reference(actor: Actor, role: string, name: string, prefix = fals
   check(entry, `No ${role} named ${name}`);
   return `@${entry[0]}`;
 }
+async function activateControl(actor: Actor, selector: string) {
+  if (keyboard) {
+    await command(actor, "focus", selector);
+    await command(actor, "press", "Enter");
+  } else await command(actor, "click", selector);
+}
 async function click(actor: Actor, selector: string) {
   // agent-browser 0.26 clicks offscreen coordinates without scrolling. Explicitly reveal every target.
   await command(actor, "scrollintoview", selector);
-  await command(actor, "click", selector);
+  await activateControl(actor, selector);
   await pause();
 }
 async function button(actor: Actor, text: string) {
   await pageWait(actor, `[...document.querySelectorAll('button')].some(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled)`, text);
   await command(actor, "scrollintoview", await reference(actor, "button", text));
-  await command(actor, "click", await reference(actor, "button", text));
+  await activateControl(actor, await reference(actor, "button", text));
   await pause();
 }
 async function actionOrDone(actor: Actor, pattern: string, done: () => boolean | Promise<boolean>, label: string) {
@@ -68,7 +76,7 @@ async function actionOrDone(actor: Actor, pattern: string, done: () => boolean |
     try {
       await command(actor, "scrollintoview", await reference(actor, "button", action));
       if (await done()) return;
-      await command(actor, "click", await reference(actor, "button", action));
+      await activateControl(actor, await reference(actor, "button", action));
       await pause();
       return;
     } catch (error) { if (await done()) return; throw error; }
@@ -101,7 +109,7 @@ async function open(actor: Actor, url: string) {
 
 async function tab(actor: Actor, label: string) {
   await command(actor, "scrollintoview", await reference(actor, "tab", label, true));
-  await command(actor, "click", await reference(actor, "tab", label, true));
+  await activateControl(actor, await reference(actor, "tab", label, true));
   await pause();
 }
 async function pay(amount: string, expectedPaid: string) {
@@ -179,7 +187,7 @@ try {
   requests.push(await pay("250", "1000"));
   const paid = await state(v => v.paid_usd === v.total_usd && v.open_judgment === null, "entire signed scope settled");
   const success = (await rt.kit.controls!.transfers()).filter(p => p.status === "SUCCESS");
-  check(success.length === 4 && success.every(p => p.recipient === paid.terms.payee.address) && success.reduce((sum, p) => sum + BigInt(p.amount), 0n) === 1000000000n, "Wrong payment count, recipient or scope total");
+  check(success.length === 4 && success.every(p => p.recipient === payeeOf(paid.terms)) && success.reduce((sum, p) => sum + BigInt(p.amount), 0n) === 1000000000n, "Wrong payment count, recipient or scope total");
   for (const actor of ["agency", "builder"] as const) {
     await open(actor, `${base}/?v2-reload=${actor}#/c/${contractId}`);
     await pageWait(actor, "document.body.innerText.includes('Paid for the scope') && document.body.innerText.includes('$1,000.00')", "confirmed full-scope view after reload");
@@ -192,7 +200,7 @@ try {
     }
   }
   step("Both party browser views retain original paid identities at desktop/mobile after reload; $1,000 scope fully settled");
-  writeFileSync(join(dir, "receipt.json"), JSON.stringify({ simulated: true, scope: "V2 complete GUI merge/payment journey; keyless fixture browsers, not hosted authentication", pins: JSON.parse(readFileSync(new URL('../vendor/multiagency-sdk/gateway-pin.json', import.meta.url), 'utf8')), gateway_contacted: false, browser_script_sha256: createHash('sha256').update(readFileSync(import.meta.path)).digest('hex'), job: contractId, terms_hash: paid.hash, payout_requests: requests, rejected_request: rejected.request_id, paid_usd: paid.paid_usd, successful_transfers: success.length, steps, captures }, null, 2));
+  writeFileSync(join(dir, "receipt.json"), JSON.stringify({ simulated: true, keyboard_controls: keyboard, scope: "V2 complete GUI merge/payment journey; keyless fixture browsers, not hosted authentication", pins: JSON.parse(readFileSync(new URL('../vendor/multiagency-sdk/gateway-pin.json', import.meta.url), 'utf8')), gateway_contacted: false, browser_script_sha256: createHash('sha256').update(readFileSync(import.meta.path)).digest('hex'), job: contractId, terms_hash: paid.hash, payout_requests: requests, rejected_request: rejected.request_id, paid_usd: paid.paid_usd, successful_transfers: success.length, steps, captures }, null, 2));
   console.log(`PASS v2 payment browser; receipt ${join(dir, "receipt.json")}`);
 } catch (error) {
   writeFileSync(join(dir, "failure.txt"), String(error));

@@ -59,7 +59,7 @@ export function Home() {
       </div>
 
       <div className="card table-card">
-        <table className="table">
+        <table className="table agency-jobs">
           <thead>
             <tr>
               <th>Builder</th>
@@ -89,7 +89,7 @@ export function Home() {
                 <td className="num">{usd(r.total)}</td>
                 <td className="hide-sm">
                   <div className="usage">
-                    <Progress value={Number(r.paid)} max={Number(r.total)} />
+                    <Progress value={Number(r.paid)} max={Number(r.total)} label={`Recorded payment for ${r.contractor}`} />
                     <span className="num muted">{usd(r.paid)}</span>
                   </div>
                 </td>

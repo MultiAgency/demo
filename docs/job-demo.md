@@ -82,9 +82,9 @@ Open `http://localhost:3000` (or set `PORT=3001` if occupied), then use **Jobs**
 2. Sign as the agency representative, then open the builder's private signing link and accept the same terms. Keep both views open.
 3. Complete the agency's setup checklist, then fund the job's agent using the demo control. Funding and signatures are visibly simulated.
 4. On the builder's page, enter a report (at least 10 characters), invoice `INV-001` for `300` USDC, and a `d1` HTTPS evidence reference such as `https://github.com/acme/app/pull/101` labelled “CSV export and tests”. The example is a fixture reference; no code or quality is fetched/verified. Submit; show **Submitted · awaiting proposal** and the retained record identities.
-5. Return to the agency page, wait for the status update and choose **Propose compensation**. Show report, evidence, invoice cap and proposed amount. The payout is held; paid remains zero.
-6. Optional revision: enter a reason under **Changes needed**, choose **Request changes**, then **Reject held payout for revision**. Wait for the builder view to update, submit a revised report with a new invoice number, and propose compensation again. Show both revisions and the original change request.
-7. Approve the held payout with the agency's demo wallet. Show that the payment is processing and has not yet settled.
+5. Return to the agency page and wait for the status update. The **Agent assessment** appears on its own once the report is filed: show the report, evidence, invoice cap and the proposed amount. No payout is requested yet; paid remains zero.
+6. Optional revision: enter a reason under **Changes needed** and choose **Request changes**. No payout exists to reject at this point. Wait for the builder view to show the requested changes, submit a revised report with a new invoice number, and wait for its assessment.
+7. Choose **Approve $300.00**. That one action files the held payout and approves it with the agency's demo wallet. Show that the payment is processing and has not yet settled.
 8. Choose **Settle approved payouts** in the demo controls. Wait for both views to update and show confirmed settlement, the same payment identity, and the simulated transaction.
 
 The local demo has open fixture authentication by default; the private builder token still gates its submission route. The automated HTTP role tests enable authentication and inject named fixture sessions to test agency and builder boundaries. Neither proves hosted wallet sign-in.

@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-11-13T19:40:15.561555+00:00",
+  "scope": "Local query and typed-agent readiness; hosted acceptance remains incomplete",
+  "local": {
+    "typecheck": "passed",
+    "frontend_build": "passed; 3 manifest-retained files",
+    "full_tests": {
+      "passed": 1644,
+      "failed": 0,
+      "files": 80
+    },
+    "candidate_manifest_sha256": "0791b0e2ebbd3194c1581487b2237e3157da838c5d179157f384cecc30547ad8",
+    "candidate_deployed": false,
+    "queries_per_nonempty_account": 6,
+    "queries_per_empty_account": 1,
+    "profile": "docs/job-read-profile.json",
+    "provider_calls_during_profile": 0,
+    "regressions": [
+      "Batch and individual attention projections agree, including active payout, latest report and shared owner steps",
+      "41 owned jobs use six queries; empty account uses one",
+      "Single submission refuses anonymous, unrelated parties and mismatched job",
+      "Agent follows one report without enumerating report history",
+      "Interrupted report/proposal replay retains original identities and explicit signatures"
+    ]
+  },
+  "hosted": {
+    "origin": "https://desk.multiagency.ai",
+    "deployment_id": "03458e40-4947-45b2-bef6-1cd7f62caea2",
+    "source_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
+    "config": {
+      "platform": "remote",
+      "platform_host": "api.dev.multiagency.ai",
+      "network": "mainnet",
+      "auth_required": true,
+      "demo_controls": false
+    },
+    "observations": [
+      {
+        "path": "/api/config",
+        "status": 200
+      },
+      {
+        "path": "/api/me",
+        "status": 200,
+        "signed_in": false
+      },
+      {
+        "path": "/api/agent/contracts",
+        "status": 404
+      },
+      {
+        "path": "/api/jobs/mine/actions",
+        "status": 404
+      }
+    ],
+    "wallet_login": "User reported and UI displayed Failed to sign in. Cause unconfirmed; bounded logs and page errors did not identify it.",
+    "financial_run": "not_started",
+    "funds_moved": false,
+    "blockers": [
+      "Candidate not deployed; hosted agent endpoints unavailable",
+      "Wallet sign-in failed",
+      "Recorded provider binding/receipt/route funding hold remains uncleared; no fresh clearance inferred"
+    ],
+    "unverified": [
+      "Hosted original report/proposal replay after interrupted responses",
+      "Hosted account switching and explicit approval for this candidate",
+      "Confirmed provider payment and independent builder receipt"
+    ]
+  },
+  "boundary": "Passing local fixtures and a healthy existing deployment do not establish hosted wallet/provider acceptance or authorize a replacement payment."
+}

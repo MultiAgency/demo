@@ -113,14 +113,14 @@ test("a post-mutation reload supersedes a background read that started before th
   expect(resource.forScope("agency.near").loading).toBe(false);
 });
 
-for (const failure of ["network", 408, 429, 500, 503] as const) {
-  test(`background ${failure} failure keeps the current form mounted and recovers on the next read`, async () => {
+for (const manual of [false, true]) for (const failure of ["network", 408, 429, 500, 503] as const) {
+  test(`${manual ? "explicit" : "background"} ${failure} failure keeps the current form mounted and recovers on the next read`, async () => {
     const resource = new AccountResource<{ submission: string }>();
     const current = { submission: "awaiting proposal" };
     resource.setScope("builder.near");
     await resource.load("builder.near", async () => current);
     const error = failure === "network" ? new TypeError("Network unavailable") : Object.assign(new Error("Status temporarily unavailable"), { status: failure });
-    await resource.refresh("builder.near", async () => { throw error; });
+    await (manual ? resource.load("builder.near", async () => { throw error; }) : resource.refresh("builder.near", async () => { throw error; }));
     expect(resource.forScope("builder.near").value).toBe(current);
     expect(resource.forScope("builder.near").error).toBe(error.message);
     expect(resource.forScope("builder.near").loading).toBe(false);

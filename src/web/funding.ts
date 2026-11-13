@@ -1,14 +1,56 @@
 import { fundingTransaction } from "@multiagency/sdk";
+import { fundingPlanHash, validateRecoveryPlan, type FundingRecoveryView } from "../shared/funding-recovery";
 import { toAtomic } from "../shared/money";
-import { scopeTotal, USDC_NEAR } from "../shared/terms";
+import { isMarketSettled, scopeTotal, USDC_NEAR } from "../shared/terms";
 import type { ContractView, Deposit, VerifyView } from "./types";
 
 export interface FundingRequest {
   job: string; hash: string; agent: string; sender: string; token: string;
   amount: string; address: string; memo: string | null; minimum: string | null; expires: string | null;
+  recovery?: { reconciliation_id: string; plan_hash: string; credited_atomic: string; target_atomic: string; fee_atomic: string };
+}
+export function fundingRecoveryRequest(c: ContractView, view: FundingRecoveryView, now = Date.now()): FundingRequest {
+  if (view.state !== "ready" || isMarketSettled(c.terms) || (c.terms.v === 3 && c.terms.agency_owner) ||
+      c.platform.mode !== "remote" || !c.platform.policy?.applied || !c.platform.agent_id || c.stage === "frozen" || c.stage === "ended")
+    throw Error("This job has no verified funding recovery to review.");
+  const { plan_hash, ...plan } = view.plan;
+  const binding = { job_id: c.id, terms_hash: c.hash, deployment: plan.deployment, platform_host: c.platform.host,
+    app_origin: plan.app_origin, organization: c.organization, owner: c.terms.representative.near_account,
+    agent_id: c.platform.agent_id, target_atomic: toAtomic(scopeTotal(c.terms), 6).toString() };
+  if (fundingPlanHash(plan) !== plan_hash || validateRecoveryPlan(plan, binding, now).state !== "ready")
+    throw Error("Funding recovery changed or expired. Review a fresh platform result.");
+  return recoveryTransferRequest(view.plan, now);
+}
+function recoveryTransferRequest(input: Extract<FundingRecoveryView, { state: "ready" }>["plan"], now = Date.now()): FundingRequest {
+  const { plan_hash, ...plan } = input;
+  const binding = { job_id: plan.job_id, terms_hash: plan.terms_hash, deployment: plan.deployment, platform_host: plan.platform_host,
+    app_origin: plan.app_origin, organization: plan.organization, owner: plan.owner, agent_id: plan.agent_id, target_atomic: plan.target_atomic };
+  if (fundingPlanHash(plan) !== plan_hash || validateRecoveryPlan(plan, binding, now).state !== "ready")
+    throw Error("Funding recovery changed or expired. Review a fresh platform result.");
+  const q: FundingRequest = { job: plan.job_id, hash: plan.terms_hash, agent: plan.agent_id, sender: plan.owner,
+    token: USDC_NEAR.slice(7), amount: plan.transfer_atomic, address: plan.destination.address, memo: null,
+    minimum: plan.destination.minimum_atomic, expires: new Date(Math.min(Date.parse(plan.expires_at), Date.parse(plan.destination.expires_at))).toISOString(),
+    recovery: { reconciliation_id: plan.reconciliation_id, plan_hash, credited_atomic: plan.credited_atomic,
+      target_atomic: plan.target_atomic, fee_atomic: plan.fee_atomic } };
+  validateFunding(q, q.sender, now);
+  return q;
+}
+/** Recovery preflight deliberately avoids both allocating deposit and reconciliation-capable contract GET routes. */
+export async function refreshRecoveryFunding(q: FundingRequest, request: <T>(method: "GET" | "POST", path: string, body?: unknown) => Promise<T>): Promise<FundingRequest> {
+  validateFunding(q, q.sender);
+  if (!q.recovery) throw Error("A recovery result is required.");
+  const path = `/contracts/${encodeURIComponent(q.job)}`;
+  const review = await request<FundingRecoveryView>("GET", `${path}/funding-recovery`);
+  if (review.state !== "ready") throw Error(review.message);
+  const fresh = recoveryTransferRequest(review.plan);
+  if (JSON.stringify(fresh) !== JSON.stringify(q)) throw Error("Funding recovery changed. Review the current result again.");
+  assertFundingVerification(fresh, await request<VerifyView>("GET", `${path}/verify`));
+  await request("POST", `${path}/funding-recovery/prepare`, { reconciliation_id: q.recovery.reconciliation_id, plan_hash: q.recovery.plan_hash });
+  return fresh;
 }
 export function fundingRequest(c: ContractView, d: Deposit): FundingRequest {
   if (c.terms.v === 3 && c.terms.agency_owner?.type === "dao") throw Error("DAO funding must be reviewed through its treasury; a member wallet cannot fund as the DAO here.");
+  if (isMarketSettled(c.terms)) throw Error("This job settles on the Agent Market; it is not funded through the platform.");
   if (c.platform.mode !== "remote" || c.stage !== "needs_funding" || !c.platform.policy?.applied || !c.platform.agent_id || c.terms.asset !== USDC_NEAR)
     throw Error("Refresh status: this job is not ready for USDC funding.");
   const q = { job: c.id, hash: c.hash, agent: c.platform.agent_id, sender: c.terms.representative.near_account,
@@ -22,6 +64,14 @@ export function validateFunding(q: FundingRequest, account: string, now = Date.n
       (q.minimum !== null && (!/^\d+$/.test(q.minimum) || BigInt(q.amount) < BigInt(q.minimum))) ||
       (q.expires !== null && (!Number.isFinite(Date.parse(q.expires)) || Date.parse(q.expires) <= now)) ||
       q.memo !== null) throw Error("Funding instructions changed, expired or are invalid. Refresh and review them again.");
+  if (q.recovery) {
+    const r = q.recovery;
+    if (!r.reconciliation_id || !/^[a-f0-9]{64}$/.test(r.plan_hash) ||
+        ![r.credited_atomic, r.target_atomic, r.fee_atomic].every(v => /^(0|[1-9]\d*)$/.test(v)) ||
+        BigInt(r.credited_atomic) <= 0n || BigInt(r.credited_atomic) >= BigInt(r.target_atomic) ||
+        BigInt(q.amount) !== BigInt(r.target_atomic) - BigInt(r.credited_atomic) + BigInt(r.fee_atomic))
+      throw Error("The recovery credit, fee and exact transfer do not reconcile.");
+  }
 }
 /** Reuse the pinned SDK's registration + transfer transaction; no extra calls or amount conversion. */
 export function fundingTransactionFor(q: FundingRequest) {
@@ -32,9 +82,10 @@ export function fundingTransactionFor(q: FundingRequest) {
   return tx;
 }
 export function assertFundingVerification(q: FundingRequest, v: VerifyView) {
-  if (v.overall !== "green" || v.observed?.agentId !== q.agent || v.observed.usdc !== "0" || v.expected.total !== q.amount ||
+  validateFunding(q, q.sender);
+  if (v.overall !== "green" || v.observed?.agentId !== q.agent || v.observed.usdc !== (q.recovery?.credited_atomic ?? "0") || v.expected?.total !== (q.recovery?.target_atomic ?? q.amount) ||
       !["signed", "applied", "approval", "grant", "consent", "sig-representative", "sig-contractor"].every(id => v.checks.some(c => c.id === id && c.ok)))
-    throw Error("The job policy, authority or zero balance could not be verified. Refresh status before funding.");
+    throw Error("The job policy, authority or required balance could not be verified. Refresh status before funding.");
 }
 interface Dependencies {
   network: string;
@@ -54,7 +105,7 @@ export class FundingWallet {
   constructor(private readonly d: Dependencies) {}
   async fund(input: FundingRequest): Promise<void> {
     if (this.pending) throw Error("A funding request is already open.");
-    const q = Object.freeze({ ...input });
+    const q = Object.freeze({ ...input, ...(input.recovery ? { recovery: Object.freeze({ ...input.recovery }) } : {}) });
     const initial = { ...this.d.session() };
     const check = () => {
       if (this.d.network !== "mainnet") throw Error("USDC funding is supported on mainnet only.");

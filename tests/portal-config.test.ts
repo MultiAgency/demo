@@ -25,7 +25,22 @@ async function cookieFor(auth: Auth, accountId: string) {
 test("one normalized public origin replaces the retired second-host setting", () => {
   expect(loadConfig({}).auth).toMatchObject({ publicUrl: "http://localhost:3000", enforcePublicHost: false });
   expect(loadConfig({ PUBLIC_URL: `${PUBLIC_URL}/` }).auth).toMatchObject({ publicUrl: PUBLIC_URL, enforcePublicHost: true });
-  expect(loadConfig({ NODE_ENV: "production", PLATFORM: "fake" }).auth.enforcePublicHost).toBe(true);
+  expect(loadConfig({ NODE_ENV: "production", PLATFORM: "fake", PUBLIC_URL: "https://paperwork-staging.up.railway.app" }).auth).toMatchObject({ enforcePublicHost: true, required: false });
+  for (const origin of [undefined, PUBLIC_URL, "https://desk.multiagency.ai", "http://paperwork-staging.up.railway.app", "https://up.railway.app.desk.multiagency.ai"])
+    expect(() => loadConfig({ NODE_ENV: "production", PLATFORM: "fake", PUBLIC_URL: origin })).toThrow("keyless stand-in runs in production only");
+  // The keyless deployment has no sign-in: a paid model key, review key or Market worker variable refuses startup.
+  const keyless = { NODE_ENV: "production", PLATFORM: "fake", PUBLIC_URL: "https://paperwork-staging.up.railway.app" };
+  for (const secret of [{ NEARAI_API_KEY: "paid-judge-key" }, { NEARAI_API_KEY: "paid-judge-key", JUDGE: "rules" }, { PAPERWORK_REVIEW_NEARAI_API_KEY: "paid-review-key-0123456789" },
+    { PLATFORM_CREDENTIAL: "app-credential-fixture" }, { PAPERWORK_MARKET_BOARD_TOKEN: "aat_board_fixture" }, { MARKET_AGENT_TOKEN: "aat_fixture" }, { MARKET_WEBHOOK_SECRET: "fixture-secret" }, { MARKET_WORKER_AGENCY: "agency-1" }])
+    expect(() => loadConfig({ ...keyless, ...secret })).toThrow("keyless stand-in has no sign-in");
+  expect(loadConfig({ PLATFORM: "fake", NEARAI_API_KEY: "local-key" }).judge.kind).toBe("near-ai");
+  // A board token is held only by explicit acknowledgement, and the acknowledgement relaxes nothing else.
+  const board = { ...keyless, PAPERWORK_MARKET_BOARD_TOKEN: "aat_board_fixture" };
+  for (const ack of [undefined, "", "true", "throwaway"]) expect(() => loadConfig({ ...board, PAPERWORK_KEYLESS_MARKET_BOARD: ack })).toThrow("keyless stand-in has no sign-in");
+  const acknowledged = { ...board, PAPERWORK_KEYLESS_MARKET_BOARD: "throwaway-agent" };
+  expect(loadConfig(acknowledged).market.boardToken).toBe("aat_board_fixture");
+  for (const secret of [{ NEARAI_API_KEY: "paid-judge-key" }, { PAPERWORK_REVIEW_NEARAI_API_KEY: "paid-review-key-0123456789" }, { PLATFORM_CREDENTIAL: "app-credential-fixture" }, { MARKET_AGENT_TOKEN: "aat_fixture" }])
+    expect(() => loadConfig({ ...acknowledged, ...secret })).toThrow("keyless stand-in has no sign-in");
   expect(loadConfig({ PAPERWORK_JOBS_PUBLIC_URL: "" }).auth).not.toHaveProperty("jobsPublicUrl");
   for (const value of ["https://jobs.example.test", PUBLIC_URL, "not a url", " "]) {
     expect(() => loadConfig({ PUBLIC_URL, PAPERWORK_JOBS_PUBLIC_URL: value })).toThrow("Remove PAPERWORK_JOBS_PUBLIC_URL; use PUBLIC_URL");

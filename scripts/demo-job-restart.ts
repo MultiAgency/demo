@@ -11,7 +11,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, re
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { DEMO_TERMS, JOB_DEMO_TERMS } from "../src/shared/demo";
-import { parseTerms, scopeTotal, USDC_DECIMALS } from "../src/shared/terms";
+import { parseTerms, payeeOf, scopeTotal, USDC_DECIMALS } from "../src/shared/terms";
 import { toAtomic } from "../src/shared/money";
 import type { ContractView, NextStep, SignRequest } from "../src/shared/views";
 import type { JobSubmissionInput, JobSubmissionView } from "../src/shared/jobs";
@@ -529,7 +529,7 @@ try {
   check(finalState.transfers.length === 1 && finalState.transfers[0]!.status === "SUCCESS" && finalState.transfers[0]!.correlation === afterIdentity.correlation_id, "Expected exactly one successful original payment.");
   const providerPayment = finalState.transfers[0]!;
   const signedScopeAmount = toAtomic(scopeTotal(terms), USDC_DECIMALS).toString();
-  check(providerPayment.recipient === terms.payee.address, "The provider's settled recipient does not match the signed payee.");
+  check(providerPayment.recipient === payeeOf(terms), "The provider's settled recipient does not match the signed payee.");
   check(providerPayment.amount === signedScopeAmount, "The provider's settled amount does not match this job's signed scope total.");
   check(finalState.providerErrors.length === 0, "The simulator recorded a provider error.");
   if (rehearsal) {

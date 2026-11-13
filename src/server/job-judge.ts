@@ -2,35 +2,7 @@ import { z } from "zod";
 import type { JobSubmission } from "../shared/jobs";
 import type { Terms } from "../shared/terms";
 import type { Config } from "./config";
-import { injectionFlags, type Judgment, LEVELS, type Level } from "./judge";
-
-export type JobFetch = (url: string, init: RequestInit) => Promise<Response>;
-
-/** Bound both headers and body reads, including a client that ignores abort. No late result can become a proposal. */
-async function readAssessment(config: Config["judge"], body: string, send: JobFetch) {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new Error("AI assessment timed out; no proposal was recorded. The submission remains available for review.");
-      controller.abort(error);
-      reject(error);
-    }, config.assessmentTimeoutMs);
-  });
-  try {
-    const read = async () => {
-      const res = await send(`${config.baseUrl}/chat/completions`, {
-        method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
-        body, signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`NEAR AI Cloud returned ${res.status}; no proposal was recorded.`);
-      return res.json();
-    };
-    return await Promise.race([read(), deadline]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
+import { injectionFlags, type JobFetch, type Judgment, LEVELS, type Level, readAssessment } from "./judge";
 
 /** Report evidence is untrusted data. References are displayed for review, never fetched or executed. */
 export async function judgeJob(config: Config["judge"], terms: Terms, submission: JobSubmission, previous: Record<string, Level>, send: JobFetch = fetch): Promise<Judgment> {

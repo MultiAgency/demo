@@ -229,6 +229,37 @@ for (const version of [2, 3] as const) describe(`v${version} failed-payment obse
     expect(ctx.stub.transfers).toEqual([]);
   });
 
+  test("a non-execution claim with an unavailable payment read is not proof", async () => {
+    const fixture = await failedPayment(version);
+    const { ctx, engine, original, reads } = fixture;
+    reads.proof = true;
+    reads.payment = { ok: false, kind: "unavailable" };
+    await engine.getContract(ctx.id);
+    await engine.followUpAll();
+    await expectOriginalCommitment(fixture);
+    // The same claim with a consistent FAILED payment read establishes proof.
+    reads.payment = payment("FAILED");
+    await engine.followUpAll();
+    expect(engine.attempt(original.request_id).never_executed).toBe(1);
+    expect(ctx.stub.transfers).toEqual([]);
+  });
+
+  test("an observed REFUNDED status survives later FAILED and unavailable reads", async () => {
+    const fixture = await failedPayment(version);
+    const { ctx, engine, original, reads } = fixture;
+    reads.proof = true;
+    reads.payment = payment("REFUNDED");
+    await engine.getContract(ctx.id);
+    await expectOriginalCommitment(fixture);
+    for (const later of [payment("FAILED"), { ok: false, kind: "unavailable" } as const, payment("FAILED")]) {
+      reads.payment = later;
+      await engine.followUpAll();
+      expect(engine.attempt(original.request_id).counterevidence).toBe("payment status REFUNDED");
+      await expectOriginalCommitment(fixture);
+    }
+    expect(ctx.stub.transfers).toEqual([]);
+  });
+
   test("late success settles the original request/correlation without creating a replacement", async () => {
     const fixture = await failedPayment(version);
     const { ctx, engine, original, correlation, provider } = fixture;
@@ -242,5 +273,78 @@ for (const version of [2, 3] as const) describe(`v${version} failed-payment obse
     expect(settled.payouts.map(item => item.request_id)).toEqual([original.request_id]);
     expect(ctx.stub.calls.requestPayout).toBe(1);
     expect(ctx.stub.transfers).toEqual([{ recipient: "maria.demo", amount: "300000000", status: "SUCCESS" }]);
+  });
+});
+
+for (const version of [2, 3] as const) describe(`v${version} proof needs a successful FAILED read, when stored and again when budget is released`, () => {
+  const dbOf = (ctx: Ctx) => (ctx.rt.engine as unknown as { d: { db: Database } }).d.db;
+
+  test("a stored proof flag without a successful read frees nothing while the payment read is unavailable", async () => {
+    const fixture = await failedPayment(version);
+    const { ctx, engine, original, reads } = fixture;
+    // A row as the earlier release could leave it: flagged as never executed with no successful FAILED read behind it.
+    dbOf(ctx).query("UPDATE payout_attempts SET never_executed = 1 WHERE request_id = ?").run(original.request_id);
+    reads.proof = true;
+    reads.payment = { ok: false, kind: "unavailable" };
+    await engine.followUpAll();
+    await expectOriginalCommitment(fixture);
+  });
+
+  test("a transient outage withdraws proof and the next successful FAILED read restores it", async () => {
+    const { ctx, engine, original, reads } = await failedPayment(version, { proof: true });
+    reads.payment = { ok: false, kind: "unavailable" };
+    await engine.followUpAll();
+    expect(engine.attempt(original.request_id)).toMatchObject({ state: "failed", never_executed: 0, resolution: null });
+    reads.payment = payment("FAILED");
+    await engine.followUpAll();
+    expect(engine.attempt(original.request_id)).toMatchObject({ state: "failed", never_executed: 1 });
+    expect(ctx.stub.calls.requestPayout).toBe(1);
+  });
+
+  test("owing it again reads the payment afresh and then requests exactly one replacement", async () => {
+    const { ctx, engine, original, reads, correlation } = await failedPayment(version, { proof: true });
+    const before = reads.paymentIds.length;
+    await engine.resolve(original.request_id, "reowe");
+    expect(reads.paymentIds.slice(before)).toContain(correlation);
+    expect(engine.attempt(original.request_id).resolution).toBe("reowe");
+    expect(ctx.stub.calls.requestPayout).toBe(2);
+    expect(ctx.stub.transfers).toEqual([]);
+  });
+
+  test("stored proof does not release budget when the payment reads refunded, moved or unavailable at decision time", async () => {
+    const moved = payment("FAILED");
+    if (moved.ok) moved.value.evidence.txHash = "late-transaction";
+    for (const atDecision of [payment("REFUNDED"), payment("FAILED", "300000000"), moved, { ok: false, kind: "unavailable" } as const]) {
+      const { ctx, engine, original, reads } = await failedPayment(version, { proof: true });
+      reads.payment = atDecision;
+      for (const outcome of ["reowe", "rejected"] as const)
+        await expect(engine.resolve(original.request_id, outcome)).rejects.toThrow("never executed");
+      // Refused: nothing released or requested, and what the read showed is recorded at once.
+      expect(engine.attempt(original.request_id)).toMatchObject({ state: "failed", never_executed: 0, resolution: null });
+      if (atDecision.ok && atDecision.value.status === "REFUNDED") expect(engine.attempt(original.request_id).counterevidence).toBe("payment status REFUNDED");
+      expect(ctx.stub.calls.requestPayout).toBe(1);
+      expect(ctx.stub.transfers).toEqual([]);
+    }
+  });
+
+  test("a FAILED payment read is not enough: the payout record must also claim non-execution, now, under the same identity", async () => {
+    const regressed = (state: PayoutAnswer["state"], correlationId: string | null, neverExecuted: boolean, requestId: string): Res<PayoutAnswer> =>
+      ({ ok: true, value: { requestId, state, status: null, correlationId, code: null, neverExecuted } });
+    for (const variant of ["claim withdrawn", "processing again", "foreign payment", "foreign request", "unavailable"] as const) {
+      const { ctx, engine, original, reads, correlation } = await failedPayment(version, { proof: true });
+      reads.payment = payment("FAILED");
+      if (variant === "claim withdrawn") reads.proof = false;
+      if (variant === "processing again") reads.payout = regressed("processing", correlation, false, original.request_id);
+      if (variant === "foreign payment") reads.payout = regressed("failed", "pay-foreign", true, original.request_id);
+      if (variant === "foreign request") reads.payout = regressed("failed", correlation, true, "another-request");
+      if (variant === "unavailable") reads.payout = { ok: false, kind: "unavailable" };
+      for (const outcome of ["reowe", "rejected"] as const)
+        await expect(engine.resolve(original.request_id, outcome)).rejects.toThrow();
+      // A recorded failure never regresses to a live state, and an authoritative contrary answer withdraws proof.
+      expect(engine.attempt(original.request_id)).toMatchObject({ state: "failed", resolution: null });
+      if (variant === "claim withdrawn" || variant === "processing again") expect(engine.attempt(original.request_id).never_executed).toBe(0);
+      expect(ctx.stub.calls.requestPayout).toBe(1);
+      expect(ctx.stub.transfers).toEqual([]);
+    }
   });
 });

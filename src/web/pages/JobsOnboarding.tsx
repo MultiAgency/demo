@@ -20,8 +20,7 @@ export function JobsOnboarding() {
         <h2>Apply or accept an agency invitation</h2>
         <p>Use the MultiAgency application form to introduce yourself. An application does not promise hiring or payment.</p>
         <div><a className="btn btn-primary btn-md" href="https://multiagency.ai/apply" target="_blank" rel="noopener noreferrer">Apply to MultiAgency</a></div>
-        <p>If an agency has invited you, open its exact private invitation link and review the scope, budget, deadline, acceptance criteria and payment terms. Sign the agreed terms in Paperwork. Signing is free and off-chain.</p>
-        <p>Keep the original invitation link until acceptance. It identifies the unsigned job; signing in alone does not recreate the link.</p>
+        <p>If an agency has named your account in an offer, open its link or find the offer under Assigned to me, and review the scope, budget, deadline, acceptance criteria and payment terms. Sign the agreed terms in Paperwork. Signing is free and off-chain.</p>
       </div></li>
       <li><div className="stack">
         <h2>Deliver and follow the outcome</h2>

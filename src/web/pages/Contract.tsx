@@ -1,8 +1,10 @@
 import { JobFunding } from "../components/JobFunding";
+import { FundingRecovery } from "../components/FundingRecovery";
 import { DaoProposal } from "../components/DaoProposal";
 import { useCallback, useEffect, useState } from "react";
 import { api, completeStep, links, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
+import { PayeeCheck } from "../components/PayeeRegistration";
 import { AgencyJobWorkflow } from "../components/JobWorkflow";
 import { Icon, type IconName } from "../components/icons";
 import { type Act, ApprovalCard, ATTEMPT, NO_CLAUSE, PayoutsTab, StateNote } from "../components/Payouts";
@@ -13,6 +15,7 @@ import { PHASES, SETUP, STAGE_ORDER, type StepId } from "../guide";
 import { AccountReadGate, useAccountResource } from "../useAccountResource";
 import type { AppConfig, ContractView, Judgment, NextStep, TermsSigningRequest, VerifyView } from "../types";
 import { STAGES } from "./Home";
+import { capsAtScope, endInstant, isMarketSettled, type MarketTerms, payoutEndInstant, titleOf } from "../../shared/terms";
 import { useSession } from "../session";
 
 export function ContractPage({ id, config }: { id: string; config: AppConfig }) {
@@ -41,7 +44,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
   };
 
   if (!resource.enabled) return <AccountReadGate />;
-  if (!c) return error ? <div className="page stack"><Alert tone="danger">{error}</Alert><Button variant="secondary" onClick={load}>Retry loading job</Button></div> : <PageLoading />;
+  if (!c) return error ? <div className="page stack"><h1>Job unavailable</h1><Alert tone="danger">{error}</Alert><div className="header-actions"><Button variant="secondary" onClick={load}>Retry loading job</Button><a className="btn btn-secondary btn-sm" href="#/">Assigned to me</a></div></div> : <PageLoading />;
 
   const setup = c.stage.startsWith("needs_") || c.stage === "policy_pending";
   const stage = STAGES[c.stage] ?? { label: c.stage, tone: "neutral" as Tone };
@@ -57,9 +60,9 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
           <div className="title-row">
             <Avatar name={c.terms.contractor.name} tone="accent" />
             <div>
-              <h1>{c.terms.contractor.name}</h1>
+              <h1>{titleOf(c.terms) ?? c.terms.contractor.name}</h1>
               <p className="page-sub">
-                {c.terms.company} · {c.terms.scope.length} deliverables · {usd(c.total_usd)} scope
+                {titleOf(c.terms) ? `${c.terms.contractor.name} · ` : ""}{c.terms.company} · {c.terms.scope.length} deliverables · {usd(c.total_usd)} scope
               </p>
             </div>
             <Badge tone={stage.tone} dot>
@@ -68,7 +71,7 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
           </div>
         </div>
         <div className="header-actions">
-          {c.terms.v === 3 && links.get(c.id) ? <a className="btn btn-secondary btn-sm" href={`#/c/${c.id}/sign?t=${links.get(c.id)}`} target="_blank" rel="noreferrer"><Icon name="external" /> <span>Builder submission</span></a> : null}
+          {c.terms.v === 3 && links.get(c.id) ? <a data-action="open-builder-workflow" className="btn btn-secondary btn-sm" href={`#/c/${c.id}/sign?t=${links.get(c.id)}`} target="_blank" rel="noreferrer"><Icon name="external" /> <span>{c.signatures.contractor ? "Builder submission" : "Builder invitation"}</span></a> : null}
           <Mono copy={c.hash}>{`terms ${short(c.hash, 6, 4)}`}</Mono>
           {c.platform.agent_id ? <Mono copy={verifyLink}>Copy verify link</Mono> : null}
           {c.platform.agent && c.stage !== "frozen" && c.stage !== "ended" ? (
@@ -87,7 +90,10 @@ export function ContractPage({ id, config }: { id: string; config: AppConfig }) 
 
       <SignInGate account={c.terms.representative.near_account} role="representative" />
       {config.demo_controls ? <SimBar c={c} reload={load} /> : null}
+      {!config.demo_controls && !isMarketSettled(c.terms) && c.signatures.contractor && c.stage !== "ended" ? <PayeeCheck key={c.id} id={c.id} account={c.terms.payee.address} /> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
+
+      {!config.demo_controls && !isMarketSettled(c.terms) && c.platform.agent_id ? <FundingRecovery key={c.id} c={c} /> : null}
 
       {setup ? <Setup c={c} config={config} act={act} reload={load} /> : <Dashboard c={c} config={config} verify={verify} act={act} />}
     </div>
@@ -116,6 +122,19 @@ function Setup({ c, config, act, reload }: { c: ContractView; config: AppConfig;
   const current = currentStep(c);
   const currentPhase = SETUP.find((s) => s.id === current)?.phase ?? "live";
   const doneCount = SETUP.filter((s) => stepState(c, s, current) === "done").length;
+  const session = useSession();
+  const [running, setRunning] = useState(false);
+  // Wallet-owned platform steps can run back to back. A DAO vote, a platform confirm page or a wait ends the run.
+  const guided = !!current && ["setup", "create", "consent", "grant", "policy"].includes(current) && !(c.terms.v === 3 && c.terms.agency_owner);
+  const runSetup = () => {
+    setRunning(true);
+    return act(async () => {
+      let step: NextStep | null = c.next_step ?? await api<NextStep>("POST", `/contracts/${c.id}/onboarding/next`);
+      // Each signature is still its own wallet approval; the run only removes the clicks between them.
+      for (let i = 0; i < SETUP.length && step && (step.kind === "sign" || (step.kind === "owner_step" && !!step.sign && !step.dao)); i++)
+        step = await completeStep(config, c.id, step, session.signWorkflow);
+    }).finally(() => setRunning(false));
+  };
 
   return (
     <div className="split">
@@ -135,12 +154,15 @@ function Setup({ c, config, act, reload }: { c: ContractView; config: AppConfig;
 
         <Card pad={false}>
           <div className="card-pad-x">
-            <CardHeader title="Set up this job" sub={`${doneCount} of ${SETUP.length} done`} actions={<Button variant="secondary" size="sm" onClick={reload}>Refresh status</Button>} />
-            <Progress value={doneCount} max={SETUP.length} />
+            <CardHeader title="Set up this job" sub={`${doneCount} of ${SETUP.length} done`} actions={<>
+              {guided ? <Button size="sm" icon="arrowRight" busy={running} onClick={runSetup}>Sign remaining setup steps</Button> : null}
+              <Button variant="secondary" size="sm" onClick={reload}>Refresh status</Button>
+            </>} />
+            <Progress value={doneCount} max={SETUP.length} label="Job setup" />
             <p className="muted small" role="status">Status refreshes automatically, including when you return from the platform. Each new signature still needs your approval.</p>
           </div>
           <ol className="checklist">
-            {SETUP.map((s) => (
+            {(isMarketSettled(c.terms) ? SETUP.filter((s) => s.id === "rep-sign" || s.id === "contractor-sign") : SETUP).map((s) => (
               <SetupRow key={s.id} step={s} c={c} config={config} act={act} reload={reload} state={stepState(c, s, current)} />
             ))}
           </ol>
@@ -149,19 +171,24 @@ function Setup({ c, config, act, reload }: { c: ContractView; config: AppConfig;
 
       <aside className="split-side">
         <div className="sticky">
-          <div className="side-label">Job policy</div>
-          <PolicyCard
-            payee={c.terms.payee.address}
-            scope={c.terms.scope}
-            start={c.terms.start}
-            end={c.terms.end}
-            repos={c.terms.repos}
-            approver={c.terms.v === 3 && c.terms.agency_owner ? c.terms.agency_owner.account_id : c.terms.representative.near_account}
-            status={c.platform.policy?.applied ? "live" : "draft"}
-            agentId={c.platform.agent_id}
-            standIn={c.platform.mode === "fake"}
-            reportWorkflow={c.terms.v === 3}
-          />
+          <div className="side-label">{isMarketSettled(c.terms) ? "Settlement" : "Job policy"}</div>
+          {isMarketSettled(c.terms) ? <MarketSettlementCard terms={c.terms} /> : <>
+            <PolicyCard
+              payee={c.terms.payee.address}
+              scope={c.terms.scope}
+              start={c.terms.start}
+              end={c.terms.end}
+              payUntil={payoutEndInstant(c.terms).slice(0, 10)}
+              repos={c.terms.repos}
+              approver={c.terms.v === 3 && c.terms.agency_owner ? c.terms.agency_owner.account_id : c.terms.representative.near_account}
+              status={c.platform.policy?.applied ? "live" : "draft"}
+              agentId={c.platform.agent_id}
+              standIn={c.platform.mode === "fake"}
+              reportWorkflow={c.terms.v === 3}
+              capAtScope={capsAtScope(c.terms)}
+            />
+            {c.terms.v === 3 && c.terms.market_source ? <p className="side-note">Sourced from Agent Market job <code>{c.terms.market_source.job_id}</code>. This job is paid only through the platform; setup and funding wait until that Market job is closed.</p> : null}
+          </>}
           <p className="side-note">
             <Icon name="info" size={14} /> Organization <code>{c.organization}</code> on {c.platform.host}
             {config.platform === "fake" ? " (platform stand-in)" : ""}.
@@ -249,7 +276,8 @@ function StepAction({ step, c, config, act, reload }: { step: StepId; c: Contrac
         </div>
       );
     case "contractor-sign": {
-      const link = token ? `${window.location.origin}/#/c/${c.id}/sign?t=${token}` : null;
+      // With sign-in the named builder's own session opens the offer, so the link works without the private token.
+      const link = token ? `${window.location.origin}/#/c/${c.id}/sign?t=${token}` : config.auth.required ? `${window.location.origin}/#/c/${c.id}/sign` : null;
       return (
         <div className="check-action col">
           {link ? (
@@ -257,7 +285,7 @@ function StepAction({ step, c, config, act, reload }: { step: StepId; c: Contrac
               <Icon name="link" size={14} />
               <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Builder signing link" />
               <Mono copy={link}>Copy</Mono>
-              <a className="btn btn-ghost btn-sm" href={`#/c/${c.id}/sign?t=${token}`} target="_blank" rel="noreferrer">
+              <a className="btn btn-ghost btn-sm" href={link} target="_blank" rel="noreferrer">
                 <Icon name="external" /> <span>Open</span>
               </a>
             </div>
@@ -341,9 +369,15 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
   const [tab, setTab] = useState<TabId>(c.terms.v === 3 ? "job" : "scope");
   const total = Number(c.total_usd);
   const paid = Number(c.paid_usd);
-  const daysLeft = Math.ceil((Date.parse(`${c.terms.end}T23:59:59Z`) - Date.parse(c.now)) / 86_400_000);
+  const daysLeft = Math.ceil((Date.parse(endInstant(c.terms)) - Date.parse(c.now)) / 86_400_000);
+  // A signed review window keeps review and payment open after the work deadline.
+  const payUntil = payoutEndInstant(c.terms).slice(0, 10);
+  const reviewing = daysLeft <= 0 && c.stage !== "ended" && payUntil !== c.terms.end;
   const payouts = c.payouts.filter((p) => p.kind === "payout");
-  const held = payouts.filter((p) => p.state === "held");
+  // Held payouts of a submission with requested changes need a signed rejection, not an approval decision.
+  const cancelling = new Set(c.submissions.filter((s) => s.state === "changes_pending").flatMap((s) => s.payout_request_ids));
+  const held = payouts.filter((p) => p.state === "held" && !cancelling.has(p.request_id));
+  const toCancel = payouts.filter((p) => p.state === "held" && cancelling.has(p.request_id));
   const attention = payouts.filter((p) => p.state === "blocked" || (p.state === "failed" && !p.resolution) || p.state === "unknown").length;
 
   return (
@@ -353,10 +387,16 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
           The owner froze this job's agent. Nothing pays until they unfreeze it on the platform; Paperwork then checks the policy against the signed terms and carries on.
         </Alert>
       ) : null}
-      {c.stage === "ended" ? <Alert tone="info" icon="calendar">This job ended on {dateText(c.terms.end)}. Paperwork can't request payouts any more; you can still approve or reject held ones.</Alert> : null}
+      {c.stage === "ended" ? <Alert tone="info" icon="calendar">This job ended on {dateText(payUntil)}. Paperwork can't request payouts any more; you can still approve or reject held ones.</Alert> : null}
+      {reviewing ? <Alert tone="info" icon="calendar">The submission deadline passed on {dateText(c.terms.end)}. You can still review submitted work and approve payouts until {dateText(payUntil)}.</Alert> : null}
       {held.length ? (
         <Alert tone="warning" icon="alert">
           {held.length} payout{held.length === 1 ? "" : "s"} wait{held.length === 1 ? "s" : ""} for your approval. See {c.terms.v === 3 ? "Submission & review" : "Payouts"}.
+        </Alert>
+      ) : null}
+      {toCancel.length ? (
+        <Alert tone="warning" icon="alert">
+          You requested changes. Sign the rejection of the held {toCancel.length === 1 ? "payout" : `${toCancel.length} payouts`} so the builder can revise. See Submission &amp; review.
         </Alert>
       ) : null}
       {attention ? (
@@ -367,32 +407,37 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
 
       <div className="stats-row four">
         <Stat label="Paid for the scope" icon="coins" value={usd(paid)} sub={`of ${usd(total)}`}>
-          <Progress value={paid} max={total} />
+          <Progress value={paid} max={total} label="Recorded scope payment" />
         </Stat>
-        <Stat label="Agent balance" icon="wallet" value={c.platform.balance_usd === null ? "—" : usd(c.platform.balance_usd)} sub="USDC" />
+        {isMarketSettled(c.terms)
+          ? <Stat label="Settlement" icon="wallet" value="Agent Market" sub="Awarded price, released on Market acceptance" />
+          : <Stat label="Agent balance" icon="wallet" value={c.platform.balance_usd === null ? "—" : usd(c.platform.balance_usd)} sub="USDC" />}
         <Stat label="Awaiting approval" icon="shield" value={held.length ? usd(held.reduce((n, p) => n + Number(p.amount_usd), 0)) : "—"} sub={held.length ? `${held.length} held` : "Nothing held"} />
-        <Stat label="Job ends" icon="calendar" value={dateText(c.terms.end)} sub={daysLeft > 0 ? `${daysLeft} days left` : "Ended"} />
+        <Stat label="Job ends" icon="calendar" value={dateText(c.terms.end)} sub={daysLeft > 0 ? `${daysLeft} days left` : reviewing ? `Review until ${dateText(payUntil)}` : "Ended"} />
       </div>
 
       <Tabs<TabId>
+        id="job-sections"
         value={tab}
         onChange={setTab}
         items={[
           ...(c.terms.v === 3 ? [{ id: "job" as const, label: "Submission & review", icon: "file" as const, count: c.submissions.length }] : []),
           { id: "scope", label: "Scope", icon: "file" },
           ...(c.terms.v === 2 ? [{ id: "payouts" as const, label: "Payouts", icon: "coins" as const, count: payouts.length }] : []),
-          { id: "security", label: "Security test", icon: "shield" },
+          ...(config.demo_controls ? [{ id: "security" as const, label: "Security test", icon: "shield" as const }] : []),
           { id: "policy", label: "Policy & verify", icon: "shieldCheck" },
           { id: "activity", label: "Activity", icon: "activity" },
         ]}
       />
 
+      <section role="tabpanel" id="job-sections-panel" aria-labelledby={`job-sections-${tab}`} tabIndex={0}>
       {tab === "job" ? <AgencyJobWorkflow c={c} config={config} act={act} /> : null}
       {tab === "scope" ? <ScopeTab c={c} config={config} act={act} onPayouts={() => setTab(c.terms.v === 3 ? "job" : "payouts")} /> : null}
       {tab === "payouts" ? <PayoutsTab c={c} config={config} act={act} /> : null}
       {tab === "security" ? <SecurityTab c={c} config={config} act={act} /> : null}
       {tab === "policy" ? <PolicyTab c={c} verify={verify} /> : null}
       {tab === "activity" ? <ActivityTab c={c} /> : null}
+      </section>
     </>
   );
 }
@@ -432,7 +477,7 @@ function ScopeTab({ c, config, act, onPayouts }: { c: ContractView; config: AppC
                 <span className="sb-value num">{usd(value)}</span>
               </div>
               <div className="sb-bar">
-                <Progress value={d.completion * 100} max={100} />
+                <Progress value={d.completion * 100} max={100} label={`${d.title} completion`} />
                 <span className="num">{Math.round(d.completion * 100)}%</span>
               </div>
               <div className="sb-meta">
@@ -480,14 +525,13 @@ function ScopeTab({ c, config, act, onPayouts }: { c: ContractView; config: AppC
 
 const ATTACKS: { id: string; icon: IconName; title: string; text: string; fakeOnly?: boolean }[] = [
   { id: "redirect", icon: "send", title: "Redirect", text: "Pay attacker.demo instead of the payee" },
-  { id: "overpay", icon: "coins", title: "Overpay", text: "Pay $1 more than the largest deliverable" },
+  { id: "overpay", icon: "coins", title: "Overpay", text: "Pay $1 more than the per-payment cap" },
   { id: "injected", icon: "bot", title: "Prompt injection", text: "A PR talks the judge into an in-cap payout" },
   { id: "after_end", icon: "calendar", title: "After the end", text: "Request a payout once the job ended", fakeOnly: true },
 ];
 
 function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
   const attacks = ATTACKS.filter((a) => !a.fakeOnly || config.platform === "fake");
-  const allowed = config.demo_controls;
   const [hints, setHints] = useState<Record<string, string>>({});
   const latest = (id: string) => c.payouts.find((p) => p.kind === "attack" && p.request_id.startsWith(`atk-${id}-`));
   // An attack that can't run yet (e.g. after the end, before the end date) answers { ready: false, hint }.
@@ -508,12 +552,11 @@ function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; a
         title="Compromised-server test"
         sub="Real payout requests with Paperwork's own checks skipped. The platform's policy and your approval are what stop them."
         actions={
-          <Button icon="zap" onClick={runAll} disabled={!allowed || (c.stage !== "active" && c.stage !== "ended")}>
+          <Button icon="zap" onClick={runAll} disabled={c.stage !== "active" && c.stage !== "ended"}>
             Run all
           </Button>
         }
       />
-      {!allowed ? <Alert tone="info">Attacks run only against the platform stand-in or the local stack, never with real funds.</Alert> : null}
       <div className="attacks">
         {attacks.map((a) => {
           const p = latest(a.id);
@@ -528,7 +571,7 @@ function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; a
                   <h3>{a.title}</h3>
                   <p>{a.text}</p>
                 </div>
-                <Button size="sm" variant="secondary" onClick={() => run(a.id)} disabled={!allowed || (c.stage !== "active" && c.stage !== "ended")}>
+                <Button size="sm" variant="secondary" onClick={() => run(a.id)} disabled={c.stage !== "active" && c.stage !== "ended"}>
                   Run
                 </Button>
               </div>
@@ -573,28 +616,44 @@ function SecurityTab({ c, config, act }: { c: ContractView; config: AppConfig; a
 
 /* ----------------------------------------------------------- policy, activity */
 
+/** Market-settled jobs have no platform agent or policy: the Market holds and releases the awarded price. */
+function MarketSettlementCard({ terms }: { terms: MarketTerms }) {
+  return (
+    <Card>
+      <CardHeader icon="wallet" title="Settled on the Agent Market" sub={`Market job ${terms.market_source.job_id}`} />
+      <ul className="checks">
+        <li className="warn"><Icon name="info" size={14} />The Market pays its awarded price when the agency accepts the work there, or when the Market's acceptance window lapses.</li>
+        <li className="warn"><Icon name="info" size={14} />Paperwork reviews the report and invoice against the {terms.scope.length} signed deliverable{terms.scope.length === 1 ? "" : "s"} and requests no payment.</li>
+        <li className="warn"><Icon name="info" size={14} />Paperwork can confirm the Market reports the job completed, not that the Market's payout reached the builder.</li>
+      </ul>
+    </Card>
+  );
+}
+
 function PolicyTab({ c, verify }: { c: ContractView; verify: VerifyView | null }) {
   return (
     <div className="split even">
       <div className="stack">
-        <PolicyCard
+        {isMarketSettled(c.terms) ? <MarketSettlementCard terms={c.terms} /> : <PolicyCard
           payee={c.terms.payee.address}
           scope={c.terms.scope}
           start={c.terms.start}
           end={c.terms.end}
+          payUntil={payoutEndInstant(c.terms).slice(0, 10)}
           repos={c.terms.repos}
           approver={c.terms.v === 3 && c.terms.agency_owner ? c.terms.agency_owner.account_id : c.terms.representative.near_account}
           status={c.stage === "frozen" ? "frozen" : c.stage === "ended" ? "ended" : "live"}
           agentId={c.platform.agent_id}
           standIn={c.platform.mode === "fake"}
           reportWorkflow={c.terms.v === 3}
-        />
+          capAtScope={capsAtScope(c.terms)}
+        />}
       </div>
       <Card>
         <CardHeader
           icon="shieldCheck"
           title="Verification"
-          sub="The platform's policy against the signed terms"
+          sub={isMarketSettled(c.terms) ? "The signed terms and the awarded Market job" : "The platform's policy against the signed terms"}
           actions={
             <a className="btn btn-secondary btn-sm" href={`#/c/${c.id}/verify`} target="_blank" rel="noreferrer">
               <Icon name="external" /> <span>Open</span>
@@ -611,7 +670,7 @@ function PolicyTab({ c, verify }: { c: ContractView; verify: VerifyView | null }
             ))}
           </ul>
         ) : (
-          <p className="muted">Available once the agent exists.</p>
+          <p className="muted">{isMarketSettled(c.terms) ? "Loading verification." : "Available once the agent exists."}</p>
         )}
       </Card>
     </div>
@@ -666,7 +725,7 @@ function ActivityTab({ c }: { c: ContractView }) {
 /* ---------------------------------------------------------------- sim bar */
 
 function SimBar({ c, reload }: { c: ContractView; reload: () => Promise<void> }) {
-  const after = new Date(Date.parse(`${c.terms.end}T00:00:00Z`) + 36 * 3600_000).toISOString();
+  const after = new Date(Date.parse(payoutEndInstant(c.terms)) + 12 * 3600_000).toISOString();
   const settling = c.payouts.some((p) => p.state === "processing");
   const post = async (path: string, body: unknown) => {
     await api("POST", path, body).catch(() => undefined);

@@ -7,7 +7,16 @@ repository's `Dockerfile` with the settings in `.railway/railway.ts`. Its target
 
 All of Paperwork lives at `desk.multiagency.ai`: private work, agency offers and approvals, public openings, onboarding and connected Market work. Use `PUBLIC_URL=https://desk.multiagency.ai` for the single service and mounted database. Public openings remain shareable at `/#/openings`; private views retain their named-party authorization. The separate Jobs host plan was dropped. Remove any nonempty `PAPERWORK_JOBS_PUBLIC_URL` from local/service configuration; startup rejects that retired setting. No browser state, accepted terms or pending payment is migrated between origins. See the [Desk walkthrough](jobs-portal.md). Hostname configuration and the scoped deployment are complete; further live changes require separate authorization.
 
-**Deployed:** `https://desk.multiagency.ai`, source `ef73b585a5cf885d702a6c75d44c46c3c87f013d`, Linux AMD64. This is the one Paperwork environment: Railway project `paperwork`, environment `staging`, service `server`. It connects to `https://api.dev.multiagency.ai`, whose chain/funds are real. There is no separate Paperwork staging hostname. Documenso remains at `paperwork.multiagency.ai`.
+**Deployed:** `https://desk.multiagency.ai`, frozen release candidate `eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108` (image `sha256:2e905d06…`), deployed 2026-11-13 with a protected snapshot and passing rollback gate first; see [deployment receipt](deployment-update-eac99283.json). The previous update was `0791b0e2` ([receipt](deployment-readiness-0791b0e2.json)). This is the production environment: Railway project `paperwork`, environment `production` (renamed from `staging` by the owner on 2026-11-13; dated receipts keep the old name), service `server`. It connects to `https://api.dev.multiagency.ai`, whose chain/funds are real. The planned staging environment is described below. Documenso remains at `paperwork.multiagency.ai`.
+
+## Environments
+
+| Environment | Railway environment | Origin | Platform | Database |
+| --- | --- | --- | --- | --- |
+| Production | `production` (the existing environment, renamed from `staging`) | `https://desk.multiagency.ai` | `PLATFORM=remote` against `https://api.dev.multiagency.ai` | existing `server-volume`, unchanged |
+| Staging | none: the duplicate created 2026-11-13 (copied production variables) was deleted the same day; create a new empty environment when needed | its Railway-generated `https://*.up.railway.app` domain; no custom domain | `PLATFORM=fake`, the keyless stand-in without sign-in | its own; in-memory by default, reset on every deploy |
+
+The live environment keeps its volume, variables and signed records; nothing moves between environments. `loadConfig()` refuses `PLATFORM=fake` under `NODE_ENV=production` unless `PUBLIC_URL` is an https Railway-generated `*.up.railway.app` origin (`KEYLESS_DEMO_DOMAIN`, `src/server/config.ts`), so the production origin cannot start on the stand-in. Staging visitors share one simulated state and its demo controls, including the clock; public openings still read live sources. Create staging as a new empty environment, never by duplicating production (a duplicate copies its platform credential, Market and auth secrets, mount and origin). It must not hold `PLATFORM_URL`, `PLATFORM_DEPLOYMENT`, `PLATFORM_CREDENTIAL`, `GITHUB_TOKEN`, `NEARAI_API_KEY`, review keys, the `MARKET_*` worker variables, `REQUIRED_MOUNT` or `DB_PATH`; `PAPERWORK_MARKET_BOARD_TOKEN` only with `PAPERWORK_KEYLESS_MARKET_BOARD=throwaway-agent` and a throwaway Market agent. Set `PLATFORM=fake`, `NODE_ENV=production` and `PUBLIC_URL` to the generated domain, and give staging its own `BETTER_AUTH_SECRET`. Deploying staging requires separate authorization.
 
 The owner separately approved resource provisioning, one seven-day app credential, configuration/DNS changes, an initial exact-source deployment, and a separately approved state-preserving ef73b58 update with read-only checks. Those actions are complete; they grant no standing redeploy/restart, credential rotation, wallet-signature or funds authority. [Current deployment and acceptance record](deployment-update-ef73b58.json); [initial deployment checkpoint](deployment-acceptance.json). The credential expires November 19, 2026 at 21:07 UTC; renewal needs separate authorization.
 
@@ -23,7 +32,7 @@ The existing 50,000 MB `server-volume` remains mounted at `/data`; do not replac
 - **Health check:** `GET /api/health`. It answers only once the configuration was checked at startup
   (`src/server/config.ts`), so a deploy that would fail to start never takes traffic.
 - **No stand-in by accident.** With `NODE_ENV=production` (the image sets it) the server refuses to start without
-  `PLATFORM`. `PLATFORM=remote` also requires `PLATFORM_URL`, the credential, `DB_PATH`, `BETTER_AUTH_SECRET` and an
+  `PLATFORM`, and refuses `PLATFORM=fake` except on a Railway-generated staging domain. `PLATFORM=remote` also requires `PLATFORM_URL`, the credential, `DB_PATH`, `BETTER_AUTH_SECRET` and an
   https `PUBLIC_URL`. Demo controls (`/api/sim/*`) exist only with the stand-in or a local stack.
 - **Secrets as variables.** The credential, `BETTER_AUTH_SECRET` and the market worker's token and secret stay in
   server memory: never in `/api/config`, events, logs or URLs.
@@ -52,6 +61,7 @@ Existing job rows retain their original `covenant` signing recipient, including 
 | `NEARAI_API_KEY` | optional: the NEAR AI Cloud judge (secret); without it the rule-based judge runs |
 | `MARKET_URL` | optional: the market's HTTP API (default `https://market.near.ai`) |
 | `PAPERWORK_MARKET_BOARD_TOKEN` | optional server-held `aat_` token for the public Market board. Independent of worker/webhook/agency setup; falls back to the configured worker token. Never browser-visible |
+| `PAPERWORK_KEYLESS_MARKET_BOARD` | only for the keyless stand-in in production: set to `throwaway-agent` to let it hold `PAPERWORK_MARKET_BOARD_TOKEN`. The token can also bid and submit work as its agent, so it must belong to a dedicated Market agent with no reputation or funds at stake. Every other key stays refused there |
 | `MARKET_AGENT_TOKEN`, `MARKET_WEBHOOK_SECRET`, `MARKET_WORKER_AGENCY` | optional, all three or none: the worker side (secrets). The market's webhook URL is `<PUBLIC_URL>/api/market/webhook` |
 
 `PORT` and `RAILWAY_VOLUME_MOUNT_PATH` are Railway's. `.env.example` lists the rest, each with a default.
@@ -101,7 +111,32 @@ the domain Railway shows; `desk.multiagency.ai` gets a CNAME at it once producti
 domain before the first owner signs in.
 
 Then: `GET https://<host>/api/health` answers `{"ok":true}`, `/api/config` shows `"platform":"remote"` and the
-platform's host, and sign-in works with a NEAR wallet (not yet tested end to end).
+platform's host. Clean Intear Web builder sign-in and session continuity are verified on `0791b0e2`; the automated agency switch stalled inside Intear, then normal-browser agency sign-in was confirmed by fresh server-session metadata. Full wallet/provider payment acceptance remains incomplete; see [current receipt](deployment-readiness-0791b0e2.json).
+
+## Rollback after the 2026-11-13 changes
+
+Deployed in `eac99283`. This is the rule for the update that carries the report-and-invoice clauses (title, description, optional GitHub fields, `per_payment`, `review_days`), Market-sourced and Market-settled jobs, and retained refund evidence.
+
+`33c4899` reads stored terms without re-validating them. On a database that holds any new-kind record it does not refuse; it misbehaves: job lists fail on a Market-settled job, that job is treated as a platform job (setup and deposit instructions are offered), the Market-source closed-gate is dropped, and a failed payout's retained counterevidence is ignored, so its budget could be released for a replacement.
+
+Rollback to `33c4899` is therefore safe only while all three queries return no rows. Otherwise the update is forward-only, and any backend rollback needs its own compatibility review.
+
+```sql
+SELECT id FROM contracts
+ WHERE json_extract(terms,'$.market_source') IS NOT NULL
+    OR json_extract(terms,'$.payment_terms.settlement') = 'agent_market'
+    OR json_extract(terms,'$.payment_terms.per_payment') IS NOT NULL
+    OR json_extract(terms,'$.payment_terms.review_days') IS NOT NULL
+    OR json_extract(terms,'$.title') IS NOT NULL
+    OR json_extract(terms,'$.description') IS NOT NULL
+    OR (json_extract(terms,'$.v') = 3 AND (json_extract(terms,'$.contractor.github') IS NULL OR json_extract(terms,'$.repos') IS NULL));
+SELECT request_id FROM payout_attempts WHERE counterevidence IS NOT NULL;
+SELECT id FROM funding_recovery_attempts;
+```
+
+The third query guards funding: `33c4899` does not know the recovery table, so after a rollback its deposit step would hand out funding instructions despite a recovery wallet request whose outcome is unknown. On a database that never ran the newer code the table is absent; treat "no such table" as no rows.
+
+Run them against a preserved offline snapshot, never by copying production state into a workspace. The new-job form signs `per_payment` and `review_days` by default, so the first platform-paid job created after the update makes it forward-only.
 
 ## Checked locally (2026-11-11)
 

@@ -39,6 +39,8 @@ jobs:
         run: bun --no-env-file scripts/check-sdk-pin.ts | tee "$PAPERWORK_DEMO_ARTIFACTS/sdk-pin.json"
       - name: Typecheck
         run: bun --no-env-file run typecheck
+      - name: Profile stored job reads with offline fixtures
+        run: bun --no-env-file run profile:reads --output "$PAPERWORK_DEMO_ARTIFACTS/job-read-profile.json" > /dev/null
       - name: Offline tests
         run: bun --no-env-file test 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/tests.log"
       - name: Simulated job and security journeys
@@ -52,10 +54,13 @@ jobs:
           agent-browser install --with-deps
       - name: Fixture browser and privacy checks
         run: |
-          bun --no-env-file run demo:browser 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/browser.log"
+          bun --no-env-file run demo:browser --keyboard 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/browser.log"
           bun --no-env-file run demo:privacy:browser 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/privacy.log"
-          bun --no-env-file scripts/demo-v2-browser.ts 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/v2-browser.log"
+          bun --no-env-file scripts/demo-v2-browser.ts --keyboard 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/v2-browser.log"
           bun --no-env-file scripts/demo-funding-browser.ts 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/funding-browser.log"
+          bun --no-env-file scripts/demo-funding-recovery-browser.ts 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/funding-recovery-browser.log"
+          bun --no-env-file run test:responsive 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/responsive.log"
+          bun --no-env-file run test:accessibility 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/accessibility-recovery.log"
       - name: Build local Linux container
         run: docker build --iidfile "$PAPERWORK_DEMO_ARTIFACTS/image.id" -t paperwork-ci:check .
       - name: Network-disabled container smoke test

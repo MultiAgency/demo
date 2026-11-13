@@ -3,9 +3,18 @@ interface SignInCallbacks {
   onError: (error: Error) => void;
 }
 
+export const AUTH_CHANGE_KEY = "paperwork.auth.changed";
+
+/** Notification only: another tab must read the server session instead of trusting a stored identity. */
+export function announceAuthChange() {
+  try { localStorage.setItem(AUTH_CHANGE_KEY, crypto.randomUUID()); } catch { /* Focus checks cover unavailable storage. */ }
+}
+
 /** A delayed logout must finish before another login can replace the browser's session cookie. */
 export class AuthOperationGate {
   private signingOut = false;
+
+  get isSigningOut() { return this.signingOut; }
 
   async signIn(work: () => Promise<void>): Promise<void> {
     if (this.signingOut) return;

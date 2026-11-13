@@ -2,8 +2,9 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { AccountBox } from "./components/Account";
+import { BrandMark } from "./components/BrandMark";
 import { Icon, type IconName } from "./components/icons";
-import { PageLoading } from "./components/ui";
+import { Empty, PageLoading } from "./components/ui";
 import { ContractPage } from "./pages/Contract";
 import { ContractorSign } from "./pages/ContractorSign";
 import { GuidePage } from "./pages/Guide";
@@ -33,18 +34,44 @@ function useHashRoute() {
   return route;
 }
 
-function NavItem({ href, icon, label, active }: { href: string; icon: IconName; label: string; active: boolean }) {
+function NavItem({ href, icon, label, shortLabel, active }: { href: string; icon: IconName; label: string; shortLabel: string; active: boolean }) {
   return (
-    <a href={href} className={`nav-item${active ? " is-active" : ""}`} aria-current={active ? "page" : undefined} aria-label={label} title={label}>
+    <a href={href} data-short-label={shortLabel} className={`nav-item${active ? " is-active" : ""}`} aria-current={active ? "page" : undefined} aria-label={label} title={label}>
       <Icon name={icon} size={17} />
       <span>{label}</span>
     </a>
   );
 }
 
+function SkipLink() {
+  return <a className="skip-link" href="#main" onClick={(event) => { event.preventDefault(); document.getElementById("main")?.focus(); }}>Skip to content</a>;
+}
+
 function Shell({ config, error }: { config: AppConfig | null; error: string | null }) {
   const { path, query } = useHashRoute();
-  useEffect(() => { document.title = "Paperwork"; }, []);
+  useEffect(() => {
+    document.title = "Paperwork";
+    const main = document.getElementById("main");
+    if (!main) return;
+    let done = false;
+    const focusHeading = () => {
+      const heading = main.querySelector<HTMLElement>("h1");
+      if (!heading || done) return;
+      done = true;
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+      // Browser titles must not retain private party names after a session changes on the same route.
+      const title = path.startsWith("/c/") ? path.endsWith("/verify") ? "Verification status" : path.endsWith("/sign") ? "Builder job" : "Agency job"
+        : path.startsWith("/market/") ? "Market agency" : heading.textContent;
+      document.title = `${title} · Paperwork`;
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(focusHeading);
+    observer.observe(main, { childList: true, subtree: true });
+    main.focus({ preventScroll: true });
+    focusHeading();
+    return () => observer.disconnect();
+  }, [path]);
 
   const m = path.match(/^\/c\/([\w-]+)(\/(sign|verify))?$/);
   const agency = path.match(/^\/market\/([\w-]+)$/);
@@ -66,16 +93,15 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
   else if (m && m[3] === "sign") page = <ContractorSign id={m[1]!} token={query.get("t")} config={config} />;
   else if (m && m[3] === "verify") page = <VerifyPage id={m[1]!} />;
   else if (m) page = <ContractPage key={m[1]} id={m[1]!} config={config} />;
-  else page = <JobsPage config={config} view="my-jobs" />;
+  else page = <div className="page"><h1>Page not found</h1><Empty icon="file" title="This page is unavailable" sub="Check the link, or return to your existing jobs." action={<a className="btn btn-primary btn-sm" href="#/">Assigned to me</a>} /></div>;
 
   if (standalone)
     return (
       <div className="standalone">
+        <SkipLink />
         <header className="standalone-bar">
           <span className="brand">
-            <span className="brand-mark">
-              <Icon name="check" size={14} strokeWidth={2.6} />
-            </span>
+            <BrandMark />
             Paperwork
           </span>
           <div className="row gap">
@@ -83,25 +109,25 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
             {config ? <AccountBox compact /> : null}
           </div>
         </header>
-        {page}
+        <main id="main" tabIndex={-1}>{page}</main>
       </div>
     );
 
   return (
     <div className="shell">
+      {/* Routes live in the hash, so the skip link moves focus rather than navigating. */}
+      <SkipLink />
       <aside className="sidebar">
         <a href="#/" className="brand">
-          <span className="brand-mark">
-            <Icon name="check" size={14} strokeWidth={2.6} />
-          </span>
+          <BrandMark />
           Paperwork
         </a>
         <nav className="nav">
-          <NavItem href="#/" icon="grid" label="Assigned to me" active={path === "/" || path === "/my-jobs"} />
-          <NavItem href="#/agency" icon="building" label="Agency" active={path === "/agency" || path === "/new" || path === "/market" || path === "/assignments" || !!agency || (!!m && !standalone)} />
-          <NavItem href="#/openings" icon="file" label="Openings" active={path === "/openings" || path === "/market-jobs"} />
-          <NavItem href="#/start" icon="plus" label="Get started" active={path === "/start"} />
-          <NavItem href="#/guide" icon="book" label="How it works" active={path === "/guide"} />
+          <NavItem href="#/" icon="grid" label="Assigned to me" shortLabel="My jobs" active={path === "/" || path === "/my-jobs"} />
+          <NavItem href="#/agency" icon="building" label="Agency" shortLabel="Agency" active={path === "/agency" || path === "/new" || path === "/market" || path === "/assignments" || !!agency || (!!m && !standalone)} />
+          <NavItem href="#/openings" icon="file" label="Openings" shortLabel="Openings" active={path === "/openings" || path === "/market-jobs"} />
+          <NavItem href="#/start" icon="plus" label="Get started" shortLabel="Start" active={path === "/start"} />
+          <NavItem href="#/guide" icon="book" label="How it works" shortLabel="Guide" active={path === "/guide"} />
         </nav>
         <div className="sidebar-foot">
           {config ? <AccountBox /> : null}
@@ -124,7 +150,7 @@ function Shell({ config, error }: { config: AppConfig | null; error: string | nu
           ) : null}
         </div>
       </aside>
-      <main className="main">{page}</main>
+      <main className="main" id="main" tabIndex={-1}>{page}</main>
     </div>
   );
 }

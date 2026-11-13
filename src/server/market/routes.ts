@@ -4,6 +4,7 @@ import { toAtomic } from "../../shared/money";
 import { USDC_DECIMALS } from "../../shared/terms";
 import type { SessionInfo } from "../auth";
 import { UserError } from "../engine";
+import { jsonBody } from "../errors";
 import type { DemoControls } from "../platform/port";
 import { MarketHttpError } from "./api";
 import type { AgencyRow } from "./db";
@@ -71,7 +72,7 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
     return c.json(readable.map((a) => ({ id: a.id, name: a.name, owner: a.owner, signer: a.signer, stage: a.stage })));
   });
   app.post("/market/agencies", async (c) => {
-    const body = z.object({ name: z.string(), owner: z.string(), signer: z.enum(["wallet", "dao"]) }).parse(await c.req.json());
+    const body = z.object({ name: z.string(), owner: z.string(), signer: z.enum(["wallet", "dao"]) }).parse(await jsonBody(c));
     await requireMember({ name: body.name, owner: body.owner.trim().toLowerCase(), signer: body.signer } as AgencyRow, account(c), "propose", o.authRequired, m.d.daoPolicy);
     return c.json({ id: m.agencies.create(body).id }, 201);
   });
@@ -88,12 +89,12 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
   app.post("/market/agencies/:id/signed", async (c) => {
     const a = m.agencies.row(c.req.param("id"));
     await member(a, account(c), "propose");
-    return c.json(await m.agencies.signed(a.id, signedStep.parse(await c.req.json())));
+    return c.json(await m.agencies.signed(a.id, signedStep.parse(await jsonBody(c))));
   });
   app.post("/market/steps/:cid/submit", async (c) => {
     const s = m.agencies.step(c.req.param("cid"));
     await member(m.agencies.row(s.agency_id), account(c), "propose");
-    return c.json(await m.agencies.submitStep(s.correlation_id, walletSig.parse(await c.req.json())));
+    return c.json(await m.agencies.submitStep(s.correlation_id, walletSig.parse(await jsonBody(c))));
   });
   app.post("/market/agencies/:id/deposit", async (c) => {
     const a = m.agencies.row(c.req.param("id"));
@@ -114,7 +115,7 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
   app.post("/market/agencies/:id/quote", async (c) => {
     const a = m.agencies.row(c.req.param("id"));
     await member(a, account(c), "propose");
-    const body = z.object({ handle: z.string(), brief: z.string() }).parse(await c.req.json());
+    const body = z.object({ handle: z.string(), brief: z.string() }).parse(await jsonBody(c));
     return c.json(m.hires.view(await m.hires.quote(a.id, body.handle, body.brief)));
   });
   const hireRoute = (path: string, f: (rid: string, who: string | null) => Promise<unknown>) =>
@@ -154,7 +155,7 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
   });
   app.post("/market/worker/jobs/:aid/submit", async (c) => {
     await member(workerAgency(), account(c), "propose");
-    const body = z.object({ markdown: z.string(), retry_attempt_id: z.string().min(1).max(200).optional() }).parse(await c.req.json());
+    const body = z.object({ markdown: z.string(), retry_attempt_id: z.string().min(1).max(200).optional() }).parse(await jsonBody(c));
     await m.worker.submit(c.req.param("aid"), body.markdown, body.retry_attempt_id);
     return c.json(await m.worker.view());
   });
@@ -170,25 +171,31 @@ export function marketRoutes(app: App, m: Market, o: { authRequired: boolean; co
   if (controls && o.controls) {
     const demo = o.controls;
     app.post("/market/sim/register", async (c) => {
-      const body = z.object({ agency_id: z.string() }).parse(await c.req.json());
-      const acct = await m.agencies.agent(m.agencies.row(body.agency_id)).account();
+      const body = z.object({ agency_id: z.string() }).parse(await jsonBody(c));
+      const a = m.agencies.row(body.agency_id);
+      await member(a, account(c), "propose");
+      const acct = await m.agencies.agent(a).account();
       if (!acct.ok) throw new UserError("The platform didn't read the payment key.", 503);
       await controls.marketRegister(acct.value.account);
       return c.json({ registered: acct.value.account });
     });
     app.post("/market/sim/vote", async (c) => {
-      const body = z.object({ vote_id: z.string() }).parse(await c.req.json());
-      await controls.daoVote(m.agencies.vote(body.vote_id).hash);
+      const body = z.object({ vote_id: z.string() }).parse(await jsonBody(c));
+      const vote = m.agencies.vote(body.vote_id);
+      await member(m.agencies.row(vote.agency_id), account(c), "propose");
+      await controls.daoVote(vote.hash);
       return c.json({ passed: body.vote_id });
     });
     app.post("/market/sim/advance", async (c) => {
-      const body = z.object({ blocks: z.number().int().positive().optional() }).parse(await c.req.json());
+      if (o.authRequired && !account(c)) throw new UserError("Sign in with NEAR to use the demo controls.", 401);
+      const body = z.object({ blocks: z.number().int().positive().optional() }).parse(await jsonBody(c));
       await controls.marketAdvance(body.blocks);
       return c.json({ advanced: body.blocks ?? null });
     });
     app.post("/market/sim/fund", async (c) => {
-      const body = z.object({ agency_id: z.string(), usd: z.string() }).parse(await c.req.json());
+      const body = z.object({ agency_id: z.string(), usd: z.string() }).parse(await jsonBody(c));
       const a = m.agencies.row(body.agency_id);
+      await member(a, account(c), "propose");
       if (!a.agent_id) throw new UserError("The agency's agent isn't created yet.", 409);
       await demo.fund(a.agent_id, toAtomic(body.usd, USDC_DECIMALS).toString());
       return c.json({ funded_usd: body.usd });

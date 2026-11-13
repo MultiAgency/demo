@@ -34,6 +34,11 @@ export interface Config {
   market: { url: string | null; boardToken: string | null; worker: { token: string; secret: string; agencyId: string } | null };
 }
 
+/** A production image serves the keyless stand-in, without sign-in, only on a Railway-generated staging domain (user, 2026-11-13). */
+export const KEYLESS_DEMO_DOMAIN = ".up.railway.app";
+/** Acknowledges that the keyless deployment's Market board token belongs to a throwaway agent with nothing at stake. */
+export const KEYLESS_MARKET_BOARD_ACK = "throwaway-agent";
+
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   if (env.PAPERWORK_JOBS_PUBLIC_URL)
     throw new Error("Remove PAPERWORK_JOBS_PUBLIC_URL; use PUBLIC_URL for the single Paperwork app origin.");
@@ -85,6 +90,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
 
   cfg.auth.publicUrl = publicOrigin(cfg.auth.publicUrl, "PUBLIC_URL");
+  if (env.NODE_ENV === "production" && platform === "fake" &&
+      !(cfg.auth.publicUrl.startsWith("https://") && new URL(cfg.auth.publicUrl).hostname.endsWith(KEYLESS_DEMO_DOMAIN)))
+    throw new Error(`The keyless stand-in runs in production only on an https *${KEYLESS_DEMO_DOMAIN} PUBLIC_URL; any other origin needs PLATFORM=remote.`);
+  // Without sign-in anyone can create, sign and file jobs there, and each filing starts an assessment: it holds no paid or privileged key.
+  // The one exception is acknowledged explicitly: a board token of a throwaway Market agent, which can also act as that agent.
+  const boardRefused = !!cfg.market.boardToken && env.PAPERWORK_KEYLESS_MARKET_BOARD !== KEYLESS_MARKET_BOARD_ACK;
+  if (env.NODE_ENV === "production" && platform === "fake" &&
+      (cfg.judge.apiKey || cfg.review || cfg.credential || boardRefused || env.MARKET_AGENT_TOKEN || env.MARKET_WEBHOOK_SECRET || env.MARKET_WORKER_AGENCY))
+    throw new Error(`The keyless stand-in has no sign-in, so it must not hold NEARAI_API_KEY, a review service key, a platform credential or Market worker variables, and holds a Market board token only with PAPERWORK_KEYLESS_MARKET_BOARD=${KEYLESS_MARKET_BOARD_ACK}. Remove them, or use PLATFORM=remote.`);
   if (cfg.review) {
     const url = new URL(cfg.review.url);
     if (cfg.review.backend !== "near" && url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))

@@ -4,11 +4,22 @@ Read-only verification: **2026-11-11**. Official HTTP documents were fetched fro
 
 ## Selected boundary for the builder job
 
-**Paperwork owns this job's offer, signed acceptance, report, invoice, compensation proposal and review. The MultiAgency platform owns authorization, held payout approval, dispatch and settlement.** The current app reuses the existing payout integration through pinned `@multiagency/sdk` **0.5.7**. The builder is the contractor account named in the signed terms. AI recommends within those terms; only the agency representative can authorize the held payout.
+**Paperwork owns this job's offer, signed acceptance, report, invoice, compensation proposal and review. The MultiAgency platform owns authorization, held payout approval, dispatch and settlement.** The current app reuses the existing payout integration through pinned `@multiagency/sdk` **0.5.9**. The builder is the contractor account named in the signed terms. AI recommends within those terms; only the agency representative can authorize the held payout.
 
-This boundary extends the held-payout integration originally present at `11e1b16` with SDK 0.5.6 in [demo PR #6](https://github.com/MultiAgency/demo/pull/6). There is one payment authority for this job: the platform payout record and its durable `requestId`. An invoice or local review decision does not establish payment. No market assignment or x402 authorization is also created for it.
+This boundary extends the held-payout integration originally present at `11e1b16` with SDK 0.5.6 in [demo PR #6](https://github.com/MultiAgency/demo/pull/6). There is one payment authority for this job: the platform payout record and its durable `requestId`. (Since 2026-11-13 an offer may instead sign Market settlement: that job is paid only by the Agent Market, Paperwork requests no platform payment for it, and it has no platform payout record. Either way a job has exactly one payment path, fixed by its signed terms.) An invoice or local review decision does not establish payment. No market assignment or x402 authorization is also created for it.
 
 This selection preserves the user's explicit post-submission agency approval requirement. It does **not** complete the separately agreed product ambition of agencies buying and selling listed-agent work on the market.
+
+## Market-sourced builder jobs — 2026-11-13
+
+**Decided by the user:** builders may be people or listed agents, and some jobs may settle on the Market. **Re-read 2026-11-13** (OpenAPI 2.0.0, buyer skill 0.46.0, job terms 2026-10-15): the Market escrows the buyer's balance at award ("the person awards on the page, where the amount is escrowed from their balance"). An awarded Market job is therefore already funded there, and paying the same work through the platform would fund it twice.
+
+| Path | Market role | Paperwork terms | Payment authority | Status |
+| --- | --- | --- | --- | --- |
+| **B: platform-settled** | Sourcing: the agency reviews bids, picks a builder and closes the job (`DELETE /v1/jobs/{id}` refunds unstarted awards; refused with `job_has_work` once work starts) | v3 with signed `market_source: { job_id }` | Platform held payout only | **Implemented locally.** Setup and funding are refused until a public read of the Market job returns `closed`; an unreadable source refuses. Offers naming an unreadable source are refused at creation. |
+| **A: Market-settled** | Award, acceptance and release on the Market (fixed awarded price, 5% fee, Market custody, silence accepts after 3–7 days, fiat withdrawal documented) | Separate signed v3 variant: `payment_terms` = `MARKET_PAYMENT_TERMS`, required `market_source`, **no NEAR payee or asset** | Market only; platform code receives only `PlatformTerms`, and `Ledger.platformTerms()` refuses this variant before any setup, funding, payout, vote or attack | **Implemented locally (user-approved Option 1).** The agent assesses the report against the signed criteria and proposes no amount; its judgment closes with outcome `nothing`, so the follow-up timer can never create a payout. Requested changes allow an immediate revision. Acceptance is recorded only when a public read of the Market job returns `completed` (including acceptance by a lapsed window), as `market_accepted`: work accepted, payout not observed by Paperwork. Offers naming a closed or completed Market job are refused. |
+
+What an `aat_` agent token can read: public jobs at any status via `GET /v1/jobs/{id}` (title, description, `budgetAmount`/`budgetToken`, `status` of `open | filling | in_progress | completed | closed`, `acceptanceWindowDays`). It cannot read bids, other workers' assignments or any NEAR account; bidders and workers are identified only by Market UUIDs and handles, so the builder's NEAR account is entered by the agency and confirmed by the builder's own terms signature. Award, accept and dispute remain web-page actions; `request_changes` is an MCP tool. No REST job-creation, award or accept path exists in the spec.
 
 ## Supported market routes
 
@@ -17,7 +28,7 @@ This selection preserves the user's explicit post-submission agency approval req
 | Standard account-backed marketplace job | Buyer posts job; worker bids; buyer awards and funds held price; worker declares start | Worker submits; buyer accepts or requests changes; review also ends by timeout or dispute ruling | Market held funds and payout/ledger | Supports review, but silence can pay and compensation is the awarded price |
 | Account-backed direct hire of listed agent | Buyer approves hire draft at listing price | Same account-backed review model | Market held funds and payout/ledger | Review exists, with the same timeout |
 | A2A + x402 listed-agent call | Caller signs the quoted payment authorization before work | Submission is automatically accepted and payment settles on delivery | Market facilitator/chain, then treasury sweep to worker owner's balance | Cannot preserve agency review after delivery |
-| Paperwork builder job (selected) | Signed scope offered by agency and accepted by builder | Report/invoice → agent proposal → explicit agency vote, or changes | Existing platform held withdrawal and confirmed settlement | Preserves agreed workflow without a second payment path |
+| Paperwork builder job (selected) | Signed scope offered by agency and accepted by builder | Report/invoice → agent proposal → explicit agency vote, or changes | Existing platform held withdrawal and confirmed settlement | Preserves agreed workflow without a second payment path; a Market-settled offer signs the Market as its only path instead |
 
 Account-backed hires have a **3–7 day** acceptance window, default **3**, frozen at hire. `accept_result` currently returns `action_required` and a job-page link; the person completes acceptance there. `request_changes` removes the current version from review and re-arms the delivery SLA. A message alone does not stop auto-acceptance. Buyer MCP tools are advertised as `marketplace__post_job`, `prepare_job`, `list_bids`, `award_bid`, `get_job_status`, `get_job_result`, `accept_result`, and `request_changes`; availability depends on deployment. `award_bid` also directs the person to the job page. [`MCP buyer contract`](https://market.near.ai/skill/mcp-buyer/SKILL.md)
 
@@ -61,7 +72,7 @@ Future switching to market settlement requires a product decision accepting its 
 
 ## Evidence boundaries
 
-- **Initial integration:** demo PR #6 at `11e1b16`, SDK 0.5.6; its held-payout implementation is reused by the current SDK 0.5.7 app. PR CI success is not workflow or settlement evidence.
+- **Initial integration:** demo PR #6 at `11e1b16`, SDK 0.5.6; its held-payout implementation is reused by the current SDK 0.5.9 app. PR CI success is not workflow or settlement evidence.
 - **Historical local integration:** [evidence.md](evidence.md) records the 2026-11-10 platform `96a0bb6` run through SDK 0.5.4 with simulated provider, chain and signatures. It does not verify this new builder submission slice or a hosted release.
 - **Historical prototype/mainnet:** the workspace's `sdk/docs/market.md` records 2026-11-09/10 x402 delivery settlement and earnings return outside the platform. Those observations do not establish hosted platform market support. That record also reports a payment-expiry discrepancy with current caller instructions; do not resolve it by signing live requests here.
 - **Initial public-document observation:** official docs and OpenAPI above were read on 2026-11-11. No account was created, authenticated mutation made, credential issued, external message sent, deployment performed, or funds moved for this research.
@@ -71,7 +82,7 @@ OpenAPI snapshot SHA-256: `2c7b2496e05f56aece8b13f8a825845a54b8cae9689efd4f3acf7
 
 ## Release and hosted checks — 2026-11-11
 
-These are the initial read-only observations from this date, before the later 0.5.7 source review; they are not a claim that npm's `latest` tag or hosted versions remained unchanged. The app was pinned to SDK 0.5.6 at that initial check; it now pins SDK 0.5.7. Fresh integration against the named platform-main candidate is recorded in [PR #9 review](pr-9-review.md), separately from the unchanged default `36a66cb4` / `f7caad4` simulator pin.
+These are the initial read-only observations from this date, before the later 0.5.7 source review; they are not a claim that npm's `latest` tag or hosted versions remained unchanged. The app was pinned to SDK 0.5.6 at that initial check; it later pinned SDK 0.5.7 and now pins 0.5.9. Fresh integration against the named platform-main candidate is recorded in [PR #9 review](pr-9-review.md), separately from the unchanged default `36a66cb4` / `f7caad4` simulator pin.
 
 The initial public metadata established:
 

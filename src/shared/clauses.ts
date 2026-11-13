@@ -1,5 +1,5 @@
 import { usd } from "./money";
-import { endInstant, largestDeliverable, scopeTotal, type Terms } from "./terms";
+import { capsAtScope, payoutEndInstant, perPaymentCap, type PlatformTerms, scopeTotal } from "./terms";
 
 // Shared by server and web.
 export type ClauseId = "payee" | "cap" | "budget" | "withdraw-only" | "funding" | "term" | "freeze" | "approval" | "setup" | "platform";
@@ -10,13 +10,13 @@ export interface Clause {
 }
 
 /** Map a platform answer to the contract clause it actually identifies; null = "The policy refused it." */
-export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held" | "blocked"; code: string | null }, terms: Terms, now: Date): Clause | null {
+export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held" | "blocked"; code: string | null }, terms: PlatformTerms, now: Date): Clause | null {
   if (r.kind === "held") return approvalClause(terms);
   if (r.kind === "session") return setupClause("credential", terms);
   const code = r.code;
   // Gateway answers (403): the consent no longer covers the path. After the end that is the term; before, a setup step.
   if (r.kind === "forbidden" || (code !== null && CONSENT_CODES.has(code))) {
-    if (code !== null && TERM_CODES.has(code) && now.getTime() >= Date.parse(endInstant(terms)))
+    if (code !== null && TERM_CODES.has(code) && now.getTime() >= Date.parse(payoutEndInstant(terms)))
       return { id: "term", title: "Term clause", text: `The contract ended ${terms.end}. The agent's permission to pay ended with it.` };
     return setupClause(code ?? "forbidden", terms);
   }
@@ -26,7 +26,7 @@ export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held
     case "recipient_not_found":
       return { id: "payee", title: "Payee clause", text: `Payments go only to ${terms.payee.address} on NEAR.` };
     case "per_transaction_exceeded":
-      return { id: "cap", title: "Scope clause", text: `No payment above ${usd(largestDeliverable(terms))}, the largest deliverable.` };
+      return { id: "cap", title: "Scope clause", text: `No payment above ${usd(perPaymentCap(terms))}, the ${capsAtScope(terms) ? "scope total" : "largest deliverable"}.` };
     case "spend_budget_exceeded":
       return { id: "budget", title: "Budget", text: `The policy's USD budget, sized from the ${usd(scopeTotal(terms))} scope, is used up for this window.` };
     case "withdraw_not_allowed":
@@ -62,11 +62,11 @@ export function clauseFor(r: { kind: "refused" | "forbidden" | "session" | "held
 const TERM_CODES = new Set(["scope", "no_consent", "access_ended"]);
 const CONSENT_CODES = new Set(["scope", "no_consent", "access_ended", "consent_revoked"]);
 
-function approvalClause(terms: Terms): Clause {
+function approvalClause(terms: PlatformTerms): Clause {
   return { id: "approval", title: "Approval clause", text: `Every payout waits for ${terms.representative.near_account} to approve it before money moves.` };
 }
 
-function setupClause(code: string, terms: Terms): Clause {
+function setupClause(code: string, terms: PlatformTerms): Clause {
   const text: Record<string, string> = {
     grant_missing: "The agent's payout grant is missing. Issue it again.",
     grant_expired: "The agent's payout grant has expired (the platform issues it for 30 days). The representative issues it again.",

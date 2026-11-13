@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { openDb } from "../src/server/db";
 import { canonicalJson } from "../src/shared/canonical";
 import { DEMO_TERMS, JOB_DEMO_TERMS } from "../src/shared/demo";
-import { parseTerms, termsHash } from "../src/shared/terms";
+import { parsePlatformTerms, termsHash } from "../src/shared/terms";
 
 const directories: string[] = [];
 afterEach(() => { for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -26,7 +26,7 @@ function fixture(state: "rejected" | "refused" | "unknown" | "processing" | "pai
   const path = join(dir, "fixture.sqlite");
   const db = openDb(path);
   try {
-    const terms = parseTerms(options.v2 ? DEMO_TERMS : JOB_DEMO_TERMS);
+    const terms = parsePlatformTerms(options.v2 ? DEMO_TERMS : JOB_DEMO_TERMS);
     const hash = termsHash(terms);
     const at = "2026-11-20T12:00:00.000Z";
     db.query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, rep_sig, contractor_sig, organization) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")

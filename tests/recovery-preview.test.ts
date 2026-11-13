@@ -16,7 +16,7 @@ function fixture(version: 2 | 3 = 3) {
       agent: { name: "agent-1", id: "agent-id-1" }, submission_ids: ["submission-1"], invoice_ids: ["invoice-1"], judgment_ids: ["judgment-1"], payout_request_ids: ["request-1"] }],
     attempts: [{ request_id: "request-1", contract_id: "job-1", kind: "payout", seq: 1, attempt: 1, judgment_id: "judgment-1", recipient: "builder.demo", amount_atomic: "300000000",
       state: "failed", resolution: "reowe", code: "delivery_unknown", payout_correlation_id: "payment-1", approval_id: "approval-1", owner_step_correlation_id: "owner-1",
-      never_executed: false, tx_hash: null, refund_tx_hash: null, refunded_amount: null, lines: [{ deliverable_id: "d1", amount_atomic: "300000000" }],
+      never_executed: false, tx_hash: null, refund_tx_hash: null, refunded_amount: null, counterevidence: null, lines: [{ deliverable_id: "d1", amount_atomic: "300000000" }],
       same_obligation_request_ids: [], other_same_job_request_ids: [] }],
     owner_steps: [{ correlation_id: "owner-1", contract_id: "job-1", organization: "org-1", kind: "approval_vote", state: "success", request_id: "request-1", verdict: "approve" }],
     findings: [{ code: "unproven_budget_release", request_id: "request-1", contract_id: "job-1", message: "Historical release lacks stored positive proof." }],

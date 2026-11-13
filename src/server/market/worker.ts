@@ -52,6 +52,11 @@ export class Worker {
   private submitting = new Set<string>();
   /** Status observations preserve rework ordering; they never prove arrival of this attempt's Markdown. */
   private observedSubmissionStatus = new Set<string>();
+  /**
+   * Signatures already accepted, until their timestamp leaves the skew window. Delivery and event headers are unsigned;
+   * a replay inside the window must reuse the signed timestamp and body, so it carries the same signature.
+   */
+  private acceptedSignatures = new Map<string, number>();
   constructor(private d: WorkerDeps) {}
 
   get configured(): boolean {
@@ -80,7 +85,8 @@ export class Worker {
   }
 
   /**
-   * One webhook delivery. Answers 401 unless signed; a delivery seen before is dropped (`X-Market-Delivery`). A
+   * One webhook delivery. Answers 401 unless signed; a delivery seen before is dropped (`X-Market-Delivery`), and so is
+   * an already accepted signature under a new delivery id. A
    * `hire.created` records the job; any other event re-reads the assignments, since deliveries can arrive out of order.
    */
   async receive(headers: Headers, rawBody: Uint8Array): Promise<{ status: 200 | 401 | 413; duplicate?: boolean }> {
@@ -95,11 +101,17 @@ export class Worker {
       if (known.agency_id !== cfg.agencyId) throw new UserError("This delivery's agency ownership differs or is unproven; preserve it for operator reconciliation.", 409);
       return { status: 200, duplicate: true };
     }
+    const signature = headers.get("x-market-signature")!.toLowerCase();
+    const nowMs = this.d.now().getTime();
+    for (const [seen, until] of this.acceptedSignatures) if (until < nowMs) this.acceptedSignatures.delete(seen);
+    if (this.acceptedSignatures.has(signature)) return { status: 200, duplicate: true };
+    const accept = () => this.acceptedSignatures.set(signature, (Number(headers.get("x-market-timestamp")) + TIMESTAMP_SKEW_S) * 1000);
     let payload: any = null;
     try {
       payload = JSON.parse(new TextDecoder().decode(rawBody));
     } catch {
       this.recordDelivery(delivery, event, cfg.agencyId);
+      accept();
       return { status: 200 };
     }
     if (event === "hire.created" && payload?.assignment_id) {
@@ -117,8 +129,10 @@ export class Worker {
         }, false, cfg.agencyId);
         this.recordDelivery(delivery, event, cfg.agencyId);
       })();
+      accept();
     } else {
       this.recordDelivery(delivery, event, cfg.agencyId);
+      accept();
       void this.poll().catch(() => {});
     }
     return { status: 200 };

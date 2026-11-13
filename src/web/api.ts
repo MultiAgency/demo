@@ -3,7 +3,7 @@ import type { AppConfig, NextStep, PayoutView, Signed, SignRequest, VoteAnswer }
 import type { WorkflowSigner } from "./wallet-signing";
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status?: number) { super(message); }
+  constructor(message: string, readonly status?: number, readonly code?: string, readonly retryAfterMs?: number, readonly reason?: string) { super(message); }
 }
 
 export async function api<T = any>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
@@ -14,7 +14,16 @@ export async function api<T = any>(method: "GET" | "POST", path: string, body?: 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(json.error ?? `Request failed (${res.status})`, res.status);
+  if (!res.ok) {
+    const failure = json && typeof json === "object" ? json : {};
+    const retry = res.headers.get("retry-after");
+    const seconds = retry !== null && retry.trim() !== "" ? Number(retry) : NaN;
+    const date = retry ? Date.parse(retry) : NaN;
+    const retryAfterMs = Number.isFinite(seconds) ? seconds >= 0 ? seconds * 1000 : undefined
+      : Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+    throw new ApiError(typeof failure.error === "string" ? failure.error : `Request failed (${res.status})`, res.status,
+      typeof failure.code === "string" ? failure.code : undefined, retryAfterMs, typeof failure.reason === "string" ? failure.reason : undefined);
+  }
   return json as T;
 }
 

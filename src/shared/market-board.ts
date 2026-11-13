@@ -33,3 +33,19 @@ export interface OpenJobsPage {
   /** Local successful-read timestamp, not a Market event time or verification claim. */
   checked_at: string;
 }
+
+/**
+ * One public Market job read for an offer import or a source check. A job sourced from the Market is paid only through
+ * the platform, so it must reach `closed` (any award refunded) before platform setup or funding.
+ */
+export interface MarketJobSource {
+  job_id: string;
+  title: string;
+  description: string;
+  budget_amount: string | null;
+  budget_token: string;
+  kind: BoardJobKind;
+  status: "open" | "filling" | "in_progress" | "completed" | "closed";
+  acceptance_window_days: number;
+  checked_at: string;
+}

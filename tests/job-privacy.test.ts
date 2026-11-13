@@ -66,3 +66,43 @@ for (const version of [2, 3]) {
     expect(ctx.stub.transfers).toHaveLength(0);
   });
 }
+
+test("demo controls follow the access rule of the action they stand in for when sign-in is required", async () => {
+  const ctx = await setup();
+  await signTerms(ctx);
+  let reads = 0;
+  ctx.rt.engine.getContract = async () => { reads++; throw Error("unexpected reconciliation"); };
+  const before = ctx.rt.clock.now().getTime();
+  const post = (account: string | null, path: string, body: unknown) =>
+    asAccount(ctx.rt, account).request(`/api/sim/${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const sign = { account_id: "acme.demo", message: "m", nonce: Buffer.alloc(32).toString("base64"), recipient: "multiagency-paperwork" };
+  for (const [account, code] of [[null, 401], ["attacker.demo", 403]] as const) {
+    for (const [path, body] of [["merge", { contract_id: ctx.id }], ["fund", { contract_id: ctx.id }], ["settle", { contract_id: ctx.id }], ["sign", sign]] as const)
+      expect((await post(account, path, body)).status).toBe(code);
+  }
+  for (const [path, body] of [["advance", { ms: 86_400_000 }], ["confirm", { url: "https://confirm.invalid" }], ["fund", { agent_id: "a", usd: "1" }], ["settle", { correlation_id: "c" }]] as const)
+    expect((await post(null, path, body)).status).toBeGreaterThanOrEqual(400);
+  expect(reads).toBe(0);
+  expect(ctx.rt.clock.now().getTime() - before).toBeLessThan(60_000);
+  expect((await post("maria.demo", "fund", { contract_id: ctx.id })).status).toBe(403);
+  expect((await post("acme.demo", "sign", sign)).status).toBe(200);
+  expect(ctx.stub.transfers).toHaveLength(0);
+});
+
+test("anonymous public verification shares one recent check per job", async () => {
+  const ctx = await setup(JOB_DEMO_TERMS);
+  await signTerms(ctx);
+  const verify = ctx.rt.engine.verify.bind(ctx.rt.engine);
+  let checks = 0;
+  ctx.rt.engine.verify = async (id) => { checks++; return verify(id); };
+  const app = asAccount(ctx.rt, null);
+  const read = () => app.request(`/api/contracts/${ctx.id}/verify/public`);
+  const burst = await Promise.all(Array.from({ length: 20 }, read));
+  expect(burst.every(response => response.status === 200)).toBe(true);
+  expect(checks).toBe(1);
+  ctx.rt.clock.advance(31_000);
+  expect((await read()).status).toBe(200);
+  expect(checks).toBe(2);
+  expect((await app.request("/api/contracts/c_unknown/verify/public")).status).toBe(404);
+  expect(checks).toBe(2);
+});

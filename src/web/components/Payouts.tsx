@@ -1,5 +1,5 @@
 import { DaoProposal } from "./DaoProposal";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { USDC_NEAR } from "../../shared/terms";
 import { api, prepareVote, submitVote, termsMatch } from "../api";
 import type { AppConfig, AttemptState, ContractView, PayoutView, VoteAnswer } from "../types";
@@ -243,7 +243,7 @@ export function StateNote({ p, act }: { p: PayoutView; act: Act }) {
  * The held payout, as the representative decides it. Leads with the judge's flags, then the terms the
  * platform will release: payee, USDC, amount, a public withdrawal on NEAR.
  */
-export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView; config: AppConfig; act: Act; attack?: boolean }) {
+export function ApprovalCard({ p, config, act, attack = false, auto = false, onAuto }: { p: PayoutView; config: AppConfig; act: Act; attack?: boolean; /** The agency's Approve click filed exactly this payout: prepare its approval once. */ auto?: boolean; onAuto?: () => void }) {
   const session = useSession();
   const [vote, setVote] = useState<VoteAnswer | null>(null);
   const [verdict, setVerdict] = useState<"approve" | "reject" | null>(null);
@@ -268,6 +268,15 @@ export function ApprovalCard({ p, config, act, attack = false }: { p: PayoutView
     setVote(answer);
     if (config.demo_controls) await act(() => submitVote(config, answer, session.signWorkflow));
   };
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (!auto || voted || started.current) return;
+    started.current = true;
+    // Consumed here, so a remount or a later payout never repeats the decision without a click.
+    onAuto?.();
+    void decide("approve");
+  });
 
   return (
     <div className={`approval${attack ? " is-attack" : ""}`}>

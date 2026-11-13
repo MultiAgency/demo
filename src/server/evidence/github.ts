@@ -22,20 +22,35 @@ export interface EvidenceSource {
   mergedPullRequests(q: EvidenceQuery): Promise<PullRequest[]>;
 }
 
-/** Public GitHub REST API. Optional token raises the rate limit. */
+const SEARCH_PAGE = 100;
+/** GitHub search returns at most 1,000 results per query. */
+const SEARCH_LIMIT = 1000;
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Public GitHub REST API. Optional token raises the rate limit. A judgment never runs on a partial list: an incomplete
+ * or over-limit search throws, and the run is attempted again later.
+ */
 export class GitHubEvidence implements EvidenceSource {
   readonly kind = "github" as const;
-  constructor(private token?: string) {}
+  constructor(private token?: string, private send: typeof fetch = fetch) {}
 
   async mergedPullRequests(q: EvidenceQuery): Promise<PullRequest[]> {
     const out: PullRequest[] = [];
     const range = `${q.since.slice(0, 10)}..${q.until.slice(0, 10)}`;
     for (const repo of q.repos) {
       const search = `repo:${repo} is:pr is:merged author:${q.author} merged:${range}`;
-      const found = await this.get<{ items: { number: number }[] }>(
-        `https://api.github.com/search/issues?q=${encodeURIComponent(search)}&per_page=50`,
-      );
-      for (const item of found.items) {
+      const numbers: number[] = [];
+      for (let page = 1; ; page++) {
+        const found = await this.get<{ total_count: number; incomplete_results: boolean; items: { number: number }[] }>(
+          `https://api.github.com/search/issues?q=${encodeURIComponent(search)}&per_page=${SEARCH_PAGE}&page=${page}`,
+        );
+        if (found.incomplete_results) throw new Error(`GitHub returned incomplete search results for ${repo}; nothing was judged.`);
+        if (found.total_count > SEARCH_LIMIT) throw new Error(`More than ${SEARCH_LIMIT} merged pull requests match in ${repo}; nothing was judged.`);
+        numbers.push(...found.items.map((item) => item.number));
+        if (found.items.length < SEARCH_PAGE || numbers.length >= found.total_count) break;
+      }
+      for (const number of new Set(numbers)) {
         const pr = await this.get<{
           number: number;
           title: string;
@@ -44,7 +59,7 @@ export class GitHubEvidence implements EvidenceSource {
           user: { login: string };
           merged_by: { login: string } | null;
           merged_at: string | null;
-        }>(`https://api.github.com/repos/${repo}/pulls/${item.number}`);
+        }>(`https://api.github.com/repos/${repo}/pulls/${number}`);
         if (!pr.merged_at) continue;
         out.push({
           repo,
@@ -62,7 +77,8 @@ export class GitHubEvidence implements EvidenceSource {
   }
 
   private async get<T>(url: string): Promise<T> {
-    const res = await fetch(url, {
+    const res = await this.send(url, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         accept: "application/vnd.github+json",
         "user-agent": "multiagency-paperwork",

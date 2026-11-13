@@ -96,9 +96,9 @@ test("a frozen agent blocks payouts as frozen", async () => {
   if (!prepared.ok || !prepared.value.confirm) throw new Error("freeze not prepared");
   await ctx.controls.completeConfirm(prepared.value.confirm.url);
   await ctx.rt.engine.run(ctx.id).catch(() => {});
-  const att = (ctx.rt.engine as any).attempts(ctx.id).find((x: any) => x.kind === "payout");
+  const att = (ctx.rt.engine as any).ledger.attempts(ctx.id).find((x: any) => x.kind === "payout");
   if (att) expect(`${att.state} ${att.code}`).toBe("blocked frozen");
-  expect((ctx.rt.engine as any).row(ctx.id).frozen).toBe(1);
+  expect((ctx.rt.engine as any).ledger.row(ctx.id).frozen).toBe(1);
 });
 
 test("an APPLIED policy at or below the revision the edit was prepared against does not end the wait", async () => {
@@ -140,7 +140,7 @@ test("an APPLIED policy at or below the revision the edit was prepared against d
 // ---------------------------------------------------------------- the whole live policy, before every request
 
 const agentIdOf = (ctx: any): string => ctx.rt.engine.onboarding.agentRow(ctx.id)!.agent_id!;
-const allAttempts = (ctx: any): any[] => (ctx.rt.engine as any).attempts(ctx.id);
+const allAttempts = (ctx: any): any[] => (ctx.rt.engine as any).ledger.attempts(ctx.id);
 const events = async (ctx: any): Promise<any[]> => (await ctx.rt.engine.viewContract(ctx.id)).events;
 
 test("a live policy that differs from the signed terms anywhere blocks the request as policy_mismatch, alerts, and turns Verify red", async () => {
@@ -233,7 +233,7 @@ test("frozen: the contract shows frozen and nothing is requested; unfrozen: the 
   ctx.controls.editPolicy(agentIdOf(ctx), (p) => (p.frozen = false)); // the owner unfreezes on the platform
   const back = await ctx.rt.engine.getContract(ctx.id);
   expect(back.stage).not.toBe("frozen");
-  expect((ctx.rt.engine as any).row(ctx.id).frozen).toBe(0);
+  expect((ctx.rt.engine as any).ledger.row(ctx.id).frozen).toBe(0);
   expect(back.events.some((e: any) => e.kind === "freeze" && e.text.includes("unfroze"))).toBe(true);
   const r = await ctx.rt.engine.run(ctx.id);
   expect(r.outcome).not.toBe("deferred");
@@ -256,7 +256,7 @@ test("a payout blocked as frozen goes out under the same id once the owner unfre
   await ctx.rt.engine.followUpAll();
   expect(ctx.rt.engine.attempt(p1.request_id).state).toBe("held");
   expect((ctx.controls.requests()[sent] as any).requestId).toBe(p1.request_id);
-  expect((ctx.rt.engine as any).row(ctx.id).frozen).toBe(0);
+  expect((ctx.rt.engine as any).ledger.row(ctx.id).frozen).toBe(0);
 });
 
 // ---------------------------------------------------------------- the payout grant lasts 30 days, contracts up to 365
@@ -320,7 +320,7 @@ test("submitting an owner step needs the representative's session when sign-in i
 
 test("request_conflict: Paperwork reads what the platform's record under that id became, and never re-sends it", async () => {
   const ctx = await fakeActivate();
-  const row = (ctx.rt.engine as any).row(ctx.id);
+  const row = (ctx.rt.engine as any).ledger.row(ctx.id);
   const rid = `${row.hash.slice(0, 16)}-p1-1`; // the id Paperwork's first payout will use
   const a = ctx.rt.engine.onboarding.agentRow(ctx.id)!;
   const h = ctx.rt.engine.onboarding.handle(a);

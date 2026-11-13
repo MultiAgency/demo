@@ -549,7 +549,7 @@ describe("Verify", () => {
     const v = await live.rt.engine.verify(live.id);
     expect(v.overall).toBe("green");
     expect(v.checks.filter((c) => !c.ok).map((c) => c.id)).toEqual([]);
-    expect(v.expected.per_transaction).toBe(M(500));
+    expect(v.expected?.per_transaction).toBe(M(500));
     stubAgent(live).policy.withdrawals.push("attacker.demo");
     const red = await live.rt.engine.verify(live.id);
     expect(red.overall).toBe("red");

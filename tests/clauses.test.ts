@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { clauseFor } from "../src/shared/clauses";
 import { DEMO_TERMS } from "../src/shared/demo";
-import { parseTerms } from "../src/shared/terms";
+import { parsePlatformTerms } from "../src/shared/terms";
 
 // Demo scope: d1 $300, d2 $200, d3 $500 → largest $500, total $1,000.
-const terms = parseTerms({ ...DEMO_TERMS, start: "2026-11-01", end: "2026-11-30" });
+const terms = parsePlatformTerms({ ...DEMO_TERMS, start: "2026-11-01", end: "2026-11-30" });
 const before = new Date("2026-11-15T12:00:00Z");
 const after = new Date("2026-12-01T00:00:00Z");
 const refused = (code: string | null, now = before) => clauseFor({ kind: "refused", code }, terms, now);

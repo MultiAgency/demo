@@ -143,6 +143,10 @@ export interface AgentHandle {
   paymentStatus(correlationId: string): Promise<Res<PaymentStatus>>;
 }
 export interface Platform {
+  /** Read-only, trusted app-scoped reconciliation. Absent until the platform/SDK supports the reviewed contract.
+   * Must not allocate, reset, prepare or send. Never wire this to caller-supplied JSON or a local receipt file. */
+  fundingRecovery?(binding: import("../../shared/funding-recovery").FundingRecoveryBinding): Promise<unknown>;
+  fundingRecoveryOutcome?(query: import("../../shared/funding-recovery").FundingRecoveryOutcomeQuery): Promise<unknown>;
   readonly mode: "fake" | "remote";
   readonly host: string;
   readonly deployment: string;

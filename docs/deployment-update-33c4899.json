@@ -1,0 +1,70 @@
+{
+  "as_of": "2026-11-13T14:04:34.576104+00:00",
+  "result": "PASS",
+  "scope": "One approved protected SQLite snapshot, one app replacement and read-only acceptance; no funding clearance",
+  "source_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
+  "origin": "https://desk.multiagency.ai",
+  "deployment_id": "03458e40-4947-45b2-bef6-1cd7f62caea2",
+  "instance_id": "81263627-69bf-4a93-a944-8ffd2bc695aa",
+  "image_digest": "sha256:2f9bb9a47d3a54ea87600d61af3ff04e08116c6007277e3e5b28c8cf6738aeb3",
+  "runtime": {
+    "platform": "linux",
+    "arch": "x64",
+    "bun": "1.4.2"
+  },
+  "source_sdk_inputs_verified": 107,
+  "ci_run": "https://github.com/MultiAgency/demo/actions/runs/43429512218",
+  "ci_image_digest": "sha256:abf6869c7cfd45c9b12846c2d6ef3fa5d3a0ee4740449f2f4623a66f75c634d8",
+  "delivery_boundary": "Railway rebuilt exact reviewed source; deployed image is recorded separately from the CI image.",
+  "checks": [
+    "strict HTTPS health",
+    "auth/config and private job refusals",
+    "minimal public terms verification",
+    "all served frontend files match running manifest"
+  ],
+  "state_preservation": {
+    "all_original_records_and_implicit_row_ids": true,
+    "signatures_invitation_auth_and_setup": true,
+    "cached_instructions_preserved_not_cleared": true,
+    "uncertainty_evidence_and_markers_unchanged": true,
+    "original_volume": "55922468-0e12-4968-82f4-503d07a402e6",
+    "volume_size_mb": 50000,
+    "state_digest": "224e3d9df69867b86726db92900c9e657c4e9546c292458085838de9b899bd81",
+    "fresh_protected_sqlite_snapshot_sha256": "450c93f23f5f3a112a566dba9eb4ddde503f9bd6afc44f5095e95193dfa37176",
+    "previous_snapshots_preserved": true,
+    "new_native_backup_created": false
+  },
+  "gateway": {
+    "deployment_id": "36fdd8a8-24ee-4503-956b-03d49ddc557b",
+    "image": "sha256:bd3ed200807e53f58f30d5e86642425152cfc235d912ecc981036ee0f6b736dc",
+    "source": "39eefe11802c062676621290a13d3caa5ccf24e6",
+    "package_manifest_sha256": "3f50539cf51ddfb2d7bde4c4a969ffb4f527c0d0b3b4a883ae7e9742feb0dfe9",
+    "changed_by_this_operation": false
+  },
+  "sdk": {
+    "version": "0.5.9",
+    "tarball_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+    "repinned": false
+  },
+  "actions_performed": {
+    "protected_sqlite_snapshots": 1,
+    "app_uploads": 1,
+    "deposit_allocations": 0,
+    "marker_resets": 0,
+    "wallet_openings": 0,
+    "signatures": 0,
+    "funding_or_payments": 0
+  },
+  "funding_hold": "Both reported addresses and every other unverified cached destination remain uncleared. Deployment and cache preservation do not prove binding, validity or non-receipt.",
+  "remaining": [
+    "Authoritative provider allocation, address binding/validity, receipt/credit and working-route evidence remain required before financial approval.",
+    "Empty provider arrays do not prove non-receipt; prior FAILED route_unavailable and original unknown outcome remain unresolved.",
+    "Host-side source/hash acceptance does not exercise a live deposit allocation or Intear funding transaction.",
+    "Retained exact-gateway consumer runs predate this app fix; current-source CI/funding/recovery regressions are simulated.",
+    "Protected logical snapshot remains on the original volume; native backup is historical.",
+    "Credential renewal before 2026-11-19T21:07:23.584Z needs separate authorization."
+  ],
+  "evidence": "data/release-evidence/update-33c4899",
+  "no_write_window_released_at": "2026-11-13T14:04:34.576104+00:00",
+  "authorization_consumed": true
+}

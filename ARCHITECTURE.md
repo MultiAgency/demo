@@ -12,9 +12,12 @@ Bun, strict TypeScript ESM, React, plain CSS, Hono, Zod, `bun:sqlite`, Better-Au
 | `src/server/index.ts`, `app.ts`, `config.ts` | Startup, composition, routes, authorization and configuration |
 | `src/server/db.ts` | SQLite schema, compatibility checks and deployment binding |
 | `src/server/engine.ts`, `onboarding.ts`, `payouts.ts` | Job workflow, durable owner steps and payment accounting |
+| `src/server/ledger.ts`, `payout-follower.ts` | Payout, judgment and event records; the payout request/observation state machine and failed-payment proof rules |
+| `src/server/errors.ts` | User-facing error type with stable codes and reasons |
 | `src/server/platform/` | SDK adapter, stand-in, chain reads and isolated-stack helpers |
 | `src/server/market/` | Agencies, hires, worker, Market API and persistence |
-| `src/server/jobs/` | Public openings and stored personal-attention projection |
+| `src/server/jobs/` | Public openings, stored personal-attention projection and the batched reads behind job lists |
+| `src/agent/` | Agent-facing client for the job HTTP API |
 | `src/server/review/`, `src/shared/review.ts` | Authorized review context, Hermes transport and streamed drafts |
 | `src/server/recovery/`, `scripts/inspect-ledger.ts`, `scripts/collect-ledger-evidence.ts`, `scripts/export-restoration.ts` | Standalone ledger/compatibility inventory, four allowlisted SDK observations, advisory preview, in-memory restoration and private export; no app startup or sends |
 | `src/web/` | Hash routes, shared UI, sessions, account-scoped resources and wallet signing |
@@ -33,12 +36,14 @@ The database binds to its platform deployment. The default deployment and new te
 ## Job and review flow
 
 ```text
-terms + two signatures → dedicated job Organization/agent
+terms + two signatures → dedicated job Organization/agent      (platform-paid jobs)
   → consent, grant, policy, funding
   → report + invoice (v3) / eligible merged PRs (v2)
   → persisted judgment/payout identity → SDK held payout
   → agency approval → observation → settlement or unresolved outcome
 ```
+
+A Market-settled job (signed `payment_terms.settlement: "agent_market"`) skips the Organization, consent, policy, funding and payout steps entirely: after both signatures it goes report + invoice → agent assessment → agency acceptance on the Agent Market, and Paperwork requests and confirms no payment. For platform-paid report-and-invoice jobs the agent's assessment is recorded when the report is filed; the judgment and payout identity are persisted only when the agency approves.
 
 The app owns business records and compensation accounting; the platform owns guarded execution. Preflight checks signed policy fields, grant lifetime and job dates. The platform enforces consent on its calls. Paperwork holds an app credential rather than production owner/provider keys. Recovery rules are in [RULES.md](RULES.md).
 

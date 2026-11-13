@@ -80,7 +80,7 @@ export const SETUP: SetupStep[] = [
     stage: "needs_policy",
     icon: "shield",
     title: "Apply the job's policy",
-    short: "Only the payee, no payment above the largest deliverable, your approval on every payout.",
+    short: "Only the payee, no payment above the signed cap, your approval on every payout.",
     help: ["One policy edit, signed by you: withdrawals to the payee, per-payment cap, owner approval, budget.", "Paperwork checks the policy is in force before every payout."],
   },
   {

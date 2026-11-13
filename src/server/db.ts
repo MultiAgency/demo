@@ -5,11 +5,14 @@ import type { AttemptState, JudgmentOutcome, PayoutResolution } from "../shared/
 import { OPEN_STATES } from "./payouts";
 import type { JobSubmissionState } from "../shared/jobs";
 import type { TermsRecipient } from "../shared/terms";
+import { BUILDER_ACCOUNT_SQL, REPRESENTATIVE_ACCOUNT_SQL } from "./jobs/read-queries";
 
 export interface JobRow {
   id: string; contract_id: string; client_request_id: string; content_hash: string; revision: number;
   terms_hash: string; builder: string; report: string; evidence: string; judgment_id: string | null;
   proposed_atomic: string; state: JobSubmissionState; changes: string | null; created_at: string;
+  /** The agent's assessment JSON recorded at filing. It commits no payment identity; judgment_id does. */
+  assessment: string | null;
 }
 export interface JobInvoiceRow { id: string; submission_id: string; contract_id: string; number: string; amount_atomic: string }
 
@@ -52,6 +55,8 @@ export interface PlatformAgentRow {
   policy_revision: number | null;
   policy_digest: string | null;
   deposit: string | null;
+  /** The agent's USDC balance (atomic) at the last successful platform read; null until one is observed. */
+  usdc_observed: string | null;
   /** The sign request the server issued last ({step, message, nonce, recipient}), so the signed body can be rebuilt exactly. */
   pending_sign: string | null;
   stage: AgentStage;
@@ -102,6 +107,8 @@ export interface AttemptRow {
   failure_code: string | null;
   tx_hash: string | null;
   never_executed: number;
+  /** Observed payment status that contradicts non-execution without other retained evidence (REFUNDED). Never cleared. */
+  counterevidence: string | null;
   refund_tx_hash: string | null;
   refunded_amount: string | null;
   resolution: PayoutResolution | null;
@@ -179,6 +186,7 @@ export function openDb(path: string): Database {
       policy_revision INTEGER,
       policy_digest TEXT,
       deposit TEXT,
+      usdc_observed TEXT,
       pending_sign TEXT,
       stage TEXT NOT NULL,
       created_at TEXT NOT NULL,
@@ -227,6 +235,7 @@ export function openDb(path: string): Database {
       state TEXT NOT NULL DEFAULT 'submitted',
       changes TEXT,
       created_at TEXT NOT NULL,
+      assessment TEXT,
       UNIQUE(contract_id, client_request_id),
       UNIQUE(contract_id, revision)
     );
@@ -267,6 +276,7 @@ export function openDb(path: string): Database {
       scenario TEXT,
       platform_record TEXT,
       never_executed INTEGER NOT NULL DEFAULT 0,
+      counterevidence TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE (contract_id, kind, seq, attempt)
@@ -293,7 +303,36 @@ export function openDb(path: string): Database {
       kind TEXT NOT NULL,
       text TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS funding_recovery_attempts (
+      id TEXT PRIMARY KEY,
+      contract_id TEXT NOT NULL REFERENCES contracts(id),
+      reconciliation_id TEXT NOT NULL,
+      plan_hash TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state = 'wallet_outcome_unknown'),
+      created_at TEXT NOT NULL,
+      outcome TEXT CHECK (outcome IN ('funded', 'not_received')),
+      outcome_evidence TEXT,
+      resolved_at TEXT
+    );
   `);
+  // Additive indexes over the original terms bytes; no identity, signature or payment row is rewritten.
+  // Malformed retained JSON is excluded from account lookup rather than making index creation fail.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS contracts_representative_account ON contracts (${REPRESENTATIVE_ACCOUNT_SQL});
+    CREATE INDEX IF NOT EXISTS contracts_builder_account ON contracts (${BUILDER_ACCOUNT_SQL});
+    CREATE INDEX IF NOT EXISTS owner_steps_contract_history ON owner_steps (contract_id, created_at);
+    CREATE INDEX IF NOT EXISTS owner_steps_shared_history ON owner_steps (organization, created_at) WHERE contract_id IS NULL;
+    CREATE INDEX IF NOT EXISTS owner_steps_request ON owner_steps (request_id);
+    CREATE INDEX IF NOT EXISTS payout_attempts_contract_history ON payout_attempts (contract_id, created_at);
+    CREATE INDEX IF NOT EXISTS payout_attempts_judgment_history ON payout_attempts (contract_id, run_id, created_at);
+    CREATE INDEX IF NOT EXISTS events_contract_history ON events (contract_id, id);
+    CREATE INDEX IF NOT EXISTS events_contract_kind_history ON events (contract_id, kind, id);
+  `);
+  const jobCols = new Set((db.query("SELECT name FROM pragma_table_info('job_submissions')").all() as { name: string }[]).map((c) => c.name));
+  if (!jobCols.has("assessment")) db.exec("ALTER TABLE job_submissions ADD COLUMN assessment TEXT");
+  const agentCols = new Set((db.query("SELECT name FROM pragma_table_info('platform_agents')").all() as { name: string }[]).map((c) => c.name));
+  if (!agentCols.has("usdc_observed")) db.exec("ALTER TABLE platform_agents ADD COLUMN usdc_observed TEXT");
   const contractCols = new Set((db.query("SELECT name FROM pragma_table_info('contracts')").all() as { name: string }[]).map((c) => c.name));
   // Additive only: existing signatures and partially signed drafts keep their original domain and exact bytes.
   if (!contractCols.has("signing_recipient")) db.exec("ALTER TABLE contracts ADD COLUMN signing_recipient TEXT NOT NULL DEFAULT 'covenant' CHECK (signing_recipient IN ('covenant', 'multiagency-paperwork'))");
@@ -301,6 +340,34 @@ export function openDb(path: string): Database {
   if (!attemptCols.has("platform_record")) db.exec("ALTER TABLE payout_attempts ADD COLUMN platform_record TEXT");
   if (!attemptCols.has("never_executed")) db.exec("ALTER TABLE payout_attempts ADD COLUMN never_executed INTEGER NOT NULL DEFAULT 0");
   if (!attemptCols.has("refunded_amount")) db.exec("ALTER TABLE payout_attempts ADD COLUMN refunded_amount TEXT");
+  if (!attemptCols.has("counterevidence")) db.exec("ALTER TABLE payout_attempts ADD COLUMN counterevidence TEXT");
+  // Recovery attempts: one unresolved attempt per job, resolved only by positive evidence. The first schema allowed a
+  // single attempt per job ever; rebuild it once, preserving every row and leaving each one unresolved.
+  const recovery = db.query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'funding_recovery_attempts'").get() as { sql: string } | null;
+  if (recovery && /contract_id\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(recovery.sql)) db.transaction(() => {
+    db.exec(`CREATE TABLE funding_recovery_attempts_resolvable (
+      id TEXT PRIMARY KEY,
+      contract_id TEXT NOT NULL REFERENCES contracts(id),
+      reconciliation_id TEXT NOT NULL,
+      plan_hash TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state = 'wallet_outcome_unknown'),
+      created_at TEXT NOT NULL,
+      outcome TEXT CHECK (outcome IN ('funded', 'not_received')),
+      outcome_evidence TEXT,
+      resolved_at TEXT
+    )`);
+    // One statement per call, and a verified copy before anything is dropped: a row that cannot be copied stops the
+    // migration and leaves the original table in place.
+    const before = (db.query("SELECT COUNT(*) AS n FROM funding_recovery_attempts").get() as { n: number }).n;
+    db.run(`INSERT INTO funding_recovery_attempts_resolvable (id, contract_id, reconciliation_id, plan_hash, plan, state, created_at)
+      SELECT id, contract_id, reconciliation_id, plan_hash, plan, state, created_at FROM funding_recovery_attempts`);
+    const copied = (db.query("SELECT COUNT(*) AS n FROM funding_recovery_attempts_resolvable").get() as { n: number }).n;
+    if (copied !== before) throw new Error(`Funding recovery migration copied ${copied} of ${before} attempts. Preserve this database; nothing was changed.`);
+    db.run("DROP TABLE funding_recovery_attempts");
+    db.run("ALTER TABLE funding_recovery_attempts_resolvable RENAME TO funding_recovery_attempts");
+  })();
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS one_open_funding_recovery ON funding_recovery_attempts(contract_id) WHERE outcome IS NULL");
   const index = db.query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'one_open_payout'").get() as { sql: string } | null;
   if (index && !index.sql.includes("'disputed'")) db.transaction(() => {
     // Preserve every row while extending the existing monetary lock to business reviews closed as disputed.

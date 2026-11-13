@@ -234,9 +234,11 @@ The detailed Verify API (`/api/contracts/:id/verify`) requires a named party. Pu
 | Minimal verification status | Read | Read | Read |
 | Full job and detailed verification | Deny | Read party-safe projection | Read |
 | Terms-signing request | Deny | Own contractor payload | Own representative payload |
-| Initial builder acceptance | Deny | Named session + original invitation + signature | Cannot sign for builder |
+| Initial builder acceptance | Deny | Named session + signature (revised 2026-11-13; see below) | Cannot sign for builder |
 | Owner preparations/status, deposit instructions, approvals/retry/resolve/run | Deny | Deny | Supported actions |
 | Hermes review | Deny | Deny | Supported actions |
+
+**Revised 2026-11-13 (user-approved):** with sign-in required, the named builder's own session and wallet signature accept the offer; the original invitation is no longer also required. The account check runs before the signature is verified, and the signing key must be a full-access key of the named account. Where sign-in is not required (the keyless demonstration, which has no sessions) the original invitation remains the acceptance capability.
 
 The implementation must authorize protected requests before platform reads, remove owner preparations/deposit data from builder views, use generic unauthorized errors and prevent private-response caching. A public status handler may use whitelisted read-only observations, but never reconciliation-capable `getContract()` or other send-capable paths. Public signing-request and raw Verify routes need the same review as full-job reads. Test new/existing v2 and v3 jobs with anonymous, unrelated and named accounts, preserving original invitations and signature bytes. The application enforces this boundary for existing and new terms without changing signed bytes or invitation hashes. Hosted verification remains pending.
 

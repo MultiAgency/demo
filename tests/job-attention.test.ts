@@ -7,7 +7,7 @@ import { parseTerms } from "../src/shared/terms";
 const snapshot = (patch: Partial<JobAttentionSnapshot> = {}): JobAttentionSnapshot => ({
   terms: parseTerms(JOB_DEMO_TERMS), roles: ["builder"],
   row: { rep_sig: "recorded-agency-signature", contractor_sig: "recorded-builder-signature", frozen: 0 },
-  agent: { stage: "ready" }, latestSubmission: null, payouts: [], ownerSteps: [], openJudgmentId: null,
+  agent: { stage: "ready", usdc_observed: null }, latestSubmission: null, payouts: [], ownerSteps: [], openJudgmentId: null,
   now: new Date("2026-11-20T12:00:00Z"), ...patch,
 });
 const payment = (patch: Partial<JobAttentionSnapshot["payouts"][number]> = {}): JobAttentionSnapshot["payouts"][number] => ({
@@ -38,29 +38,51 @@ test("membership does not assign another party's unsigned acceptance; both roles
   const agencyAccepted = { ...row, rep_sig: "accepted" };
   expect(jobAttention(snapshot({ row: builderAccepted })).state).toBe("waiting");
   expect(jobAttention(snapshot({ row: agencyAccepted, roles: ["agency"] })).state).toBe("waiting");
-  expect(jobAttention(snapshot({ row })).detail).toContain("original private invitation link");
+  expect(jobAttention(snapshot({ row })).detail).toContain("sign them with the named account's wallet");
 });
 
-test("recorded readiness without balance proof gives both parties an explicit inspection link, not a funded-work assertion", () => {
-  expect(jobAttention(snapshot())).toMatchObject({ state: "needs_action", summary: "Review job readiness", actions: [{ role: "builder", label: "Review job readiness" }] });
+test("recorded readiness without balance proof names the builder's submission and the agency's funding check, not a funded-work assertion", () => {
+  expect(jobAttention(snapshot())).toMatchObject({ state: "needs_action", summary: "No report and invoice submitted yet", actions: [{ role: "builder", label: "Submit report and invoice" }] });
   expect(jobAttention(snapshot({ roles: ["agency"] })).actions).toEqual([{ role: "agency", label: "Verify setup and funding" }]);
   const both = jobAttention(snapshot({ roles: ["agency", "builder"] }));
   expect(both.actions).toHaveLength(2);
-  expect(both.detail).toBe("Open the agreed job to check setup and funding before starting or submitting work.");
+  expect(both.detail).toContain("does not confirm funding");
   expect(JSON.stringify(both)).not.toMatch(/submit_report|Do work|funded/);
 });
 
+test("a recorded balance splits readiness: zero asks the agency to fund, above zero asks the builder to submit", () => {
+  const ready = (usdc_observed: string) => ({ stage: "ready" as const, usdc_observed });
+  expect(jobAttention(snapshot({ agent: ready("0"), roles: ["agency"] }))).toMatchObject({ reason_code: "funding_required", state: "needs_action", actions: [{ role: "agency", label: "Fund the job" }] });
+  expect(jobAttention(snapshot({ agent: ready("0") }))).toMatchObject({ reason_code: "funding_required", state: "waiting", actions: [] });
+  expect(jobAttention(snapshot({ agent: ready("300000000") }))).toMatchObject({ reason_code: "submission_due", state: "needs_action", actions: [{ role: "builder", label: "Submit report and invoice" }] });
+  expect(jobAttention(snapshot({ agent: ready("300000000"), roles: ["agency"] }))).toMatchObject({ reason_code: "submission_due", state: "waiting", actions: [] });
+  // A submission on file outranks the readiness split; a spent balance after a payout is not "unfunded".
+  expect(jobAttention(snapshot({ agent: ready("300000000"), roles: ["agency"], latestSubmission: submission("submitted") })).reason_code).toBe("submission_review");
+  expect(jobAttention(snapshot({ agent: ready("0"), payouts: [payment({ state: "paid" })], latestSubmission: submission("settled") })).reason_code).not.toBe("funding_required");
+});
+
+test("inside a signed review window filed work stays reviewable and nothing new is asked of the builder", () => {
+  const terms = parseTerms({ ...JOB_DEMO_TERMS, payment_terms: { calculation: "scope_completion_less_committed", invoice: "cap", approval: "explicit_agency", settlement: "platform_usdc_near", due: "after_approval", review_days: 14 } });
+  const inWindow = new Date("2026-12-05T12:00:00Z");
+  expect(jobAttention(snapshot({ terms, now: inWindow, roles: ["agency"], latestSubmission: submission("submitted") })).reason_code).toBe("submission_review");
+  for (const latestSubmission of [null, submission("changes_requested"), submission("settled")])
+    expect(jobAttention(snapshot({ terms, now: inWindow, latestSubmission }))).toMatchObject({ reason_code: "submission_closed", state: "waiting", actions: [] });
+  expect(jobAttention(snapshot({ terms, now: new Date("2026-12-15T12:00:00Z") })).reason_code).toBe("job_ended_unsettled");
+  // Terms without a window end on the end date, as before.
+  expect(jobAttention(snapshot({ now: inWindow })).reason_code).toBe("job_ended_unsettled");
+});
+
 test("known incomplete setup belongs to the agency; pending policy belongs to neither party", () => {
-  for (const agent of [null, { stage: "needs_grant" as const }, { stage: "needs_setup" as const }]) {
+  for (const agent of [null, { stage: "needs_grant" as const, usdc_observed: null }, { stage: "needs_setup" as const, usdc_observed: null }]) {
     expect(jobAttention(snapshot({ agent, roles: ["agency"] })).actions).toEqual([{ role: "agency", label: "Continue existing setup" }]);
     expect(jobAttention(snapshot({ agent })).state).toBe("waiting");
   }
-  expect(jobAttention(snapshot({ agent: { stage: "policy_pending" }, roles: ["agency"] })).actions).toEqual([]);
+  expect(jobAttention(snapshot({ agent: { stage: "policy_pending", usdc_observed: null }, roles: ["agency"] })).actions).toEqual([]);
 });
 
 for (const ownerStep of [step({ kind: "grant_issue", request_id: null, state: "unknown" }), step({ kind: "agent_create", request_id: null, state: "submitted" }), step({ kind: "policy_update", request_id: null, confirm_url: "https://platform.invalid/original-confirmation" })]) {
   test(`an uncertain existing setup intent waits instead of assigning replacement setup: ${ownerStep.kind}`, () => {
-    const result = jobAttention(snapshot({ agent: { stage: "needs_grant" }, roles: ["agency"], ownerSteps: [ownerStep] }));
+    const result = jobAttention(snapshot({ agent: { stage: "needs_grant", usdc_observed: null }, roles: ["agency"], ownerSteps: [ownerStep] }));
     expect(result.state).toBe("waiting"); expect(result.summary).toBe("Waiting for setup confirmation"); expect(result.actions).toEqual([]);
     expect(JSON.stringify(result)).not.toContain("platform.invalid");
   });
@@ -68,7 +90,7 @@ for (const ownerStep of [step({ kind: "grant_issue", request_id: null, state: "u
 
 test("a submitted report assigns assessment to the agency and leaves the builder waiting", () => {
   const latestSubmission = submission("submitted");
-  expect(jobAttention(snapshot({ latestSubmission, roles: ["agency"] })).actions).toEqual([{ role: "agency", label: "Assess the submission" }]);
+  expect(jobAttention(snapshot({ latestSubmission, roles: ["agency"] })).actions).toEqual([{ role: "agency", label: "Review the submission" }]);
   expect(jobAttention(snapshot({ latestSubmission })).state).toBe("waiting");
 });
 
@@ -131,7 +153,7 @@ test("blocked/refused current requests are for agency inspection; historical ref
     expect(jobAttention(snapshot(patch)).state).toBe("waiting");
   }
   const result = jobAttention(snapshot({ roles: ["agency"], latestSubmission: submission("submitted"), payouts: [payment({ state: "refused" })] }));
-  expect(result.actions).toEqual([{ role: "agency", label: "Assess the submission" }]);
+  expect(result.actions).toEqual([{ role: "agency", label: "Review the submission" }]);
 });
 
 test("closed reviews and partially settled submissions do not promise the currently unavailable continuation form", () => {

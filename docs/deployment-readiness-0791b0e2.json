@@ -1,0 +1,86 @@
+{
+  "as_of": "2026-11-13T20:03:57.632544+00:00",
+  "result": "DEPLOYMENT_AND_READ_ONLY_CHECKS_PASS_FINANCIAL_ACCEPTANCE_BLOCKED",
+  "scope": "One user-authorized frozen app update and protected snapshot; supervised wallet sign-in and read-only role checks; no allocation or funds movement",
+  "origin": "https://desk.multiagency.ai",
+  "deployment_id": "c5808392-6297-4a45-b2c1-b2e088e94af3",
+  "image_digest": "sha256:fbd3a12b950a05f065b4484d7ac1b1f72134820be0b36687dab9f82dce07df9a",
+  "source": {
+    "kind": "frozen_uncommitted_export",
+    "manifest_sha256": "0791b0e2ebbd3194c1581487b2237e3157da838c5d179157f384cecc30547ad8",
+    "runtime_inputs_verified": 116,
+    "mismatches": [],
+    "new_git_commit_created": false
+  },
+  "local": {
+    "full_tests_passed": 1644,
+    "full_tests_failed": 0,
+    "typecheck": "passed",
+    "frontend_build": "passed",
+    "container_smoke": "passed",
+    "container_architecture": "linux_arm64",
+    "local_image_digest": "sha256:3eb457089eb69a5b4bef7cbe7ef1fca57e3814638266827d3f9f0d88057a8029",
+    "boundary": "Local image smoke was ARM64; hosted image separately rebuilt by Railway and runtime source verified."
+  },
+  "preservation": {
+    "snapshot_on_original_volume": "/data/protected-snapshots/readiness-20261113T195415378Z/snapshot.sqlite",
+    "snapshot_sha256": "3fab16010b095e2e9c877084ac47fda135d820f7d7e4d2dee3c3a81c840fd04a",
+    "snapshot_bytes": 290816,
+    "original_tables_checked": 25,
+    "changed_original_tables": [],
+    "implicit_row_ids_preserved": true,
+    "previous_frontend_retained_on_volume": true,
+    "integrity": "ok",
+    "state_copied_locally": false,
+    "variables_or_volume_configuration_changed": false,
+    "all_original_rows_checked_before_intentional_auth_changes": true,
+    "final_authoritative_tables_checked": 9,
+    "final_changed_authoritative_tables": [],
+    "final_report_count": 0,
+    "final_payout_count": 0
+  },
+  "hosted_checks": {
+    "builder_sign_in": "passed via clean Intear Web flow as buildr.near",
+    "builder_session_survives_update_and_reload": true,
+    "capabilities": "200, schema_version 1",
+    "actions": "200, one named job",
+    "snapshot": "200, original c_a2002ec56bf1, 1 USD scope, accepted, no payouts",
+    "builder_agency_signing_request": "403 account_mismatch",
+    "builder_agency_onboarding_prepare": "403 account_mismatch; no owner action prepared",
+    "direct_missing_submission": "404 not_found",
+    "logout": "Private job content cleared; actions, snapshot and direct submission return 401",
+    "agency_switch": "Earlier automated Intear flow stalled; user completed normal-browser sign-in. Fresh active multiagentic.near server session confirmed. Normal-browser UI/reload and switching remain uninspected.",
+    "served_frontend": "HTML, CSS and JavaScript return 200 and match all retained manifest hashes",
+    "agency_wallet_diagnostics": "Intear Not loading? recovery did not complete initialization. No browser runtime errors or failed resource statuses identified the cause. No wallet storage or keys read."
+  },
+  "financial_actions": {
+    "allocations_requested": 0,
+    "reports_or_invoices_filed": 0,
+    "payouts_created": 0,
+    "approvals_submitted": 0,
+    "funds_moved": false
+  },
+  "blocked": {
+    "provider": "Original unresolved allocation and cached destinations remain uncleared; authoritative binding/validity, receipt/credit and route readiness evidence is still required. No new deposit allocation, reset or empty-balance inference.",
+    "wallet": "Agency sign-in blocker cleared by fresh server session evidence; normal-browser UI acceptance remains unverified."
+  },
+  "unverified": [
+    "Hosted report/invoice submission and interrupted-response replay",
+    "Hosted agency approval signature and processing",
+    "Confirmed provider settlement and independent builder receipt"
+  ],
+  "boundary": "App deployment, successful authentication and read-only checks do not establish wallet/provider payment acceptance. Original unknown outcomes remain preserved.",
+  "runtime": {
+    "platform": "linux",
+    "arch": "x64",
+    "bun": "1.4.2"
+  },
+  "agency_login_followup": {
+    "verified_at": "2026-11-13T20:12:31.311088+00:00",
+    "account": "multiagentic.near",
+    "active_session": true,
+    "session_created_at": "2026-11-13T20:09:45.190Z",
+    "evidence": "Read-only server query of session creation/expiry metadata; no token read or exported. User reports normal-browser sign-in completed.",
+    "limitation": "Normal-browser tab was not accessible for UI, reload or end-to-end account-switch inspection."
+  }
+}

@@ -39,13 +39,15 @@ export function Button(props: {
   disabled?: boolean;
   type?: "button" | "submit";
   full?: boolean;
+  busy?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   return (
     <button
       type={props.type ?? "button"}
       className={`btn btn-${props.variant ?? "primary"} btn-${props.size ?? "md"}${props.full ? " btn-full" : ""}`}
-      disabled={props.disabled || busy}
+      disabled={props.disabled || props.busy || busy}
+      aria-busy={props.busy || busy || undefined}
       onClick={async () => {
         if (!props.onClick) return;
         setBusy(true);
@@ -129,10 +131,10 @@ export function Stat({ label, value, sub, icon, children }: { label: string; val
   );
 }
 
-export function Progress({ value, max, tone = "accent" }: { value: number; max: number; tone?: "accent" | "warning" | "danger" }) {
+export function Progress({ value, max, label, tone = "accent" }: { value: number; max: number; label: string; tone?: "accent" | "warning" | "danger" }) {
   const pct = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
-    <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
+    <div className="progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
       <div className={`progress-bar progress-${tone}`} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -144,23 +146,29 @@ export function Avatar({ name, tone = "neutral" }: { name: string; tone?: "neutr
 
 export function Mono({ children, copy }: { children: string; copy?: string }) {
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState(false);
   if (!copy) return <code className="mono">{children}</code>;
   return (
     <button
+      type="button"
       className="mono mono-copy"
       title="Copy"
+      aria-label={`Copy ${children}`}
       onClick={() => {
-        navigator.clipboard?.writeText(copy).then(
+        setError(false);
+        if (!navigator.clipboard) { setError(true); return; }
+        navigator.clipboard.writeText(copy).then(
           () => {
             setCopied(true);
             setTimeout(() => setCopied(false), 1200);
           },
-          () => undefined,
+          () => setError(true),
         );
       }}
     >
       {children}
       <Icon name={copied ? "check" : "copy"} size={12} />
+      <span className="sr-only" role="status">{copied ? "Copied to clipboard" : error ? "Copy unavailable. Select and copy the text manually." : ""}</span>
     </button>
   );
 }
@@ -185,11 +193,17 @@ export function Json({ value, label = "Raw JSON" }: { value: unknown; label?: st
   );
 }
 
-export function Tabs<T extends string>({ value, onChange, items }: { value: T; onChange: (v: T) => void; items: { id: T; label: string; icon?: IconName; count?: number }[] }) {
+export function Tabs<T extends string>({ id, value, onChange, items }: { id: string; value: T; onChange: (v: T) => void; items: { id: T; label: string; icon?: IconName; count?: number }[] }) {
   return (
-    <div className="tabs" role="tablist">
-      {items.map((t) => (
-        <button key={t.id} role="tab" aria-selected={value === t.id} className={`tab${value === t.id ? " is-active" : ""}`} onClick={() => onChange(t.id)}>
+    <div className="tabs" role="tablist" aria-label="Job sections">
+      {items.map((t, index) => (
+        <button key={t.id} type="button" id={`${id}-${t.id}`} role="tab" aria-controls={`${id}-panel`} aria-selected={value === t.id} tabIndex={value === t.id ? 0 : -1} className={`tab${value === t.id ? " is-active" : ""}`} onClick={() => onChange(t.id)} onKeyDown={(event) => {
+          const next = event.key === "ArrowRight" ? (index + 1) % items.length : event.key === "ArrowLeft" ? (index + items.length - 1) % items.length : event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : null;
+          if (next === null) return;
+          event.preventDefault();
+          onChange(items[next]!.id);
+          document.getElementById(`${id}-${items[next]!.id}`)?.focus();
+        }}>
           {t.icon ? <Icon name={t.icon} size={15} /> : null}
           {t.label}
           {t.count ? <span className="tab-count">{t.count}</span> : null}
@@ -213,13 +227,13 @@ export function Empty({ icon, title, sub, action }: { icon: IconName; title: str
 }
 
 export function Spinner() {
-  return <span className="spinner" aria-label="Loading" />;
+  return <span className="spinner" role="status" aria-label="Loading" />;
 }
 
 export function PageLoading() {
   return (
-    <div className="page-loading">
-      <Spinner />
+    <div className="page-loading" role="status" aria-live="polite" aria-label="Loading page">
+      <span className="spinner" aria-hidden="true" />
     </div>
   );
 }

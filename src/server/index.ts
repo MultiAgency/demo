@@ -52,6 +52,8 @@ if (import.meta.main) {
         ? `LOCAL PLATFORM STACK at ${rt.kit.platform.host}`
         : `MultiAgency platform at ${rt.kit.platform.host}`;
   console.log(`\nMultiAgency Paperwork · ${banner}\n→ ${server.url}\n`);
+  if (process.env.NODE_ENV === "production" && config.platform === "fake" && config.market.boardToken)
+    console.warn("Keyless deployment holds a Market board token by explicit acknowledgement. It must belong to a throwaway Market agent with no reputation or funds at stake: the token can also bid and submit work as that agent.");
   startTimers(rt);
   if (config.pollMs > 0) console.log(`Merge watcher on: every ${Math.round(config.pollMs / 1000)}s`);
 }

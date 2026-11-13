@@ -140,7 +140,7 @@ if (automated) {
     await evaluate("localStorage.setItem('paperwork.portal-probe', 'same-desk')");
     await browser("tab", "new", "--label", "work", `${desk}/`);
     await waitFor("document.querySelector('h1')?.textContent === 'Assigned to me' && !!document.querySelector('#my-jobs-needs_action')");
-    check(await evaluate(`!!document.querySelector('a[href="#/c/${privateJob.id}/sign"]') && document.title === 'Paperwork'`), "The default workspace did not preserve the original private job and role-specific link");
+    check(await evaluate(`!!document.querySelector('a[href="#/c/${privateJob.id}/sign"]') && document.title.endsWith('Paperwork')`), "The default workspace did not preserve the original private job and role-specific link");
     check(await evaluate("!document.querySelector('.sidebar .nav a[href=\"#/market\"]') && !document.querySelector('.sidebar .nav a[href=\"#/market-jobs\"]')"), "Market tools must not appear as competing top-level navigation items");
     await capture("assigned");
     step("Desk opens on the signed-in person's recorded next actions, with the original private job identity");

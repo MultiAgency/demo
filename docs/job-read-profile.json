@@ -1,0 +1,276 @@
+{
+  "fixture_only": true,
+  "runtime": "1.4.2",
+  "source_sha256": {
+    "../src/server/engine.ts": "39b1ac9ec130d2f8aa8f92a6ae9576d7106689594c54f00d9d163ed820488714",
+    "../src/server/db.ts": "1198bddb27f3a09e1e74f6f2ea71e8700fa52b467ed000e3c7ec7158b24194ff",
+    "../src/server/jobs/read-queries.ts": "6a4169ae01c4aed064edbfe8e585fc98320fde3e02d85459bf7f461ccf0a927d",
+    "../src/server/ledger.ts": "3ea66ef2ff8f38d6b7c1995a5f9fd6ea30c7662a7ce23c0f37bb7cac8cd4ee65",
+    "./profile-job-reads.ts": "adcd27aac979fcef4e1eff303cb0990d05e15229b3186948997c4d352bc8bd74"
+  },
+  "provider_calls": 0,
+  "database_writes_during_measurements": false,
+  "cases": [
+    {
+      "owned_jobs": 5,
+      "unrelated_jobs": 0,
+      "history_rows": 0,
+      "operations": [
+        {
+          "name": "list_jobs",
+          "samples": 20,
+          "p50_ms": 0.077,
+          "p95_ms": 0.106,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "action_plans",
+          "samples": 20,
+          "p50_ms": 0.071,
+          "p95_ms": 0.082,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "single_snapshot",
+          "samples": 20,
+          "p50_ms": 0.014,
+          "p95_ms": 0.018,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE id = ?",
+            "SELECT * FROM payout_attempts WHERE contract_id = ? ORDER BY created_at DESC, rowid DESC",
+            "SELECT * FROM platform_agents WHERE organization = ?",
+            "SELECT state, judgment_id FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC LIMIT 1",
+            "SELECT id FROM judgments WHERE contract_id = ? AND outcome = 'pending'",
+            "SELECT kind, state, request_id, confirm_url FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC"
+          ]
+        }
+      ]
+    },
+    {
+      "owned_jobs": 5,
+      "unrelated_jobs": 500,
+      "history_rows": 0,
+      "operations": [
+        {
+          "name": "list_jobs",
+          "samples": 20,
+          "p50_ms": 0.064,
+          "p95_ms": 0.076,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "action_plans",
+          "samples": 20,
+          "p50_ms": 0.064,
+          "p95_ms": 0.079,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "single_snapshot",
+          "samples": 20,
+          "p50_ms": 0.012,
+          "p95_ms": 0.019,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE id = ?",
+            "SELECT * FROM payout_attempts WHERE contract_id = ? ORDER BY created_at DESC, rowid DESC",
+            "SELECT * FROM platform_agents WHERE organization = ?",
+            "SELECT state, judgment_id FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC LIMIT 1",
+            "SELECT id FROM judgments WHERE contract_id = ? AND outcome = 'pending'",
+            "SELECT kind, state, request_id, confirm_url FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC"
+          ]
+        }
+      ]
+    },
+    {
+      "owned_jobs": 5,
+      "unrelated_jobs": 2500,
+      "history_rows": 0,
+      "operations": [
+        {
+          "name": "list_jobs",
+          "samples": 20,
+          "p50_ms": 0.062,
+          "p95_ms": 0.071,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "action_plans",
+          "samples": 20,
+          "p50_ms": 0.059,
+          "p95_ms": 0.075,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "single_snapshot",
+          "samples": 20,
+          "p50_ms": 0.009,
+          "p95_ms": 0.011,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE id = ?",
+            "SELECT * FROM payout_attempts WHERE contract_id = ? ORDER BY created_at DESC, rowid DESC",
+            "SELECT * FROM platform_agents WHERE organization = ?",
+            "SELECT state, judgment_id FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC LIMIT 1",
+            "SELECT id FROM judgments WHERE contract_id = ? AND outcome = 'pending'",
+            "SELECT kind, state, request_id, confirm_url FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC"
+          ]
+        }
+      ]
+    },
+    {
+      "owned_jobs": 5,
+      "unrelated_jobs": 2500,
+      "history_rows": 200,
+      "operations": [
+        {
+          "name": "list_jobs",
+          "samples": 20,
+          "p50_ms": 0.095,
+          "p95_ms": 0.103,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "action_plans",
+          "samples": 20,
+          "p50_ms": 0.093,
+          "p95_ms": 0.1,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "single_snapshot",
+          "samples": 20,
+          "p50_ms": 0.009,
+          "p95_ms": 0.012,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE id = ?",
+            "SELECT * FROM payout_attempts WHERE contract_id = ? ORDER BY created_at DESC, rowid DESC",
+            "SELECT * FROM platform_agents WHERE organization = ?",
+            "SELECT state, judgment_id FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC LIMIT 1",
+            "SELECT id FROM judgments WHERE contract_id = ? AND outcome = 'pending'",
+            "SELECT kind, state, request_id, confirm_url FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC"
+          ]
+        }
+      ]
+    },
+    {
+      "owned_jobs": 100,
+      "unrelated_jobs": 2500,
+      "history_rows": 200,
+      "operations": [
+        {
+          "name": "list_jobs",
+          "samples": 20,
+          "p50_ms": 0.541,
+          "p95_ms": 0.587,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "action_plans",
+          "samples": 20,
+          "p50_ms": 0.56,
+          "p95_ms": 0.645,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE CASE WHEN json_valid(terms) THEN json_extract(terms, '$.representative.near_account') END = ? OR CASE WHEN json_valid(terms) THEN json_extract(terms, '$.contractor.near_account') END = ? ORDER BY created_at DESC",
+            "SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))",
+            "SELECT contract_id,state,judgment_id FROM job_submissions s\n      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =\n      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)",
+            "SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))",
+            "SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC",
+            "SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps\n      WHERE contract_id IN (SELECT value FROM json_each(?)) OR\n      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC"
+          ]
+        },
+        {
+          "name": "single_snapshot",
+          "samples": 20,
+          "p50_ms": 0.008,
+          "p95_ms": 0.011,
+          "query_calls_per_read": 6,
+          "query_shapes": [
+            "SELECT * FROM contracts WHERE id = ?",
+            "SELECT * FROM payout_attempts WHERE contract_id = ? ORDER BY created_at DESC, rowid DESC",
+            "SELECT * FROM platform_agents WHERE organization = ?",
+            "SELECT state, judgment_id FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC LIMIT 1",
+            "SELECT id FROM judgments WHERE contract_id = ? AND outcome = 'pending'",
+            "SELECT kind, state, request_id, confirm_url FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC"
+          ]
+        }
+      ]
+    }
+  ],
+  "limitations": "Warm in-memory SQLite measurements and query-method counts, not hosted latency, real model inference or provider performance. Synthetic unsigned records and history isolate local read costs."
+}

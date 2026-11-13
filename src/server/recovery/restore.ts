@@ -5,7 +5,7 @@ import { canonicalJson, hashCanonical } from "../../shared/canonical";
 import { jobSubmissionSchema } from "../../shared/jobs";
 import { fromAtomic, toAtomic } from "../../shared/money";
 import { nonceFromString, verifyNep413 } from "../../shared/nep413";
-import { parseTerms, termsHash, termsSigningMessage, USDC_DECIMALS } from "../../shared/terms";
+import { isMarketSettled, parseTerms, termsHash, termsSigningMessage, USDC_DECIMALS } from "../../shared/terms";
 import { OPEN_STATES, owedFor, planPayout, requestIdFor } from "../payouts";
 import { digestSchema, recoveryBindingSchema, recoveryIdSchema, type EvidenceCollection, type RecoveryBinding } from "./evidence";
 import { loadLedgerSnapshot } from "./inspect";
@@ -147,6 +147,8 @@ function checkCase(db: Database, request: RestorationRequest, appliedAt: string 
         nonce: nonceFromString(record.nonce), recipient: contract.signing_recipient as string }, record), "invalid_terms");
     }
   } catch { throw new RestorationError("invalid_terms"); }
+  // Restoration corrects platform payout commitments; a Market-settled job has none.
+  if (isMarketSettled(terms)) throw new RestorationError("unsupported_case");
   requireThat(attempt.recipient === terms.payee.address && attempt.request_id === requestIdFor(contract.hash as string, 1, 1), "unsupported_case");
   const judged = z.object({ decision: z.enum(["pay", "escalate"]), deliverables: z.array(z.object({ id: z.string(), completion: z.number().refine(value => [0, .25, .5, .75, 1].includes(value)) })).max(10) }).parse(JSON.parse(judgment.json as string));
   requireThat(judged.deliverables.length === terms.scope.length && new Set(judged.deliverables.map(row => row.id)).size === terms.scope.length &&

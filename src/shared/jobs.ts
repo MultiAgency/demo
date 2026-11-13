@@ -19,7 +19,8 @@ export const jobSubmissionSchema = z.object({
 
 export type JobSubmissionInput = z.input<typeof jobSubmissionSchema>;
 export type JobSubmission = z.infer<typeof jobSubmissionSchema>;
-export type JobSubmissionState = "submitted" | "proposed" | "changes_pending" | "changes_requested" | "settled" | "closed" | "disputed";
+/** `market_accepted`: the Agent Market reports the job completed; its payout is not observed by Paperwork. */
+export type JobSubmissionState = "submitted" | "proposed" | "changes_pending" | "changes_requested" | "settled" | "closed" | "disputed" | "market_accepted";
 
 export interface JobSubmissionView {
   id: string;
@@ -32,6 +33,8 @@ export interface JobSubmissionView {
   state: JobSubmissionState;
   changes: string | null;
   judgment_id: string | null;
+  /** The agent's assessment before any payout request exists: what Approve would request. Null once proposed, or when none is recorded. */
+  assessment: { proposed_usd: string; /** The first held payout Approve files: the proposal, limited by the signed per-payment cap. */ payment_usd: string; summary: string; flagged: boolean; deliverables: { id: string; completion: number; reason: string }[] } | null;
   proposed_usd: string;
   paid_usd: string;
   payout_request_ids: string[];

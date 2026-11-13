@@ -5,7 +5,7 @@ import { expectations, policyChanges, policyProblem } from "../src/shared/policy
 import type { Overview } from "../src/server/platform/port";
 import { DEMO_TERMS } from "../src/shared/demo";
 import { fromAtomic, normalizeDecimal, toAtomic } from "../src/shared/money";
-import { parseTerms, scopeTotal, termsHash, USDC_NEAR } from "../src/shared/terms";
+import { JOB_PAYMENT_TERMS, parsePlatformTerms, scopeTotal, termsHash, USDC_NEAR } from "../src/shared/terms";
 import { DevWallet, nep413Hash, randomNonce, verifyNep413 } from "../src/server/nep413";
 
 describe("money", () => {
@@ -28,30 +28,30 @@ describe("money", () => {
 
 describe("terms", () => {
   test("hash is stable regardless of key order and repo order", () => {
-    const a = parseTerms(DEMO_TERMS);
+    const a = parsePlatformTerms(DEMO_TERMS);
     const shuffled = JSON.parse(JSON.stringify({ ...DEMO_TERMS, repos: ["acme/app"] }));
-    const b = parseTerms(Object.fromEntries(Object.entries(shuffled).reverse()));
+    const b = parsePlatformTerms(Object.fromEntries(Object.entries(shuffled).reverse()));
     expect(termsHash(a)).toBe(termsHash(b));
   });
   test("any change changes the hash", () => {
-    const a = termsHash(parseTerms(DEMO_TERMS));
-    const b = termsHash(parseTerms({ ...DEMO_TERMS, scope: DEMO_TERMS.scope.map((d, i) => (i === 0 ? { ...d, value_usd: "301" } : d)) }));
+    const a = termsHash(parsePlatformTerms(DEMO_TERMS));
+    const b = termsHash(parsePlatformTerms({ ...DEMO_TERMS, scope: DEMO_TERMS.scope.map((d, i) => (i === 0 ? { ...d, value_usd: "301" } : d)) }));
     expect(a).not.toBe(b);
   });
   test("normalizes accounts and amounts", () => {
-    const t = parseTerms({ ...DEMO_TERMS, payee: { chain: "near", address: "Maria.Demo" }, scope: [{ ...DEMO_TERMS.scope[0]!, value_usd: "050.00" }] });
+    const t = parsePlatformTerms({ ...DEMO_TERMS, payee: { chain: "near", address: "Maria.Demo" }, scope: [{ ...DEMO_TERMS.scope[0]!, value_usd: "050.00" }] });
     expect(t.payee.address).toBe("maria.demo");
     expect(t.scope[0]!.value_usd).toBe("50");
     expect(scopeTotal(t)).toBe("50");
   });
   test("rejects bad terms", () => {
-    expect(() => parseTerms({ ...DEMO_TERMS, end: "2026-10-01" })).toThrow();
-    expect(() => parseTerms({ ...DEMO_TERMS, scope: [{ ...DEMO_TERMS.scope[0]!, value_usd: "-5" }] })).toThrow();
-    expect(() => parseTerms({ ...DEMO_TERMS, scope: [] })).toThrow();
-    expect(() => parseTerms({ ...DEMO_TERMS, scope: [DEMO_TERMS.scope[0]!, DEMO_TERMS.scope[0]!] })).toThrow();
-    expect(() => parseTerms({ ...DEMO_TERMS, payee: { chain: "base", address: "0xabc" } })).toThrow();
-    expect(() => parseTerms({ ...DEMO_TERMS, extra: true })).toThrow();
-    expect(() => parseTerms({ ...DEMO_TERMS, end: "2028-01-01" })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, end: "2026-10-01" })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, scope: [{ ...DEMO_TERMS.scope[0]!, value_usd: "-5" }] })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, scope: [] })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, scope: [DEMO_TERMS.scope[0]!, DEMO_TERMS.scope[0]!] })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, payee: { chain: "base", address: "0xabc" } })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, extra: true })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, end: "2028-01-01" })).toThrow();
   });
   test("canonical JSON sorts keys deeply", () => {
     expect(canonicalJson({ b: 1, a: { d: 2, c: [3, { f: 1, e: 0 }] } })).toBe('{"a":{"c":[3,{"e":0,"f":1}],"d":2},"b":1}');
@@ -59,7 +59,7 @@ describe("terms", () => {
 });
 
 describe("policy request (what the platform is asked to enforce)", () => {
-  const terms = parseTerms(DEMO_TERMS);
+  const terms = parsePlatformTerms(DEMO_TERMS);
 
   test("policy_update body: full withdrawals list, owner approval, three limits, three budget windows", () => {
     expect(policyChanges(terms)).toEqual({
@@ -81,7 +81,7 @@ describe("policy request (what the platform is asked to enforce)", () => {
     });
   });
   test("pure: same input, same output", () => {
-    expect(policyChanges(terms)).toEqual(policyChanges(parseTerms(DEMO_TERMS)));
+    expect(policyChanges(terms)).toEqual(policyChanges(parsePlatformTerms(DEMO_TERMS)));
   });
   const ov = (policy: Partial<NonNullable<Overview["policy"]>>, extra: Partial<Overview> = {}): Overview => ({
     agentId: "a",
@@ -141,5 +141,53 @@ describe("NEP-413", () => {
     const h2 = nep413Hash({ ...payload, callbackUrl: "https://x" });
     expect(h1).not.toEqual(h2);
     expect(base64.encode(h1).length).toBe(44);
+  });
+});
+
+describe("optional report-and-invoice fields", () => {
+  test("terms signed before the optional fields existed keep their hashes", async () => {
+    const { JOB_DEMO_TERMS } = await import("../src/shared/demo");
+    const { parseTerms } = await import("../src/shared/terms");
+    // Computed with the terms code committed at 33c4899.
+    expect(termsHash(parseTerms(JOB_DEMO_TERMS))).toBe("c8b0fc6bbd10cd7291ada69d00a62ab7a2a85da73aac9dca0622ac732631b540");
+    expect(termsHash(parsePlatformTerms(DEMO_TERMS))).toBe("c239cdbde22495e9a055055d1952de60c3faf494a0f30bad5b560dfd3c294083");
+  });
+
+  test("a report-and-invoice job may carry a title and description and omit the GitHub identity and repositories", async () => {
+    const { JOB_DEMO_TERMS } = await import("../src/shared/demo");
+    const { parseTerms, titleOf } = await import("../src/shared/terms");
+    const { repos: _repos, ...withoutRepos } = JOB_DEMO_TERMS;
+    const { github: _github, ...contractor } = JOB_DEMO_TERMS.contractor;
+    const terms = parseTerms({ ...withoutRepos, contractor, title: "Monthly report export", description: "Context only." });
+    expect(titleOf(terms)).toBe("Monthly report export");
+    expect(canonicalJson(terms)).not.toContain("repos");
+    expect(termsHash(terms)).not.toBe(termsHash(parseTerms(JOB_DEMO_TERMS)));
+    expect(titleOf(parseTerms(JOB_DEMO_TERMS))).toBeNull();
+  });
+
+  test("pay on merge still requires the GitHub identity and repositories, and accepts no title", () => {
+    const { repos: _repos, ...withoutRepos } = DEMO_TERMS;
+    expect(() => parsePlatformTerms(withoutRepos)).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, contractor: { name: "Maria Lopez", near_account: "maria.demo" } })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, title: "Not for merges" })).toThrow();
+  });
+});
+
+describe("signed per-payment cap", () => {
+  test("the cap is the largest deliverable unless the terms sign the scope total; only report-and-invoice terms can", async () => {
+    const { JOB_DEMO_TERMS } = await import("../src/shared/demo");
+    const { perPaymentCap } = await import("../src/shared/terms");
+    const scope = DEMO_TERMS.scope;
+    const split = parsePlatformTerms({ ...JOB_DEMO_TERMS, scope });
+    const whole = parsePlatformTerms({ ...JOB_DEMO_TERMS, scope, payment_terms: { ...JOB_PAYMENT_TERMS, per_payment: "scope_total" } });
+    expect(perPaymentCap(split)).toBe("500");
+    expect(perPaymentCap(whole)).toBe("1000");
+    expect(policyChanges(whole).limits!.per_transaction).toEqual({ [USDC_NEAR]: "1000000000" });
+    expect(expectations(whole).per_transaction).toBe("1000000000");
+    expect(termsHash(whole)).not.toBe(termsHash(split));
+    // A policy applied for the other cap is a mismatch, in both directions.
+    expect(policyChanges(split).limits!.per_transaction).toEqual({ [USDC_NEAR]: "500000000" });
+    expect(() => parsePlatformTerms({ ...JOB_DEMO_TERMS, payment_terms: { ...JOB_PAYMENT_TERMS, per_payment: "unlimited" } })).toThrow();
+    expect(() => parsePlatformTerms({ ...DEMO_TERMS, payment_terms: { per_payment: "scope_total" } })).toThrow();
   });
 });

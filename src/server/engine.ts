@@ -1,4 +1,5 @@
 import { PUBLIC_VERIFICATION_CHECKS, type PublicVerificationView } from "../shared/views";
+import { type FundingReconciliation, type FundingRecoveryBinding, type FundingRecoveryObservation, fundingRecoveryOutcomeSchema, validateRecoveryPlan, type FundingRecoveryView } from "../shared/funding-recovery";
 import type { Database } from "bun:sqlite";
 import { clauseFor } from "../shared/clauses";
 import { canonicalJson, sha256Hex } from "../shared/canonical";
@@ -6,56 +7,47 @@ import { fromAtomic, toAtomic } from "../shared/money";
 import { jobSubmissionSchema, type JobSubmissionView } from "../shared/jobs";
 import type { MyJob } from "../shared/my-jobs";
 import type { ReviewContext } from "../shared/review";
-import { expectations, largestAtomic, policyDifferences, policyProblem, totalAtomic } from "../shared/policy-request";
-import { endInstant, parseTerms, scopeTotal, startInstant, type Terms, TERMS_RECIPIENT, termsHash, termsSigningMessage, USDC_DECIMALS } from "../shared/terms";
-import type { AttemptState, ContractView, EventView, JudgmentOutcome, NextStep, PayoutView, PayoutResolution, ScopeRow, SetupStage, VerifyView } from "../shared/views";
+import { capAtomic, expectations, policyDifferences, totalAtomic } from "../shared/policy-request";
+import { capsAtScope, endInstant, isMarketSettled, payoutEndInstant, parseTerms, type PlatformTerms, scopeTotal, startInstant, type Terms, TERMS_RECIPIENT, termsHash, titleOf, termsSigningMessage, USDC_DECIMALS } from "../shared/terms";
+import type { AttemptState, ContractView, JudgmentOutcome, NextStep, PayoutView, PayoutResolution, ScopeRow, SetupStage, VerifyView } from "../shared/views";
 import type { Config } from "./config";
-import type { AttemptRow, ContractRow, EventRow, JudgmentRow, LineRow, OwnerStepRow, PlatformAgentRow, SignatureRecord, JobRow, JobInvoiceRow } from "./db";
+import type { AttemptRow, ContractRow, JudgmentRow, LineRow, OwnerStepRow, PlatformAgentRow, SignatureRecord, JobRow, JobInvoiceRow } from "./db";
 import { judgeJob } from "./job-judge";
 import { jobAttention } from "./jobs/attention";
+import { BUILDER_ACCOUNT_SQL, REPRESENTATIVE_ACCOUNT_SQL } from "./jobs/read-queries";
 import { type EvidenceSource, injectedPullRequest } from "./evidence/github";
 import type { Judge, Judgment, Level } from "./judge";
 import { nonceFromString, nonceToString, randomNonce, verifyNep413 } from "./nep413";
+import { Ledger, usdText } from "./ledger";
 import { failError, Onboarding, stepView } from "./onboarding";
+import { liveGrant, PayoutFollower } from "./payout-follower";
 import {
   attackIdFor,
-  classifyFailed,
-  fromAnswer,
-  fromFail,
   isCommitted,
   isOpen,
   isPaid,
   judgmentStep,
   KeyedMutex,
   latestAttempt,
-  type Line,
   owedFor,
   planPayout,
   requestIdFor,
   neverRecorded,
   OPEN_STATES,
   sumLines,
-  type Transition,
 } from "./payouts";
-import type { AgentHandle, ChainReader, Deposit, Overview, PaymentStatus, PayoutAnswer, Platform, Res } from "./platform/port";
+import type { ChainReader, Deposit, Overview, Platform, Res } from "./platform/port";
 
-export class UserError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
-    super(message);
-  }
-}
+import { UserError } from "./errors";
+
+export { UserError };
 
 export type Role = "representative" | "contractor";
 export type Scenario = "overpay" | "redirect" | "after_end" | "injected";
 export const SCENARIOS: Scenario[] = ["overpay", "redirect", "after_end", "injected"];
 
-/** No new payout request this close to the end: a lost reply must still be followable under the payout consent. */
-const END_MARGIN_MS = 10 * 60_000;
-/** The payout grant must outlive a request by this much. The platform issues it for 30 days; contracts run up to 365. */
-export const GRANT_MARGIN_MS = 24 * 3_600_000;
+/** How long one anonymous public verification result is shared. */
+const PUBLIC_VERIFICATION_TTL_MS = 30_000;
 
 export interface Deps {
   db: Database;
@@ -67,6 +59,8 @@ export interface Deps {
   now: () => Date;
   /** Account used by the redirect attack (fake/stack only). */
   attacker: string;
+  /** Reads a public Agent Market job's status, for jobs whose signed terms name a Market source. */
+  marketJobStatus?: (jobId: string) => Promise<string>;
   log?: (msg: string) => void;
 }
 
@@ -94,21 +88,27 @@ export interface AttackReport {
 export class Engine {
   readonly onboarding: Onboarding;
   private mutex = new KeyedMutex();
+  private publicChecks = new Map<string, { at: number; view: Promise<PublicVerificationView> }>();
   private log: (msg: string) => void;
+
+  private ledger: Ledger;
+  private follower: PayoutFollower;
 
   constructor(private d: Deps) {
     this.log = d.log ?? ((m) => console.error(m));
+    this.ledger = new Ledger(d.db, d.now);
     this.onboarding = new Onboarding({
       db: d.db,
       platform: d.platform,
       now: d.now,
       graceDays: d.config.consentGraceDays,
-      event: (id, kind, text) => this.event(id, kind, text),
+      event: (id, kind, text) => this.ledger.event(id, kind, text),
       contract: (id) => {
-        const row = this.row(id);
-        return { row, terms: this.terms(row) };
+        const row = this.ledger.row(id);
+        return { row, terms: this.ledger.platformTerms(row) };
       },
     });
+    this.follower = new PayoutFollower(this.ledger, { onboarding: this.onboarding, statusPollMs: d.config.statusPollMs, now: d.now, log: this.log });
   }
 
   // ================================================================ contracts
@@ -126,31 +126,26 @@ export class Engine {
     const contractorToken = sha256Hex(randomNonce()).slice(0, 32);
     this.d.db
       .query("INSERT INTO contracts (id, terms, hash, created_at, contractor_link_hash, organization, signing_recipient) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(id, canonicalJson(terms), hash, this.nowIso(), sha256Hex(contractorToken), orgFor(id), TERMS_RECIPIENT);
-    this.event(id, "draft", `Draft created: ${terms.company} funds ${terms.scope.length} deliverables worth $${scopeTotal(terms)} for ${terms.contractor.name}, until ${terms.end}.`);
+      .run(id, canonicalJson(terms), hash, this.ledger.nowIso(), sha256Hex(contractorToken), orgFor(id), TERMS_RECIPIENT);
+    this.ledger.event(id, "draft", `Draft created: ${terms.company} funds ${terms.scope.length} deliverables worth $${scopeTotal(terms)} for ${terms.contractor.name}, until ${terms.end}.`);
     return { id, contractorToken };
   }
 
-  private lastAlert(contractId: string): string | null {
-    const r = this.d.db.query("SELECT text FROM events WHERE contract_id = ? AND kind = 'alert' ORDER BY id DESC LIMIT 1").get(contractId) as { text: string } | null;
-    return r?.text ?? null;
-  }
-
   parties(id: string): { representative: string; contractor: string } {
-    const t = this.terms(this.row(id));
+    const t = this.ledger.terms(this.ledger.row(id));
     return { representative: t.representative.near_account, contractor: t.contractor.near_account };
   }
 
   requireContractorToken(id: string, token: unknown) {
-    if (sha256Hex(typeof token === "string" ? token : "") !== this.row(id).contractor_link_hash)
-      throw new UserError("Use the builder's private link to submit this job.", 403);
+    if (sha256Hex(typeof token === "string" ? token : "") !== this.ledger.row(id).contractor_link_hash)
+      throw new UserError("Use the builder's private link to submit this job.", 403, "private_invitation_required");
   }
 
   /** Contracts the merge watcher runs: set up and not ended. A frozen one is re-read each time, so an unfreeze resumes it. */
   activeContractIds(): string[] {
     const rows = this.d.db.query("SELECT c.* FROM contracts c JOIN platform_agents a ON a.organization = c.organization WHERE a.stage = 'ready'").all() as ContractRow[];
     const now = this.d.now().getTime();
-    return rows.filter((r) => this.terms(r).v === 2 && now < Date.parse(endInstant(this.terms(r)))).map((r) => r.id);
+    return rows.filter((r) => this.ledger.terms(r).v === 2 && now < Date.parse(endInstant(this.ledger.terms(r)))).map((r) => r.id);
   }
 
   /** Contracts with a live payout or attack to follow on the status timer. */
@@ -160,21 +155,18 @@ export class Engine {
   }
 
   listContracts(account?: string) {
-    const all = this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all() as ContractRow[];
+    const all = (account
+      ? this.d.db.query(`SELECT * FROM contracts WHERE ${REPRESENTATIVE_ACCOUNT_SQL} = ? OR ${BUILDER_ACCOUNT_SQL} = ? ORDER BY created_at DESC`).all(account, account)
+      : this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all()) as ContractRow[];
     return all
-      .filter((r) => {
-        if (!account) return true;
-        const t = this.terms(r);
-        return t.representative.near_account === account || t.contractor.near_account === account;
-      })
       .map((r) => {
-        const terms = this.terms(r);
-        const attempts = this.attempts(r.id);
+        const terms = this.ledger.terms(r);
+        const attempts = this.ledger.attempts(r.id);
         return {
           id: r.id,
           company: terms.company,
           contractor: terms.contractor.name,
-          payee: terms.payee.address,
+          payee: isMarketSettled(terms) ? null : terms.payee.address,
           total: scopeTotal(terms),
           paid: usdOf(attempts.filter(isPaid).reduce((n, a) => n + BigInt(a.amount_atomic), 0n)),
           start: terms.start,
@@ -186,46 +178,104 @@ export class Engine {
 
   /** Private discovery from local records only: no follow-up, signing preparation or platform reads. */
   jobsFor(account: string): MyJob[] {
-    const rows = this.d.db.query("SELECT * FROM contracts ORDER BY created_at DESC").all() as ContractRow[];
+    const rows = this.d.db.query(`SELECT * FROM contracts WHERE ${REPRESENTATIVE_ACCOUNT_SQL} = ? OR ${BUILDER_ACCOUNT_SQL} = ? ORDER BY created_at DESC`).all(account, account) as ContractRow[];
+    if (!rows.length) return [];
+    // JSON parameters avoid SQLite's variable limit without including any unrelated account's rows.
+    const ids = JSON.stringify(rows.map((r) => r.id));
+    const organizations = JSON.stringify([...new Set(rows.map((r) => r.organization))]);
+    const agents = this.d.db.query("SELECT * FROM platform_agents WHERE organization IN (SELECT value FROM json_each(?))").all(organizations) as PlatformAgentRow[];
+    const latest = this.d.db.query(`SELECT contract_id,state,judgment_id FROM job_submissions s
+      WHERE contract_id IN (SELECT value FROM json_each(?)) AND revision =
+      (SELECT MAX(revision) FROM job_submissions WHERE contract_id = s.contract_id)`).all(ids) as Pick<JobRow, "contract_id" | "state" | "judgment_id">[];
+    const judgments = this.d.db.query("SELECT contract_id,id FROM judgments WHERE outcome = 'pending' AND contract_id IN (SELECT value FROM json_each(?))").all(ids) as { contract_id: string; id: string }[];
+    const attempts = this.d.db.query("SELECT * FROM payout_attempts WHERE contract_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC,rowid DESC").all(ids) as AttemptRow[];
+    const steps = this.d.db.query(`SELECT contract_id,organization,kind,state,request_id,confirm_url FROM owner_steps
+      WHERE contract_id IN (SELECT value FROM json_each(?)) OR
+      (contract_id IS NULL AND organization IN (SELECT value FROM json_each(?))) ORDER BY created_at DESC,rowid DESC`).all(ids, organizations) as OwnerStepRow[];
+    const agentByOrg = new Map(agents.map((a) => [a.organization, a]));
+    const latestByJob = new Map(latest.map((s) => [s.contract_id, s]));
+    const judgmentByJob = new Map(judgments.map((j) => [j.contract_id, j]));
+    const group = <T>(items: T[], key: (item: T) => string) => {
+      const result = new Map<string, T[]>();
+      for (const item of items) { const k = key(item); const bucket = result.get(k); if (bucket) bucket.push(item); else result.set(k, [item]); }
+      return result;
+    };
+    const attemptsByJob = group(attempts, (a) => a.contract_id);
+    const stepsByJob = group(steps.filter((s) => s.contract_id !== null), (s) => s.contract_id!);
+    const sharedStepsByOrg = group(steps.filter((s) => s.contract_id === null), (s) => s.organization);
     return rows.flatMap<MyJob>((row) => {
-      const terms = this.terms(row);
-      const roles: MyJob["roles"] = [];
-      if (terms.representative.near_account === account) roles.push("agency");
-      if (terms.contractor.near_account === account) roles.push("builder");
-      if (!roles.length) return [];
-      const agent = this.onboarding.agentRow(row.organization);
-      const attention = jobAttention({
-        terms, roles, row, agent, latestSubmission: this.jobRows(row.id)[0] ?? null,
-        payouts: this.attempts(row.id),
-        openJudgmentId: this.openJudgment(row.id)?.id ?? null,
-        ownerSteps: this.d.db.query("SELECT * FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC").all(row.id, row.organization) as OwnerStepRow[],
-        now: this.d.now(),
+      const job = this.recordedJobForRow(row, account, attemptsByJob.get(row.id) ?? [], {
+        agent: agentByOrg.get(row.organization) ?? null, latestSubmission: latestByJob.get(row.id) ?? null,
+        openJudgment: judgmentByJob.get(row.id) ?? null,
+        ownerSteps: [...(stepsByJob.get(row.id) ?? []), ...(sharedStepsByOrg.get(row.organization) ?? [])],
       });
-      return [{
-        id: row.id,
-        title: terms.scope[0]?.title || terms.company,
-        company: terms.company,
-        builder_name: terms.contractor.name,
-        scope_usd: scopeTotal(terms),
-        start: terms.start,
-        end: terms.end,
-        stage: this.stageOf(row, agent, null),
-        roles,
-        builder_accepted: !!row.contractor_sig,
-        workflow: terms.v === 3 ? "report_invoice" : "pay_on_merge",
-        attention,
-      }];
+      return job ? [job] : [];
     });
+  }
+
+  private recordedJobForRow(row: ContractRow, account: string, attempts?: AttemptRow[], loaded?: {
+    agent: PlatformAgentRow | null;
+    latestSubmission: Pick<JobRow, "state" | "judgment_id"> | null;
+    openJudgment: { id: string } | null;
+    ownerSteps: Pick<OwnerStepRow, "kind" | "state" | "request_id" | "confirm_url">[];
+  }): MyJob | null {
+    const terms = this.ledger.terms(row);
+    const roles: MyJob["roles"] = [];
+    if (terms.representative.near_account === account) roles.push("agency");
+    if (terms.contractor.near_account === account) roles.push("builder");
+    if (!roles.length) return null;
+    const agent = loaded ? loaded.agent : this.onboarding.agentRow(row.organization);
+    // Attention needs only the latest state, not historical report/evidence bodies.
+    const latestSubmission = loaded ? loaded.latestSubmission : this.d.db.query("SELECT state, judgment_id FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC LIMIT 1").get(row.id) as Pick<JobRow, "state" | "judgment_id"> | null;
+    const openJudgment = loaded ? loaded.openJudgment : this.d.db.query("SELECT id FROM judgments WHERE contract_id = ? AND outcome = 'pending'").get(row.id) as { id: string } | null;
+    const attention = jobAttention({
+      terms, roles, row, agent, latestSubmission,
+      payouts: attempts ?? this.ledger.attempts(row.id),
+      openJudgmentId: openJudgment?.id ?? null,
+      ownerSteps: loaded ? loaded.ownerSteps : this.d.db.query("SELECT kind, state, request_id, confirm_url FROM owner_steps WHERE contract_id = ? OR (contract_id IS NULL AND organization = ?) ORDER BY created_at DESC, rowid DESC").all(row.id, row.organization) as Pick<OwnerStepRow, "kind" | "state" | "request_id" | "confirm_url">[],
+      now: this.d.now(),
+    });
+    return {
+      id: row.id,
+      title: titleOf(terms) ?? terms.scope[0]?.title ?? terms.company,
+      company: terms.company,
+      builder_name: terms.contractor.name,
+      scope_usd: scopeTotal(terms),
+      start: terms.start,
+      end: terms.end,
+      stage: this.stageOf(row, agent, null),
+      roles,
+      builder_accepted: !!row.contractor_sig,
+      workflow: terms.v === 3 ? "report_invoice" : "pay_on_merge",
+      attention,
+    };
+  }
+
+  /** Durable records only: no provider reads, reconciliation, nonce preparation or writes. */
+  recordedJobSnapshot(id: string, account: string) {
+    const row = this.ledger.row(id);
+    const attempts = this.ledger.attempts(id);
+    const job = this.recordedJobForRow(row, account, attempts);
+    if (!job) throw new UserError("Only a named party can inspect this job.", 403);
+    return {
+      job, terms_hash: row.hash, terms: this.ledger.terms(row),
+      payments: attempts.filter((a) => a.kind === "payout").map((a) => ({
+        request_id: a.request_id, state: a.state, amount_usd: fromAtomic(BigInt(a.amount_atomic), USDC_DECIMALS),
+        recipient: a.recipient, payment_correlation_id: a.correlation_id, approval_vote_id: a.vote_correlation_id,
+        resolution: a.resolution, code: a.code, failure_code: a.failure_code, tx_hash: a.tx_hash, updated_at: a.updated_at,
+      })),
+    };
   }
 
   /** The view only: no follow-up, so no payout is planned or sent. */
   async viewContract(id: string): Promise<ContractView> {
-    this.row(id);
+    this.ledger.row(id);
     return this.view(id);
   }
 
   async getContract(id: string): Promise<ContractView> {
-    this.row(id);
+    // A Market-settled job has no platform setup to observe and no payout to follow.
+    if (isMarketSettled(this.ledger.terms(this.ledger.row(id)))) return this.view(id);
     let setupError: string | null = null;
     await this.mutex.run(id, async () => {
       try {
@@ -248,8 +298,8 @@ export class Engine {
   // ================================================================ term signatures (NEP-413)
 
   signingRequest(id: string, role: Role) {
-    const row = this.row(id);
-    const terms = this.terms(row);
+    const row = this.ledger.row(id);
+    const terms = this.ledger.terms(row);
     return {
       role,
       account_id: role === "representative" ? terms.representative.near_account : terms.contractor.near_account,
@@ -259,23 +309,27 @@ export class Engine {
     };
   }
 
-  async addSignature(id: string, role: Role, signed: { account_id: string; public_key: string; signature: string; nonce: string }, contractorToken?: string) {
-    const row = this.row(id);
-    const terms = this.terms(row);
+  /**
+   * The wallet signature of the named account is the acceptance. The private invitation is also required unless
+   * the caller has already authenticated that account (`invitationRequired` false), as with submissions.
+   */
+  async addSignature(id: string, role: Role, signed: { account_id: string; public_key: string; signature: string; nonce: string }, contractorToken?: string, invitationRequired = true) {
+    const row = this.ledger.row(id);
+    const terms = this.ledger.terms(row);
     const expected = role === "representative" ? terms.representative.near_account : terms.contractor.near_account;
-    if (role === "contractor" && sha256Hex(contractorToken ?? "") !== row.contractor_link_hash) throw new UserError("This signing link is not valid for the contractor.", 403);
+    if (role === "contractor" && invitationRequired && sha256Hex(contractorToken ?? "") !== row.contractor_link_hash) throw new UserError("This signing link is not valid for the contractor.", 403, "private_invitation_required");
     if ((role === "representative" ? row.rep_sig : row.contractor_sig) !== null) throw new UserError(`The ${role} already signed.`, 409);
     if (signed.account_id.toLowerCase() !== expected) throw new UserError(`The ${role} must sign as ${expected}, not ${signed.account_id}.`, 403);
     const ok = verifyNep413({ message: termsSigningMessage(row.hash, row.signing_recipient), nonce: nonceFromString(signed.nonce), recipient: row.signing_recipient }, signed);
     if (!ok) throw new UserError("The signature does not match these terms.", 400);
     if (!(await this.d.chain.isFullAccessKey(expected, signed.public_key))) throw new UserError(`${signed.public_key} is not a full-access key of ${expected}.`, 403);
-    const record: SignatureRecord = { ...signed, account_id: expected, signed_at: this.nowIso() };
+    const record: SignatureRecord = { ...signed, account_id: expected, signed_at: this.ledger.nowIso() };
     this.d.db.query(`UPDATE contracts SET ${role === "representative" ? "rep_sig" : "contractor_sig"} = ? WHERE id = ?`).run(JSON.stringify(record), id);
-    this.event(id, "signed", `${role === "representative" ? "Representative" : "Contractor"} ${expected} signed the terms hash.`);
-    if (role === "contractor") {
+    this.ledger.event(id, "signed", `${role === "representative" ? "Representative" : "Contractor"} ${expected} signed the terms hash.`);
+    if (role === "contractor" && !isMarketSettled(terms)) {
       const registered = await this.d.chain.isRegistered(terms.asset, terms.payee.address).catch(() => null);
       this.d.db.query("UPDATE contracts SET payee_registered = ? WHERE id = ?").run(registered === null ? null : registered ? 1 : 0, id);
-      if (registered === false) this.event(id, "warning", `${terms.payee.address} is not registered on the USDC token yet; payouts to it will be blocked until it registers.`);
+      if (registered === false) this.ledger.event(id, "warning", `${terms.payee.address} is not registered on the USDC token yet; payouts to it will be blocked until it registers.`);
     }
     return this.getContract(id);
   }
@@ -285,8 +339,8 @@ export class Engine {
   /** Immutable revisions and idempotent filing. Actor comes from the authenticated route, never the body. */
   async submitJob(id: string, input: unknown, actor: string): Promise<JobSubmissionView> {
     return this.mutex.run(id, async () => {
-      const row = this.row(id);
-      const terms = this.terms(row);
+      const row = this.ledger.row(id);
+      const terms = this.ledger.terms(row);
       if (terms.v !== 3) throw new UserError("This contract uses merged-PR acceptance.", 409);
       if (actor !== terms.contractor.near_account) throw new UserError("Only the agreed builder can submit this job.", 403);
       const parsed = jobSubmissionSchema.safeParse(input);
@@ -299,24 +353,30 @@ export class Engine {
         return this.jobView(prior);
       }
       if (!row.rep_sig || !row.contractor_sig) throw new UserError("Both parties must accept the job before submission.", 409);
-      this.requireActive(row, terms);
+      if (isMarketSettled(terms)) this.requireMarketWindow(terms);
+      else {
+        // Work is due by the end date; a signed review window extends only review and payment.
+        if (this.d.now().getTime() > Date.parse(endInstant(terms))) throw new UserError("The submission deadline has passed.", 409);
+        this.requireActive(row, terms);
+      }
       const latest = this.jobRows(id)[0];
+      if (latest?.state === "market_accepted") throw new UserError("The Agent Market accepted this job; its awarded price covers the whole job.", 409);
       if (latest && ["submitted", "proposed", "changes_pending", "disputed"].includes(latest.state)) throw new UserError("The previous submission has an open or disputed payment. Wait for authoritative evidence before filing another.", 409);
-      if (this.attempts(id).some(isOpen)) throw new UserError("A payment outcome is still unresolved; a new submission cannot replace it.", 409);
+      if (this.ledger.attempts(id).some(isOpen)) throw new UserError("A payment outcome is still unresolved; a new submission cannot replace it.", 409);
       if (body.evidence.some((e) => !terms.scope.some((d) => d.id === e.deliverable_id))) throw new UserError("Evidence must reference a deliverable in the accepted scope.");
       if (this.d.db.query("SELECT 1 FROM job_invoices WHERE contract_id = ? AND number = ?").get(id, body.invoice.number)) throw new UserError("That invoice number is already filed. Retry its original submission identity.", 409);
       const amount = toAtomic(body.invoice.amount_usd, USDC_DECIMALS);
-      const committed = this.attempts(id).filter(isCommitted).reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
+      const committed = this.ledger.attempts(id).filter(isCommitted).reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
       if (amount > BigInt(totalAtomic(terms)) - committed) throw new UserError("The invoice exceeds the remaining agreed scope budget.", 409);
       const sid = `s_${sha256Hex(`${id}:${body.client_request_id}`).slice(0, 24)}`;
       const invoiceId = `i_${sid.slice(2)}`;
-      const now = this.nowIso();
+      const now = this.ledger.nowIso();
       this.d.db.transaction(() => {
         this.d.db.query("INSERT INTO job_submissions (id, contract_id, client_request_id, content_hash, revision, terms_hash, builder, report, evidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .run(sid, id, body.client_request_id, hash, (latest?.revision ?? 0) + 1, row.hash, actor, body.report, JSON.stringify(body.evidence), now);
         this.d.db.query("INSERT INTO job_invoices (id, submission_id, contract_id, number, amount_atomic) VALUES (?, ?, ?, ?, ?)")
           .run(invoiceId, sid, id, body.invoice.number, amount.toString());
-        this.event(id, "submission", `Builder ${actor} submitted revision ${(latest?.revision ?? 0) + 1}: ${sid}, invoice ${body.invoice.number} (${invoiceId}) for ${usdText(amount)} under terms ${row.hash}. No approval or payment yet.`);
+        this.ledger.event(id, "submission", `Builder ${actor} submitted revision ${(latest?.revision ?? 0) + 1}: ${sid}, invoice ${body.invoice.number} (${invoiceId}) for ${usdText(amount)} under terms ${row.hash}. No approval or payment yet.`);
       })();
       return this.jobView(this.job(sid));
     });
@@ -325,20 +385,26 @@ export class Engine {
   jobContract(submissionId: string): string { return this.job(submissionId).contract_id; }
 
   jobSubmissions(id: string): JobSubmissionView[] {
-    this.row(id);
+    this.ledger.row(id);
     return this.jobRows(id).map((s) => this.jobView(s));
+  }
+
+  jobSubmission(id: string, submissionId: string): JobSubmissionView {
+    const submission = this.job(submissionId);
+    if (submission.contract_id !== id) throw new UserError("Submission not found for this job.", 404);
+    return this.jobView(submission);
   }
 
   /** Stored review facts only: no platform reads, frozen-state synchronization or payout follow-up. */
   reviewInput(submissionId: string) {
     const s = this.job(submissionId);
-    const row = this.row(s.contract_id);
-    const terms = this.terms(row);
+    const row = this.ledger.row(s.contract_id);
+    const terms = this.ledger.terms(row);
     if (terms.v !== 3 || !row.rep_sig || !row.contractor_sig)
       throw new UserError("Review requires an accepted report-and-invoice job.", 409);
     if (s.terms_hash !== row.hash || termsHash(terms) !== row.hash)
       throw new UserError("The submission's accepted terms do not match.", 409);
-    const payouts = s.judgment_id ? this.attempts(row.id).filter((a) => a.run_id === s.judgment_id) : [];
+    const payouts = s.judgment_id ? this.ledger.attempts(row.id).filter((a) => a.run_id === s.judgment_id) : [];
     if ((s.state !== "submitted" && s.state !== "proposed") || s.changes || payouts.some((a) => a.vote === "approve" || a.state === "processing" || isPaid(a) || (a.state === "failed" && !a.resolution)))
       throw new UserError("This submission is no longer available for a feedback draft. Refresh the job.", 409);
     const invoice = this.jobInvoice(s.id);
@@ -364,34 +430,68 @@ export class Engine {
       // A lost proposal reply is observed, never judged or sent under a second identity.
       if (s.judgment_id) return this.view(s.contract_id);
       if (s.state !== "submitted") throw new UserError("Only an open submission can receive a proposal.", 409);
-      const row = this.row(s.contract_id);
-      const terms = this.terms(row);
+      const row = this.ledger.row(s.contract_id);
+      const terms = this.ledger.terms(row);
+      if (s.terms_hash !== row.hash || termsHash(terms) !== row.hash) throw new UserError("The submission's accepted terms do not match.", 409);
+      if (isMarketSettled(terms)) return this.assessForMarket(row, terms, s);
       await this.refreshFrozen(row.id);
       this.requireActive(row, terms);
-      if (s.terms_hash !== row.hash || termsHash(terms) !== row.hash) throw new UserError("The submission's accepted terms do not match.", 409);
-      if (this.openJudgment(row.id) || this.attempts(row.id).some(isOpen)) throw new UserError("An earlier payment outcome is unresolved.", 409);
+      if (this.ledger.openJudgment(row.id) || this.ledger.attempts(row.id).some(isOpen)) throw new UserError("An earlier payment outcome is unresolved.", 409);
       const invoice = this.jobInvoice(s.id);
-      const judgment = await judgeJob(this.d.config.judge, terms, {
-        client_request_id: s.client_request_id, report: s.report, evidence: JSON.parse(s.evidence),
-        invoice: { number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
-      }, this.acceptedCompletion(row.id));
-      const owed = owedFor(terms, completionOf(judgment), this.committedBy(row.id)).reduce((n, l) => n + l.amount, 0n);
-      const proposed = owed < BigInt(invoice.amount_atomic) ? owed : BigInt(invoice.amount_atomic);
-      const plan = planPayout(terms, completionOf(judgment), this.committedBy(row.id), proposed);
+      // The assessment recorded at filing is the one the agency reviewed; judge here only when none was recorded.
+      const judgment = s.assessment ? JSON.parse(s.assessment) as Judgment : await this.judgeSubmission(terms, s, invoice);
+      const proposed = this.proposedFor(row.id, terms, judgment, invoice);
+      const plan = planPayout(terms, completionOf(judgment), this.ledger.committedBy(row.id), proposed);
       const runId = `r_${sha256Hex(s.id).slice(0, 24)}`;
-      const rid = requestIdFor(row.hash, this.nextSeq(row.id, "payout"), 1);
-      const now = this.nowIso();
+      const rid = requestIdFor(row.hash, this.ledger.nextSeq(row.id, "payout"), 1);
+      const now = this.ledger.nowIso();
       this.d.db.transaction(() => {
         this.d.db.query("INSERT INTO judgments (id, contract_id, at, json, outcome, closed_at) VALUES (?, ?, ?, ?, ?, ?)")
           .run(runId, row.id, now, JSON.stringify(judgment), plan ? "pending" : "nothing", plan ? null : now);
         this.d.db.query("UPDATE job_submissions SET judgment_id = ?, proposed_atomic = ?, state = ? WHERE id = ?")
           .run(runId, proposed.toString(), plan ? "proposed" : "closed", s.id);
-        if (plan) this.insertAttempt({ request_id: rid, kind: "payout", contract_id: row.id, seq: this.nextSeq(row.id, "payout"), attempt: 1, run_id: runId, recipient: terms.payee.address, amount: plan.amount, lines: plan.lines });
-        this.event(row.id, "proposal", `Agent proposed ${usdText(proposed)} for submission ${s.id}, invoice ${invoice.id}, judgment ${runId}. ${judgment.summary}`);
+        if (plan) this.ledger.insertAttempt({ request_id: rid, kind: "payout", contract_id: row.id, seq: this.ledger.nextSeq(row.id, "payout"), attempt: 1, run_id: runId, recipient: terms.payee.address, amount: plan.amount, lines: plan.lines });
+        this.ledger.event(row.id, "proposal", `Agent proposed ${usdText(proposed)} for submission ${s.id}, invoice ${invoice.id}, judgment ${runId}. ${judgment.summary}`);
       })();
-      if (plan) await this.send(rid);
+      if (plan) await this.follower.send(rid);
       return this.view(row.id);
     });
+  }
+
+  /**
+   * The agent's assessment of a filed report, recorded for the agency's review. It reads no platform state and commits
+   * no judgment or payment identity: proposeJob does that when the agency approves.
+   */
+  async assessJob(submissionId: string): Promise<void> {
+    const first = this.job(submissionId);
+    await this.mutex.run(first.contract_id, async () => {
+      const s = this.job(submissionId);
+      if (s.assessment || s.judgment_id || s.state !== "submitted") return;
+      const row = this.ledger.row(s.contract_id);
+      const terms = this.ledger.terms(row);
+      if (isMarketSettled(terms)) return;
+      const judgment = await this.judgeSubmission(terms, s, this.jobInvoice(s.id));
+      this.d.db.query("UPDATE job_submissions SET assessment = ? WHERE id = ? AND assessment IS NULL AND judgment_id IS NULL AND state = 'submitted'").run(JSON.stringify(judgment), s.id);
+      this.ledger.event(row.id, "assessment", `Agent assessed submission ${s.id} for the agency's review. No payout is requested until the agency approves.`);
+    });
+  }
+
+  /** Starts the assessment without delaying the filing's reply; a failure leaves the agency's manual proposal. */
+  assessLater(submissionId: string): void {
+    void this.assessJob(submissionId).catch((err) => this.log(`assessment ${submissionId}: ${errText(err)}`));
+  }
+
+  private judgeSubmission(terms: Terms, s: JobRow, invoice: JobInvoiceRow): Promise<Judgment> {
+    return judgeJob(this.d.config.judge, terms, {
+      client_request_id: s.client_request_id, report: s.report, evidence: JSON.parse(s.evidence),
+      invoice: { number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
+    }, this.acceptedCompletion(s.contract_id));
+  }
+
+  /** Compensation for an assessment: completed scope value less committed amounts, capped by the invoice. */
+  private proposedFor(contractId: string, terms: Terms, judgment: Judgment, invoice: JobInvoiceRow): bigint {
+    const owed = owedFor(terms, completionOf(judgment), this.ledger.committedBy(contractId)).reduce((n, l) => n + l.amount, 0n);
+    return owed < BigInt(invoice.amount_atomic) ? owed : BigInt(invoice.amount_atomic);
   }
 
   /** Record feedback first. A live/unknown payout must be proven rejected before a revision is allowed. */
@@ -406,15 +506,67 @@ export class Engine {
         return this.view(s.contract_id);
       }
       if (s.state !== "submitted" && s.state !== "proposed") throw new UserError("This submission is already closed.", 409);
-      const attempts = s.judgment_id ? this.attempts(s.contract_id).filter((a) => a.run_id === s.judgment_id) : [];
+      const attempts = s.judgment_id ? this.ledger.attempts(s.contract_id).filter((a) => a.run_id === s.judgment_id) : [];
       if (attempts.some((a) => a.vote === "approve" || a.state === "processing" || isPaid(a) || (a.state === "failed" && !a.resolution)))
         throw new UserError("A payout was approved or may have moved. Resolve its outcome before requesting changes.", 409);
+      // A Market-settled assessment has no platform payout to cancel, so the builder can revise at once.
+      const cancelFirst = !!s.judgment_id && !isMarketSettled(this.ledger.terms(this.ledger.row(s.contract_id)));
       this.d.db.query("UPDATE job_submissions SET changes = ?, state = ? WHERE id = ?")
-        .run(text, s.judgment_id ? "changes_pending" : "changes_requested", s.id);
-      this.event(s.contract_id, "changes", `Agency requested changes on ${s.id}: ${text}${s.judgment_id ? " Any live payout must be rejected and confirmed before resubmission." : ""}`);
-      if (s.judgment_id) await this.followUpLocked(s.contract_id);
+        .run(text, cancelFirst ? "changes_pending" : "changes_requested", s.id);
+      this.ledger.event(s.contract_id, "changes", `Agency requested changes on ${s.id}: ${text}${cancelFirst ? " Any live payout must be rejected and confirmed before resubmission." : ""}`);
+      if (cancelFirst) await this.followUpLocked(s.contract_id);
       return this.view(s.contract_id);
     });
+  }
+
+  /**
+   * Market-settled jobs: the agent assesses the work against the signed criteria and recommends accepting or requesting
+   * changes. The Market pays its awarded price, so no amount is proposed and the judgment closes without any payout.
+   */
+  private async assessForMarket(row: ContractRow, terms: Terms, s: JobRow): Promise<ContractView> {
+    this.requireMarketWindow(terms);
+    const invoice = this.jobInvoice(s.id);
+    const judgment = await judgeJob(this.d.config.judge, terms, {
+      client_request_id: s.client_request_id, report: s.report, evidence: JSON.parse(s.evidence),
+      invoice: { number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
+    }, this.acceptedCompletion(row.id));
+    const runId = `r_${sha256Hex(s.id).slice(0, 24)}`;
+    const now = this.ledger.nowIso();
+    this.d.db.transaction(() => {
+      this.d.db.query("INSERT INTO judgments (id, contract_id, at, json, outcome, closed_at) VALUES (?, ?, ?, ?, 'nothing', ?)").run(runId, row.id, now, JSON.stringify(judgment), now);
+      this.d.db.query("UPDATE job_submissions SET judgment_id = ?, proposed_atomic = '0', state = 'proposed' WHERE id = ?").run(runId, s.id);
+      this.ledger.event(row.id, "proposal", `Agent assessed submission ${s.id} (judgment ${runId}) for the agency's review. The Market pays its awarded price; Paperwork requests no payment.`);
+    })();
+    return this.view(row.id);
+  }
+
+  /**
+   * Records acceptance only when the public Market job reads `completed` (all work accepted, including acceptance by
+   * a lapsed window). Market acceptance is not settlement evidence; Paperwork cannot read the Market's payout.
+   */
+  async confirmMarketAcceptance(submissionId: string): Promise<ContractView> {
+    const first = this.job(submissionId);
+    return this.mutex.run(first.contract_id, async () => {
+      const s = this.job(submissionId);
+      const terms = this.ledger.terms(this.ledger.row(s.contract_id));
+      if (!isMarketSettled(terms)) throw new UserError("Only a Market-settled job is accepted on the Agent Market.", 409);
+      if (s.state === "market_accepted") return this.view(s.contract_id);
+      if (s.state !== "proposed") throw new UserError("Only an assessed submission can be matched to Market acceptance.", 409);
+      if (!this.d.marketJobStatus) throw new UserError("The Agent Market connection is not configured, so Paperwork cannot read the job's acceptance.", 503);
+      let status: string;
+      try { status = await this.d.marketJobStatus(terms.market_source.job_id); }
+      catch { throw new UserError("Paperwork could not read the Agent Market job. Nothing was recorded; try again.", 503); }
+      if (status !== "completed") throw new UserError(`The Agent Market job is ${status.replace("_", " ")}, not completed. Accept the work on the Market first.`, 409);
+      this.d.db.query("UPDATE job_submissions SET state = 'market_accepted' WHERE id = ?").run(s.id);
+      this.ledger.event(s.contract_id, "submission", `Submission ${s.id}: the Agent Market reports its job completed (work accepted). Payment is the Market's; Paperwork has not observed its payout.`);
+      return this.view(s.contract_id);
+    });
+  }
+
+  /** Market-settled jobs need no platform agent, only signed terms within their dates. */
+  private requireMarketWindow(terms: Terms) {
+    if (this.d.now().getTime() > Date.parse(endInstant(terms))) throw new UserError("The contract has ended.");
+    if (this.d.now().getTime() < Date.parse(startInstant(terms))) throw new UserError(`The contract starts ${terms.start}.`);
   }
 
   private job(id: string): JobRow {
@@ -427,28 +579,37 @@ export class Engine {
     return this.d.db.query("SELECT * FROM job_submissions WHERE contract_id = ? ORDER BY revision DESC").all(id) as JobRow[];
   }
 
-  private jobForJudgment(runId: string | null): JobRow | null {
-    return runId ? this.d.db.query("SELECT * FROM job_submissions WHERE judgment_id = ?").get(runId) as JobRow | null : null;
-  }
-
   private jobInvoice(id: string): JobInvoiceRow {
     return this.d.db.query("SELECT * FROM job_invoices WHERE submission_id = ?").get(id) as JobInvoiceRow;
   }
 
   private jobView(s: JobRow): JobSubmissionView {
     const invoice = this.jobInvoice(s.id);
-    const payouts = s.judgment_id ? this.attempts(s.contract_id).filter((a) => a.run_id === s.judgment_id) : [];
+    const payouts = s.judgment_id ? this.ledger.attemptsForJudgment(s.contract_id, s.judgment_id) : [];
     return {
       id: s.id, revision: s.revision, terms_hash: s.terms_hash, builder: s.builder, report: s.report,
       evidence: JSON.parse(s.evidence), invoice: { id: invoice.id, number: invoice.number, amount_usd: usdOf(invoice.amount_atomic) },
-      state: s.state, changes: s.changes, judgment_id: s.judgment_id, proposed_usd: usdOf(s.proposed_atomic),
+      state: s.state, changes: s.changes, judgment_id: s.judgment_id, assessment: this.assessmentView(s, invoice), proposed_usd: usdOf(s.proposed_atomic),
       paid_usd: usdOf(payouts.filter(isPaid).reduce((n, a) => n + BigInt(a.amount_atomic), 0n)),
       payout_request_ids: payouts.map((a) => a.request_id), created_at: s.created_at,
     };
   }
 
+  private assessmentView(s: JobRow, invoice: JobInvoiceRow): JobSubmissionView["assessment"] {
+    if (!s.assessment || s.judgment_id || s.state !== "submitted") return null;
+    const judgment = JSON.parse(s.assessment) as Judgment;
+    const terms = this.ledger.terms(this.ledger.row(s.contract_id));
+    const proposed = this.proposedFor(s.contract_id, terms, judgment, invoice);
+    return {
+      proposed_usd: usdOf(proposed.toString()),
+      payment_usd: usdOf((planPayout(terms, completionOf(judgment), this.ledger.committedBy(s.contract_id), proposed)?.amount ?? 0n).toString()),
+      summary: judgment.summary, flagged: judgment.decision === "escalate",
+      deliverables: judgment.deliverables.map((d) => ({ id: d.id, completion: d.completion, reason: d.reason })),
+    };
+  }
+
   private requireJobApproval(att: AttemptRow) {
-    const s = this.jobForJudgment(att.run_id);
+    const s = this.ledger.jobForJudgment(att.run_id);
     if (s?.changes) throw new UserError("Changes were requested. Reject this payout; the previous approval cannot be submitted.", 409);
   }
 
@@ -456,9 +617,26 @@ export class Engine {
 
   async next(id: string): Promise<NextStep> {
     return this.mutex.run(id, async () => {
+      await this.requireMarketSourceClosed(id);
       await this.refreshFrozen(id);
       return this.onboarding.next(id);
     });
+  }
+
+  /**
+   * A Market award funds the job on the Market. A job sourced there is paid only through the platform, so platform setup
+   * and funding wait until the Market job reads `closed`: deleting a job refunds unstarted awards and is refused once
+   * work starts. An unreadable source refuses; nothing is inferred.
+   */
+  private async requireMarketSourceClosed(id: string) {
+    const terms = this.ledger.platformTerms(this.ledger.row(id));
+    if (terms.v !== 3 || !terms.market_source) return;
+    if (!this.d.marketJobStatus) throw new UserError("This job came from an Agent Market job, and the Market connection is not configured, so Paperwork cannot confirm that job is closed. Nothing was prepared.", 503);
+    let status: string;
+    try { status = await this.d.marketJobStatus(terms.market_source.job_id); }
+    catch { throw new UserError("Paperwork could not read the source Agent Market job, so it cannot confirm the job is closed. Nothing was prepared; try again.", 503); }
+    if (status !== "closed")
+      throw new UserError(`The source Agent Market job is ${status.replace("_", " ")}. Close it on the Market (refunding any award) before platform setup or funding: this job is paid only through the platform, never both.`, 409);
   }
 
   async signed(id: string, body: { step: "setup" | "consent_payout" | "consent_owner"; nonce: string; publicKey: string; signature: string }): Promise<NextStep> {
@@ -474,16 +652,16 @@ export class Engine {
     const work = async () => {
       const prepared = this.onboarding.step(correlationId);
       if (prepared.kind === "approval_vote" && prepared.verdict === "approve" && prepared.request_id) {
-        this.requireJobApproval(this.attempt(prepared.request_id));
+        this.requireJobApproval(this.ledger.attempt(prepared.request_id));
       }
       const s = await this.onboarding.submitStep(correlationId, sig);
       if (s.kind === "approval_vote" && s.request_id && (s.state === "submitted" || s.state === "unknown")) {
         // The original decision/link was saved before submit I/O. An attempted vote is not its outcome:
         // the payout is followed through payouts/status, with explicit non-execution proof needed for rejection.
-        const att = this.attempt(s.request_id);
-        this.setAttempt(att.request_id, { vote: s.verdict as "approve" | "reject" });
-        this.event(att.contract_id, "vote", `The representative submitted ${s.verdict === "approve" ? "an approval" : "a rejection"} attempt for ${usdText(att.amount_atomic)} (${att.request_id}). ${s.state === "unknown" ? "Its submission outcome is unknown." : "Follow the payout for its outcome."}`);
-        await this.followAttempt(this.attempt(att.request_id));
+        const att = this.ledger.attempt(s.request_id);
+        this.ledger.setAttempt(att.request_id, { vote: s.verdict as "approve" | "reject" });
+        this.ledger.event(att.contract_id, "vote", `The representative submitted ${s.verdict === "approve" ? "an approval" : "a rejection"} attempt for ${usdText(att.amount_atomic)} (${att.request_id}). ${s.state === "unknown" ? "Its submission outcome is unknown." : "Follow the payout for its outcome."}`);
+        await this.follower.follow(this.ledger.attempt(att.request_id));
         if (att.kind === "payout") await this.advanceJudgment(att.contract_id);
       }
       return this.ownerStepView(this.onboarding.step(correlationId));
@@ -513,6 +691,9 @@ export class Engine {
 
   async deposit(id: string): Promise<Deposit> {
     return this.mutex.run(id, async () => {
+      if (this.openRecoveryAttempt(id))
+        throw new UserError("Recovery funding may already have been sent. Follow the original wallet transaction and credited balance; no other funding instructions can be prepared.", 409);
+      await this.requireMarketSourceClosed(id);
       const a = this.readyAgent(id);
       // deposit allocates a one-time address, not a quote/read. Reuse the original accepted response.
       if (a.deposit) {
@@ -526,7 +707,7 @@ export class Engine {
         const prior = this.d.db.query("SELECT kind FROM events WHERE contract_id = ? AND kind IN ('deposit_pending','deposit_ready') ORDER BY rowid DESC LIMIT 1").get(id) as { kind: string } | null;
         if (prior)
           throw new UserError("The original deposit-address allocation has an unknown outcome. No new allocation or funding transaction was sent. Reconcile that original request with the platform.", 503);
-        this.event(id, "deposit_pending", "Requested deposit instructions; the original allocation is unresolved. This request sends no funds.");
+        this.ledger.event(id, "deposit_pending", "Requested deposit instructions; the original allocation is unresolved. This request sends no funds.");
       })();
       let res: Res<Deposit>;
       try { res = await this.onboarding.handle(a).deposit(); }
@@ -537,9 +718,124 @@ export class Engine {
         throw new UserError("The platform returned invalid or expired deposit instructions. The original allocation needs reconciliation; no automatic replacement was requested.", 503);
       this.d.db.transaction(() => {
         this.onboarding.setAgent(a.organization, { deposit: JSON.stringify(deposit) });
-        this.event(id, "deposit_ready", "Original deposit instructions saved. Refresh reuses them without allocating a new address.");
+        this.ledger.event(id, "deposit_ready", "Original deposit instructions saved. Refresh reuses them without allocating a new address.");
       })();
       return deposit;
+    });
+  }
+
+  /** Review only. Does not call deposit(), clear markers, update cached instructions or prepare a payment. */
+  async fundingRecovery(id: string): Promise<FundingRecoveryView> {
+    const blocked = (code: Extract<FundingRecoveryView, { state: "blocked" }>["code"], message: string): FundingRecoveryView =>
+      ({ schema_version: 1, state: "blocked", code, message, plan: null });
+    const row = this.ledger.row(id), terms = this.ledger.terms(row);
+    const agent = this.onboarding.agentRow(row.organization);
+    if (isMarketSettled(terms) || (terms.v === 3 && terms.agency_owner) || !row.rep_sig || !row.contractor_sig || row.frozen ||
+        !agent?.agent_id || agent.stage !== "ready" || this.ledger.attempts(id).length || this.d.now().getTime() > Date.parse(endInstant(terms)))
+      return blocked("job_not_recoverable", "This job cannot use wallet funding recovery in its current state. Review its existing setup and payment records.");
+    if (!this.d.platform.fundingRecovery)
+      return blocked("platform_recovery_unavailable", "The platform has not supplied a supported funding reconciliation. Ask the platform operator to resolve the original allocation and existing credit.");
+    if (this.openRecoveryAttempt(id))
+      return blocked("wallet_outcome_unknown", "A recovery wallet request may already have been sent. Follow the original transaction and credited balance; no second request is available.");
+    try { await this.requireMarketSourceClosed(id); }
+    catch { return blocked("job_not_recoverable", "The signed Market source has not been cleared for platform funding."); }
+    const binding = this.recoveryBinding(row, terms, agent.agent_id);
+    let result: unknown;
+    try { result = await this.d.platform.fundingRecovery(Object.freeze(binding)); }
+    catch { return blocked("reconciliation_unavailable", "The original reconciliation could not be read. Keep the current records and try refreshing its status later."); }
+    const reviewed = validateRecoveryPlan(result, binding, this.d.now().getTime());
+    if (reviewed.state !== "ready") return reviewed;
+    try {
+      const verified = await this.verify(id);
+      if (verified.overall !== "green" || verified.observed?.usdc !== reviewed.plan.credited_atomic || verified.observed.agentId !== agent.agent_id)
+        return blocked("policy_unverified", "Current balance or signed policy does not match the reconciliation. Refresh before funding.");
+    } catch { return blocked("policy_unverified", "Current balance and policy could not be verified. No transfer is ready."); }
+    // A payout/setup transition during provider I/O must invalidate the review.
+    const current = this.ledger.row(id);
+    if (current.hash !== row.hash || current.frozen || this.ledger.attempts(id).length)
+      return blocked("job_not_recoverable", "Job state changed while reviewing funding. Refresh the original job.");
+    return validateRecoveryPlan(result, binding, this.d.now().getTime());
+  }
+
+  /** Claims a single wallet attempt before wallet I/O. A lost response is observed, never replayed. */
+  async prepareFundingRecovery(id: string, reconciliationId: string, planHash: string) {
+    return this.mutex.run(id, async () => {
+      const reviewed = await this.fundingRecovery(id);
+      if (reviewed.state !== "ready") throw new UserError(reviewed.message, 409);
+      if (reviewed.plan.reconciliation_id !== reconciliationId || reviewed.plan.plan_hash !== planHash)
+        throw new UserError("Funding reconciliation changed. Review the current result before opening your wallet.", 409);
+      const attemptId = `fr_${planHash}`;
+      this.d.db.transaction(() => {
+        if (this.openRecoveryAttempt(id))
+          throw new UserError("A recovery wallet request may already have been sent. Follow its original outcome.", 409);
+        this.d.db.query("INSERT INTO funding_recovery_attempts (id,contract_id,reconciliation_id,plan_hash,plan,state,created_at) VALUES (?,?,?,?,?,'wallet_outcome_unknown',?)")
+          .run(attemptId, id, reconciliationId, planHash, canonicalJson(reviewed.plan), this.ledger.nowIso());
+        this.ledger.event(id, "funding_recovery", `Recovery ${attemptId} recorded before wallet I/O. No transfer or payout is confirmed.`);
+      })();
+      return { attempt_id: attemptId, state: "wallet_outcome_unknown" as const };
+    });
+  }
+
+  private openRecoveryAttempt(id: string): { id: string; plan: string; created_at: string } | null {
+    return this.d.db.query("SELECT id, plan, created_at FROM funding_recovery_attempts WHERE contract_id = ? AND outcome IS NULL").get(id) as { id: string; plan: string; created_at: string } | null;
+  }
+
+  private recoveryBinding(row: ContractRow, terms: Terms, agentId: string): FundingRecoveryBinding {
+    return { job_id: row.id, terms_hash: row.hash, deployment: this.d.config.deployment,
+      platform_host: this.d.platform.host, app_origin: new URL(this.d.config.auth.publicUrl).origin,
+      organization: row.organization, owner: terms.representative.near_account, agent_id: agentId, target_atomic: totalAtomic(terms) };
+  }
+
+  /**
+   * Resolves an open recovery attempt only on positive evidence. `funded`: a fresh, green verification shows the agent
+   * holds the signed total. `not_received`: the provider reports the attempt's destination expired having received
+   * nothing, and the agent still holds exactly the credit the plan started from. A cancelled wallet, an error or
+   * silence resolves nothing; the attempt then keeps blocking any other funding instructions.
+   */
+  async observeFundingRecovery(id: string): Promise<FundingRecoveryObservation> {
+    return this.mutex.run(id, async () => {
+      const open = this.openRecoveryAttempt(id);
+      if (!open) throw new UserError("This job has no unresolved funding recovery attempt.", 409);
+      const plan = JSON.parse(open.plan) as FundingReconciliation & { plan_hash: string };
+      const row = this.ledger.row(id), terms = this.ledger.terms(row);
+      const agent = this.onboarding.agentRow(row.organization);
+      const unresolved = (message: string): FundingRecoveryObservation => ({ attempt_id: open.id, outcome: null, message });
+      if (!agent?.agent_id || agent.agent_id !== plan.agent_id || row.hash !== plan.terms_hash) return unresolved("The job's agent or signed terms no longer match this attempt. It stays unresolved.");
+      let observed: Overview | null = null;
+      try {
+        const verified = await this.verify(id);
+        if (verified.overall === "green" && verified.observed?.agentId === agent.agent_id) observed = verified.observed;
+      } catch { /* an unavailable read is not evidence */ }
+      if (!observed) return unresolved("The agent's balance and policy could not be verified just now. The attempt stays unresolved; nothing else can be prepared.");
+      const balance = BigInt(observed.usdc || "0");
+      const resolve = (outcome: "funded" | "not_received", evidence: object, message: string): FundingRecoveryObservation => {
+        this.d.db.transaction(() => {
+          const changed = this.d.db.query("UPDATE funding_recovery_attempts SET outcome = ?, outcome_evidence = ?, resolved_at = ? WHERE id = ? AND outcome IS NULL")
+            .run(outcome, canonicalJson(evidence), this.ledger.nowIso(), open.id).changes;
+          if (changed !== 1) throw new UserError("This recovery attempt changed while it was being observed. Refresh.", 409);
+          this.ledger.event(id, "funding_recovery", `Recovery ${open.id} resolved as ${outcome}: ${message}`);
+        })();
+        return { attempt_id: open.id, outcome, message };
+      };
+      if (balance >= BigInt(plan.target_atomic))
+        return resolve("funded", { observed_usdc: observed.usdc, target_atomic: plan.target_atomic, agent_id: agent.agent_id, observed_at: this.ledger.nowIso() },
+          "the verified agent balance reaches the signed total. No further funding is needed for this job.");
+      if (!this.d.platform.fundingRecoveryOutcome)
+        return unresolved("The balance has not reached the signed total, and the platform offers no supported read of the attempt's destination. It stays unresolved.");
+      if (balance !== BigInt(plan.credited_atomic))
+        return unresolved("The balance changed since the attempt but has not reached the signed total. Reconcile the original transfer; it stays unresolved.");
+      let report: unknown;
+      try {
+        report = await this.d.platform.fundingRecoveryOutcome(Object.freeze({ ...this.recoveryBinding(row, terms, agent.agent_id),
+          correlation_id: plan.destination.correlation_id, allocation_request_id: plan.destination.allocation_request_id }));
+      } catch { return unresolved("The platform could not report the attempt's destination. It stays unresolved."); }
+      const parsed = fundingRecoveryOutcomeSchema.safeParse(report);
+      const now = this.d.now().getTime();
+      if (!parsed.success || parsed.data.correlation_id !== plan.destination.correlation_id || parsed.data.allocation_request_id !== plan.destination.allocation_request_id ||
+          Date.parse(parsed.data.observed_at) > now || now - Date.parse(parsed.data.observed_at) > 300_000 || Date.parse(plan.destination.expires_at) > now)
+        return unresolved("The platform has not confirmed that the attempt's expired destination received nothing. It stays unresolved.");
+      return resolve("not_received", { ...parsed.data, observed_usdc: observed.usdc, credited_atomic: plan.credited_atomic },
+        "the provider reports the expired destination received nothing and the balance is unchanged. A new reviewed recovery may be prepared.");
     });
   }
 
@@ -551,19 +847,19 @@ export class Engine {
 
   private async runLocked(id: string): Promise<RunResult> {
     await this.refreshFrozen(id);
-    const row = this.row(id);
-    const terms = this.terms(row);
+    const row = this.ledger.row(id);
+    const terms = this.ledger.platformTerms(row);
     if (terms.v === 3) throw new UserError("This job requires a builder report and invoice. Propose compensation from its submission.", 409);
     this.requireActive(row, terms);
     await this.followUpLocked(id);
-    const open = this.openJudgment(id);
+    const open = this.ledger.openJudgment(id);
     if (open) {
       // Logged once per open judgment: the merge watcher defers on every tick, and events keep only the last 100.
       const said = this.d.db.query("SELECT 1 FROM events WHERE contract_id = ? AND kind = 'deferred' AND text LIKE ?").get(id, `%(${open.id})%`);
-      if (!said) this.event(id, "deferred", `Agent run deferred: the previous judgment (${open.id}) is still open (waiting on its payout). Nothing was judged or requested; later runs wait quietly until it closes.`);
+      if (!said) this.ledger.event(id, "deferred", `Agent run deferred: the previous judgment (${open.id}) is still open (waiting on its payout). Nothing was judged or requested; later runs wait quietly until it closes.`);
       return { outcome: "deferred", judgment: null, open_judgment: this.openJudgmentView(id, terms), payouts: [] };
     }
-    if (this.attempts(id).some(isOpen) || this.d.db.query("SELECT 1 FROM judgments WHERE contract_id = ? AND outcome = 'disputed' LIMIT 1").get(id)) {
+    if (this.ledger.attempts(id).some(isOpen) || this.d.db.query("SELECT 1 FROM judgments WHERE contract_id = ? AND outcome = 'disputed' LIMIT 1").get(id)) {
       // A business review may be closed as disputed while its original money outcome still holds the slot.
       // Partial late settlement does not authorize the merge watcher to open a new judgment for the remainder.
       return { outcome: "deferred", judgment: null, open_judgment: null, payouts: [] };
@@ -582,43 +878,43 @@ export class Engine {
     }
 
     const runId = `r_${sha256Hex(randomNonce()).slice(0, 12)}`;
-    const now = this.nowIso();
-    const plan = planPayout(terms, completionOf(judgment), this.committedBy(id));
+    const now = this.ledger.nowIso();
+    const plan = planPayout(terms, completionOf(judgment), this.ledger.committedBy(id));
     if (!plan) {
       this.d.db.query("INSERT INTO judgments (id, contract_id, at, json, outcome, closed_at) VALUES (?, ?, ?, ?, 'nothing', ?)").run(runId, id, now, JSON.stringify(judgment), now);
-      this.event(id, "run", `Agent run: nothing new is owed. ${judgment.summary}`);
+      this.ledger.event(id, "run", `Agent run: nothing new is owed. ${judgment.summary}`);
       return { outcome: "nothing", judgment: { ...judgment, id: runId, outcome: "nothing" }, open_judgment: null, payouts: [] };
     }
-    const seq = this.nextSeq(id, "payout");
+    const seq = this.ledger.nextSeq(id, "payout");
     const rid = requestIdFor(row.hash, seq, 1);
     this.d.db.transaction(() => {
       this.d.db.query("INSERT INTO judgments (id, contract_id, at, json, outcome) VALUES (?, ?, ?, ?, 'pending')").run(runId, id, now, JSON.stringify(judgment));
-      this.insertAttempt({ request_id: rid, kind: "payout", contract_id: id, seq, attempt: 1, run_id: runId, recipient: terms.payee.address, amount: plan.amount, lines: plan.lines });
+      this.ledger.insertAttempt({ request_id: rid, kind: "payout", contract_id: id, seq, attempt: 1, run_id: runId, recipient: terms.payee.address, amount: plan.amount, lines: plan.lines });
     })();
     const flagged = openFlags.length ? ` Flagged for the approver: ${openFlags.map((p) => `${p.key} (${p.flags.join(", ")})`).join("; ")}.` : "";
-    this.event(id, "run", `Agent judged the merged work and requests ${usdText(plan.amount)} for ${plan.lines.map((l) => l.deliverable_id).join(", ")}. The platform holds it for the representative's approval.${flagged}`);
-    await this.send(rid);
+    this.ledger.event(id, "run", `Agent judged the merged work and requests ${usdText(plan.amount)} for ${plan.lines.map((l) => l.deliverable_id).join(", ")}. The platform holds it for the representative's approval.${flagged}`);
+    await this.follower.send(rid);
     return {
       outcome: "requested",
-      judgment: { ...judgment, id: runId, outcome: this.judgmentRow(runId)!.outcome },
+      judgment: { ...judgment, id: runId, outcome: this.ledger.judgmentRow(runId)!.outcome },
       open_judgment: this.openJudgmentView(id, terms),
-      payouts: this.attempts(id).filter((a) => a.run_id === runId).map((a) => this.payoutView(a)),
+      payouts: this.ledger.attempts(id).filter((a) => a.run_id === runId).map((a) => this.payoutView(a)),
     };
   }
 
   /** Rep: after a recorded refusal, attempt+1 (re-planned); for a blocked/waiting attempt, re-ask the same id now. */
   async retry(id: string) {
     return this.mutex.run(id, async () => {
-      const j = this.openJudgment(id);
+      const j = this.ledger.openJudgment(id);
       if (!j) throw new UserError("There is no open judgment to retry.", 409);
-      if (this.jobForJudgment(j.id)?.changes) throw new UserError("Changes are pending. Follow and reject the existing payout; do not retry it.", 409);
-      const last = latestAttempt(this.attempts(id).filter((a) => a.run_id === j.id && a.kind === "payout"));
+      if (this.ledger.jobForJudgment(j.id)?.changes) throw new UserError("Changes are pending. Follow and reject the existing payout; do not retry it.", 409);
+      const last = latestAttempt(this.ledger.attempts(id).filter((a) => a.run_id === j.id && a.kind === "payout"));
       if (!last) throw new UserError("The open judgment has no payout yet.", 409);
       if (last.state === "refused") {
-        this.event(id, "retry", `The representative retries after the refusal (${last.code}).`);
+        this.ledger.event(id, "retry", `The representative retries after the refusal (${last.code}).`);
         await this.newAttempt(j, last.seq, last.attempt + 1, false);
       } else if ((last.state === "blocked" && last.code !== "request_conflict") || last.state === "waiting") {
-        await this.send(last.request_id);
+        await this.follower.send(last.request_id);
         await this.advanceJudgment(id);
       } else throw new UserError(`The latest payout is ${last.state}; there is nothing to retry.`, 409);
       return this.view(id);
@@ -628,20 +924,20 @@ export class Engine {
   /** Rep: close the open judgment as dropped. Its PRs are judged again next run. */
   async drop(id: string) {
     return this.mutex.run(id, async () => {
-      const j = this.openJudgment(id);
+      const j = this.ledger.openJudgment(id);
       if (!j) throw new UserError("There is no open judgment to drop.", 409);
-      const open = this.attempts(id).filter((a) => a.run_id === j.id && isOpen(a));
+      const open = this.ledger.attempts(id).filter((a) => a.run_id === j.id && isOpen(a));
       if (open.some((a) => !neverRecorded(a))) throw new UserError("A payout of this judgment is still live. Reject it in the approval instead.", 409);
       // A blocked state can follow an uncertain send and a later preflight failure.
       // Require a fresh, identity-bound absence observation before releasing its commitment.
       for (const a of open) {
-        const status = await this.handleFor(a)?.payoutStatus(a.request_id);
+        const status = await this.follower.handleFor(a)?.payoutStatus(a.request_id);
         if (a.correlation_id || !status?.ok || status.value.requestId !== a.request_id ||
           status.value.state !== "not_found" || status.value.correlationId !== null)
           throw new UserError("The platform has not confirmed this payout was never recorded. Follow its outcome before dropping it.", 409);
       }
       // All open attempts were confirmed absent before any commitment is released.
-      for (const a of open) this.setAttempt(a.request_id, { state: "dropped", retry_at: null });
+      for (const a of open) this.ledger.setAttempt(a.request_id, { state: "dropped", retry_at: null });
       this.closeJudgment(j, "dropped");
       return this.view(id);
     });
@@ -649,28 +945,31 @@ export class Engine {
 
   /** Rep: resolve a failed payout after checking the evidence. */
   async resolve(requestId: string, outcome: PayoutResolution, reason?: string) {
-    const att = this.attempt(requestId);
+    const att = this.ledger.attempt(requestId);
     return this.mutex.run(att.contract_id, async () => {
-      const a = this.attempt(requestId);
+      const a = this.ledger.attempt(requestId);
       if (a.kind !== "payout" || a.state !== "failed" || (a.resolution !== null && a.resolution !== "disputed")) throw new UserError("Only an unresolved or disputed failed payout can be reviewed.", 409);
       if (outcome === "disputed" && a.resolution === "disputed") return this.view(a.contract_id);
       if (outcome !== "arrived" && outcome !== "disputed" &&
           (a.never_executed !== 1 || a.tx_hash !== null || a.refund_tx_hash !== null || a.refunded_amount !== null)) {
         throw new UserError("This job's failed payment remains committed until the platform proves it never executed. Manual review cannot authorize a replacement or release its budget.", 409);
       }
+      // Stored proof can predate a refund, a late transaction or a regressed payout record: release budget only on a confirmation made now.
+      if (outcome !== "arrived" && outcome !== "disputed" && !(await this.follower.confirmNeverExecuted(requestId)))
+        throw new UserError("The platform did not confirm just now that this payment never executed, so it stays committed. Refresh its status and review the evidence before trying again.", 409);
       this.d.db.transaction(() => {
-        this.setAttempt(requestId, { resolution: outcome });
+        this.ledger.setAttempt(requestId, { resolution: outcome });
         const text = { arrived: "the money arrived; it stays paid", reowe: "nothing arrived; it is owed again", rejected: "it was rejected; its work is excluded",
           disputed: "review closed as disputed, awaiting evidence; the amount stays committed, is not counted as paid, and no replacement is authorized" }[outcome];
-        this.event(a.contract_id, "resolve", `The representative reviewed failed payout ${requestId}: ${text}.${reason ? ` ${reason}` : ""}`);
+        this.ledger.event(a.contract_id, "resolve", `The representative reviewed failed payout ${requestId}: ${text}.${reason ? ` ${reason}` : ""}`);
         if (a.run_id) {
-          const j = this.judgmentRow(a.run_id);
+          const j = this.ledger.judgmentRow(a.run_id);
           if (j && outcome === "disputed") this.finalizeJudgmentRecords(j, "disputed");
           else if (j && outcome === "rejected" && (j.outcome === "pending" || j.outcome === "disputed")) this.finalizeJudgmentRecords(j, "rejected");
           else if (j?.outcome === "disputed") {
             // A later explicit resolution resumes the same judgment and invoice, never an invented replacement job.
             this.d.db.query("UPDATE judgments SET outcome = 'pending', closed_at = NULL WHERE id = ? AND outcome = 'disputed'").run(j.id);
-            const job = this.jobForJudgment(j.id);
+            const job = this.ledger.jobForJudgment(j.id);
             if (job) this.d.db.query("UPDATE job_submissions SET state = 'proposed' WHERE id = ?").run(job.id);
           }
         }
@@ -683,20 +982,20 @@ export class Engine {
   // ================================================================ approval votes
 
   async vote(requestId: string, verdict: "approve" | "reject") {
-    const first = this.attempt(requestId);
+    const first = this.ledger.attempt(requestId);
     return this.mutex.run(first.contract_id, async () => {
-      let att = this.attempt(requestId);
+      let att = this.ledger.attempt(requestId);
       if (verdict === "approve") this.requireJobApproval(att);
       // An attack payout is never counted against the scope, so it may only be rejected: its money can't move uncounted.
       if (att.kind === "attack" && verdict === "approve") throw new UserError("A demo attack payout can only be rejected.", 409);
       if (att.state !== "held") throw new UserError(`This payout is ${att.state}, not waiting for approval.`, 409);
       if (!att.approval_id) {
-        await this.fillHeld(att);
-        att = this.attempt(requestId);
+        await this.follower.fillHeld(att);
+        att = this.ledger.attempt(requestId);
       }
       if (!att.approval_id || !att.correlation_id) throw new UserError("The platform has not shown this approval yet. Try again shortly.", 409);
-      const row = this.row(att.contract_id);
-      const terms = this.terms(row);
+      const row = this.ledger.row(att.contract_id);
+      const terms = this.ledger.platformTerms(row);
       const a = this.onboarding.agentRow(row.organization)!;
       const action = { type: "approval_vote" as const, approvalId: att.approval_id, verdict, correlationId: att.correlation_id };
       // A platform confirmation can be signed outside this app. Reconcile its original owner intent before deciding
@@ -714,20 +1013,20 @@ export class Engine {
         throw new UserError("A platform confirmation may already have been signed. Follow this payout's original identity before preparing another vote.", 409);
       // Only never-submitted preparations can be superseded; stale wallet prompts can no longer submit them here.
       for (const s of pending) if (s !== same)
-        this.d.db.query("UPDATE owner_steps SET state = 'expired', failure_code = 'superseded', updated_at = ? WHERE correlation_id = ? AND state = 'prepared'").run(this.nowIso(), s.correlation_id);
+        this.d.db.query("UPDATE owner_steps SET state = 'expired', failure_code = 'superseded', updated_at = ? WHERE correlation_id = ? AND state = 'prepared'").run(this.ledger.nowIso(), s.correlation_id);
       const step = same ?? await this.onboarding.prepare(att.contract_id, a, action, { request_id: requestId, verdict });
       const payment = step.payment_terms ? (JSON.parse(step.payment_terms) as { terms: { recipient: string; asset: string; amount: string; chain?: string } | null }) : null;
       const t = payment?.terms ?? null;
       if (verdict === "approve") {
         const ok = !!t && t.recipient === terms.payee.address && t.recipient === att.recipient && t.asset === terms.asset && t.amount === att.amount_atomic && (t.chain === undefined || t.chain === "near");
         if (!ok) {
-          this.d.db.query("UPDATE owner_steps SET state = 'failed', failure_code = 'terms_mismatch', updated_at = ? WHERE correlation_id = ?").run(this.nowIso(), step.correlation_id);
-          this.event(att.contract_id, "alert", `Refused to approve ${requestId}: the platform's proven terms ${t ? `${t.amount} to ${t.recipient}` : "(none)"} don't match ${att.amount_atomic} to ${terms.payee.address}.`);
+          this.d.db.query("UPDATE owner_steps SET state = 'failed', failure_code = 'terms_mismatch', updated_at = ? WHERE correlation_id = ?").run(this.ledger.nowIso(), step.correlation_id);
+          this.ledger.event(att.contract_id, "alert", `Refused to approve ${requestId}: the platform's proven terms ${t ? `${t.amount} to ${t.recipient}` : "(none)"} don't match ${att.amount_atomic} to ${terms.payee.address}.`);
           this.log(`ALERT approve-terms mismatch for ${requestId}`);
           throw new UserError("The platform's terms for this approval don't match the payout. Not approving.", 409);
         }
       }
-      this.setAttempt(requestId, { vote_correlation_id: step.correlation_id });
+      this.ledger.setAttempt(requestId, { vote_correlation_id: step.correlation_id });
       const view = stepView(step, a.owner, verdict === "approve" ? "Approve this payout" : "Reject this payout");
       return {
         correlation_id: step.correlation_id,
@@ -735,171 +1034,20 @@ export class Engine {
         confirm: view.kind === "owner_step" ? (view.confirm ?? null) : null,
         dao: view.kind === "owner_step" ? (view.dao ?? null) : null,
         terms: t,
-        flags: this.payoutView(this.attempt(requestId)).prs.filter((p) => p.flags.length > 0),
+        flags: this.payoutView(this.ledger.attempt(requestId)).prs.filter((p) => p.flags.length > 0),
         summary: step.summary,
       };
     });
   }
 
-  // ================================================================ request, follow-up, judgment lifecycle
-
-  /** Ask the platform for this attempt's request id. Rows are always written before this is called. */
-  private async send(requestId: string) {
-    const att = this.attempt(requestId);
-    const row = this.row(att.contract_id);
-    const terms = this.terms(row);
-    // A change request may stop a request only before sending or after status proved not_found.
-    if (this.jobForJudgment(att.run_id)?.changes) return this.transition(att, { state: "dropped", code: "changes_requested", failKind: null });
-    const a = this.onboarding.agentRow(row.organization);
-    if (!a?.agent) return this.transition(att, { state: "blocked", code: "setup", failKind: "blocked", retryAfterMs: this.d.config.statusPollMs });
-    let expected: { revision: number; digest: string } | null = null;
-    if (att.kind === "payout") {
-      const pre = await this.preflight(row, terms, a);
-      if ("state" in pre) {
-        // Said once per distinct problem, not on every re-check.
-        if (pre.alert && att.state === pre.state && att.code === pre.code && this.lastAlert(att.contract_id) === pre.alert) delete pre.alert;
-        return this.transition(att, pre);
-      }
-      expected = pre.expected;
-    } else {
-      // Attacks: a compromised server skips Paperwork's checks; only the platform stands in the way.
-      const o = await this.onboarding.handle(a).overview();
-      expected = o.ok && o.value.revision !== null && o.value.digest !== null ? { revision: o.value.revision, digest: o.value.digest } : { revision: a.policy_revision ?? 0, digest: a.policy_digest ?? "" };
-    }
-    const res = await this.onboarding.handle(a).requestPayout({ requestId, recipient: att.recipient, amount: att.amount_atomic, expectedPolicy: expected });
-    await this.apply(att, res);
-  }
-
-  /**
-   * Before every payout request: active, not near the end, and the whole live policy matches what Paperwork signed.
-   * Any other policy, whichever revision it is, blocks the request (`policy_mismatch`) until it matches again.
-   */
-  private async preflight(row: ContractRow, terms: Terms, a: PlatformAgentRow): Promise<{ expected: { revision: number; digest: string } } | Transition> {
-    const blocked = (code: string): Transition => ({ state: "blocked", code, failKind: "blocked", retryAfterMs: this.d.config.statusPollMs });
-    if (a.stage === "needs_grant" && a.policy_revision !== null) return blocked("grant_expired"); // waiting for the re-issued grant
-    if (a.stage !== "ready") return blocked("setup");
-    if (this.d.now().getTime() >= Date.parse(endInstant(terms)) - END_MARGIN_MS) return blocked("contract_ending");
-    const o = await this.onboarding.handle(a).overview();
-    if (!o.ok) return row.frozen ? blocked("frozen") : { state: "waiting", code: "overview_unavailable", failKind: null, retryAfterMs: 60_000 };
-    this.syncFrozen(row, o.value);
-    const problem = policyProblem(o.value, terms);
-    if (problem) {
-      if (problem.code === "policy_mismatch") return { ...blocked(problem.code), alert: `${problem.detail} Nothing is requested until it matches again.` };
-      return problem.waiting ? { state: "waiting", code: problem.code, failKind: null, retryAfterMs: 60_000 } : blocked(problem.code);
-    }
-    if (o.value.revision === null || o.value.digest === null) return { state: "waiting", code: "policy_not_in_force", failKind: null, retryAfterMs: 60_000 };
-    if (!liveGrant(o.value, this.d.now().getTime() + GRANT_MARGIN_MS)) {
-      this.onboarding.grantExpired(row.id, a);
-      return blocked("grant_expired");
-    }
-    if (o.value.revision !== a.policy_revision || o.value.digest !== a.policy_digest) {
-      // A new revision that still matches the signed terms in full: record it as the reviewed one.
-      this.onboarding.setAgent(a.organization, { policy_revision: o.value.revision, policy_digest: o.value.digest });
-      this.event(row.id, "policy", `Policy revision ${o.value.revision} still matches the signed terms in full; Paperwork continues under it.`);
-    }
-    return { expected: { revision: o.value.revision, digest: o.value.digest } };
-  }
-
-  private async apply(att: AttemptRow, res: Res<PayoutAnswer>) {
-    if (!res.ok) return this.transition(att, fromFail(res, this.d.config.statusPollMs));
-    if (res.value.requestId !== att.request_id ||
-      (att.correlation_id !== null && res.value.correlationId !== null && res.value.correlationId !== att.correlation_id)) {
-      this.log(`ALERT ${att.request_id}: ignored payout answer with mismatched request or payment identity`);
-      return;
-    }
-    // A recorded payment cannot become an unsent request. Observe its original correlation;
-    // a regressed request record is neither non-execution proof nor permission to send again.
-    if (att.correlation_id && (res.value.state === "refused" || res.value.state === "not_found")) {
-      const payment = await this.handleFor(att)?.paymentStatus(att.correlation_id);
-      if (payment?.ok && payment.value.status === "SUCCESS")
-        return this.transition(att, { state: "paid", code: null, failKind: null }, payment);
-      if (payment?.ok && (payment.value.status === "FAILED" || payment.value.status === "REFUNDED"))
-        return this.transition(att, { state: "failed", code: payment.value.failureCode, failKind: null, neverExecuted: false }, payment);
-      return;
-    }
-    const t = fromAnswer(res.value);
-    if (t.reask) return this.send(att.request_id); // never recorded: the same id again
-    await this.transition(att, t);
-  }
-
-  /** Record a transition, then fetch what the new state needs (approval id, evidence). */
-  private async transition(att: AttemptRow, t: Transition, observedPayment?: Res<PaymentStatus>) {
-    const fields: Partial<AttemptRow> = {
-      state: t.state,
-      code: t.code,
-      fail_kind: t.failKind,
-      retry_at: t.retryAfterMs !== undefined ? new Date(this.d.now().getTime() + t.retryAfterMs).toISOString() : null,
-    };
-    if (t.correlationId) fields.correlation_id = t.correlationId;
-    if (t.neverExecuted !== undefined) fields.never_executed = t.neverExecuted ? 1 : 0;
-    if (t.state === "paid") fields.never_executed = 0;
-    if (t.failureCode !== undefined) fields.failure_code = t.failureCode;
-    this.setAttempt(att.request_id, fields);
-    let cur = this.attempt(att.request_id);
-    const h = this.handleFor(cur);
-    if (cur.state === "held" && !cur.approval_id) await this.fillHeld(cur);
-    if ((cur.state === "paid" || cur.state === "failed") && cur.correlation_id && h) {
-      const ps = observedPayment ?? await h.paymentStatus(cur.correlation_id);
-      const ev = ps.ok ? ps.value.evidence : null;
-      const txHash = ev?.txHash ?? ev?.destinationTxHash ?? cur.tx_hash;
-      const refundTxHash = ev?.refundTxHash ?? cur.refund_tx_hash;
-      // Once observed, refund counterevidence must survive omitted fields and unavailable later reads.
-      const refundedAmount = cur.refunded_amount ?? ev?.refundedAmount ?? null;
-      const patch: Partial<AttemptRow> = { tx_hash: txHash, refund_tx_hash: refundTxHash, refunded_amount: refundedAmount, failure_code: (ps.ok ? ps.value.failureCode : null) ?? cur.failure_code };
-      if (cur.state === "failed") {
-        if (ps.ok && ps.value.status === "SUCCESS") {
-          patch.state = "paid";
-          patch.never_executed = 0;
-        } else {
-          const consistent = !ps.ok || ps.value.status === "FAILED";
-          const proof = cur.never_executed === 1 && consistent && txHash === null && refundTxHash === null && refundedAmount === null;
-          if (!proof) patch.never_executed = 0;
-          // A disputed closure keeps its monetary hold until the agency explicitly reviews newly arrived
-          // non-execution evidence. A later successful payment is handled above under the same original identity.
-          patch.state = cur.resolution === "disputed" ? "failed" : classifyFailed(cur.vote, txHash, proof);
-        }
-      }
-      this.setAttempt(cur.request_id, patch);
-      cur = this.attempt(cur.request_id);
-    }
-    if (t.alert) {
-      this.event(cur.contract_id, "alert", t.alert);
-      this.log(`ALERT ${cur.request_id}: ${t.alert}`);
-    }
-    if (cur.state !== att.state || cur.code !== att.code) this.event(cur.contract_id, eventKind(cur.state), this.stateText(cur));
-    if (cur.state === "blocked" && cur.code === "request_conflict" && h) await this.readConflict(cur, h);
-  }
-
-  /**
-   * request_conflict: the platform recorded this id with other terms. Read what that record became and show it.
-   * Information only: the attempt stays blocked and committed, and is never re-sent.
-   */
-  private async readConflict(att: AttemptRow, h: AgentHandle) {
-    const st = await h.payoutStatus(att.request_id);
-    this.setAttempt(att.request_id, { retry_at: new Date(this.d.now().getTime() + this.d.config.statusPollMs).toISOString() });
-    if (!st.ok) return;
-    const record = `${st.value.state}${st.value.status ? ` (${st.value.status})` : ""}`;
-    if (record === att.platform_record) return;
-    this.setAttempt(att.request_id, { platform_record: record });
-    this.event(att.contract_id, "payout", `The platform's own record under ${att.request_id} (other terms) reads ${record}. Paperwork keeps its amount counted and never re-sends this id.`);
-  }
-
-  private async fillHeld(att: AttemptRow) {
-    const h = this.handleFor(att);
-    if (!h || !att.correlation_id) return;
-    const held = await h.held();
-    const mine = held.ok ? held.value.find((x) => x.correlationId === att.correlation_id) : undefined;
-    const ps = await h.paymentStatus(att.correlation_id);
-    const approvalId = mine?.approvalId ?? (ps.ok ? ps.value.approvalId : null);
-    this.setAttempt(att.request_id, { approval_id: approvalId ?? null, approval_expires_at: ps.ok ? ps.value.expiresAt : null });
-  }
+  // ================================================================ follow-up and judgment lifecycle
 
   /** Follow every live attempt of a contract, then move its open judgment along. Caller holds the mutex. */
   private async followUpLocked(id: string) {
-    for (const att of this.attempts(id)) {
+    for (const att of this.ledger.attempts(id)) {
       if (OPEN_STATES.includes(att.state) || (att.state === "failed" && (att.resolution === null || att.resolution === "disputed"))) {
         try {
-          await this.followAttempt(att);
+          await this.follower.follow(att);
         } catch (err) {
           this.log(`follow ${att.request_id}: ${errText(err)}`);
         }
@@ -909,66 +1057,14 @@ export class Engine {
     this.reconcileDisputedJudgments(id);
   }
 
-  private async followAttempt(att: AttemptRow) {
-    // A DAO signature may have been submitted outside this app or while its process was stopped.
-    const daoSteps = this.d.db.query("SELECT correlation_id FROM owner_steps WHERE request_id = ? AND standard = 'dao' AND state IN ('prepared','submitted','unknown')")
-      .all(att.request_id) as { correlation_id: string }[];
-    for (const step of daoSteps) await this.onboarding.pollStep(step.correlation_id);
-    att = this.attempt(att.request_id);
-    const h = this.handleFor(att);
-    if (!h) return;
-    const now = this.d.now().getTime();
-    if (att.state === "blocked" && att.code === "request_conflict") {
-      if (!att.retry_at || Date.parse(att.retry_at) <= now) await this.readConflict(att, h);
-      return; // Other terms under this identity must never become this job's payment or cancellation.
-    }
-    if (this.jobForJudgment(att.run_id)?.changes && (att.state === "blocked" || att.state === "waiting")) {
-      // Even preflight failures are observed first: no cancellation inference from an error or timeout.
-      const status = await h.payoutStatus(att.request_id);
-      if (status.ok) return this.apply(att, status);
-      return;
-    }
-    if (att.state === "waiting" || att.state === "blocked") {
-      if (att.retry_at && Date.parse(att.retry_at) > now) return;
-      return this.send(att.request_id); // the same id, never a new one
-    }
-    const st = await h.payoutStatus(att.request_id);
-    if (st.ok) {
-      const changedBinding = st.value.requestId !== att.request_id ||
-        (att.correlation_id !== null && st.value.correlationId !== null && st.value.correlationId !== att.correlation_id);
-      if (att.state === "failed" && (changedBinding || (st.value.state !== "failed" && st.value.state !== "succeeded"))) {
-        // A recorded failure cannot regress to a pre-execution refusal or missing/live record and free its hold.
-        // Revoke stale proof and observe the original payment correlation; late success can still settle it.
-        return this.transition(att, { state: "failed", code: att.code, failKind: null, neverExecuted: false });
-      }
-      if (changedBinding || (att.correlation_id && (st.value.state === "refused" || st.value.state === "not_found"))) return this.apply(att, st);
-      if (st.value.state === "not_found") return this.send(att.request_id);
-      const mapped = fromAnswer(st.value).state;
-      if (mapped === att.state && (mapped === "held" || mapped === "processing" || mapped === "unknown")) {
-        if (att.state === "held" && !att.approval_id) await this.fillHeld(att);
-        return;
-      }
-      return this.apply(att, st);
-    }
-    // SDK 0.5.6 reads payouts/status under read; this fallback follows older/incompatible gateways by correlation.
-    if (st.kind === "forbidden" && att.correlation_id) {
-      const ps = await h.paymentStatus(att.correlation_id);
-      if (!ps.ok) return;
-      if (ps.value.status === "SUCCESS") return this.transition(att, { state: "paid", code: null, failKind: null }, ps);
-      if (att.state === "failed" && ps.value.status !== "FAILED")
-        return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null, neverExecuted: false }, ps);
-      if (ps.value.status === "FAILED" || ps.value.status === "REFUNDED") return this.transition(att, { state: "failed", code: ps.value.failureCode, failKind: null }, ps);
-    }
-  }
-
   /** Move the open judgment: close it, request the next seq, re-ask after reowe, or one automatic retry. */
   private async advanceJudgment(id: string) {
     for (let guard = 0; guard < 5; guard++) {
-      const j = this.openJudgment(id);
+      const j = this.ledger.openJudgment(id);
       if (!j) return;
-      const terms = this.terms(this.row(id));
-      const mine = this.attempts(id).filter((a) => a.run_id === j.id && a.kind === "payout");
-      if (this.jobForJudgment(j.id)?.changes) {
+      const terms = this.ledger.terms(this.ledger.row(id));
+      const mine = this.ledger.attempts(id).filter((a) => a.run_id === j.id && a.kind === "payout");
+      if (this.ledger.jobForJudgment(j.id)?.changes) {
         if (mine.some(isOpen)) return;
         // An off-app approval may have raced the cancellation. Never describe money that moved as cancelled.
         if (mine.some(isCommitted)) {
@@ -989,13 +1085,13 @@ export class Engine {
           this.closeJudgment(j, step.outcome);
           return;
         case "next_seq":
-          if (!(await this.newAttempt(j, this.nextSeq(id, "payout"), 1, false))) return;
+          if (!(await this.newAttempt(j, this.ledger.nextSeq(id, "payout"), 1, false))) return;
           break;
         case "reowe":
           if (!(await this.newAttempt(j, last!.seq, last!.attempt + 1, false))) return;
           break;
         case "auto_retry":
-          this.event(id, "retry", `The platform refused with ${last!.code}; Paperwork re-read the policy and retries once.`);
+          this.ledger.event(id, "retry", `The platform refused with ${last!.code}; Paperwork re-read the policy and retries once.`);
           if (!(await this.newAttempt(j, last!.seq, last!.attempt + 1, true))) return;
           break;
       }
@@ -1004,20 +1100,20 @@ export class Engine {
 
   /** Plan and write a new attempt for the open judgment (rows first), then send it. False when nothing is owed. */
   private async newAttempt(j: JudgmentRow, seq: number, attempt: number, auto: boolean): Promise<boolean> {
-    const row = this.row(j.contract_id);
-    const terms = this.terms(row);
-    const plan = planPayout(terms, completionOf(JSON.parse(j.json) as Judgment), this.committedBy(j.contract_id), this.jobBudgetRemaining(j));
+    const row = this.ledger.row(j.contract_id);
+    const terms = this.ledger.platformTerms(row);
+    const plan = planPayout(terms, completionOf(JSON.parse(j.json) as Judgment), this.ledger.committedBy(j.contract_id), this.jobBudgetRemaining(j));
     if (!plan) {
-      const mine = this.attempts(j.contract_id).filter((a) => a.run_id === j.id);
+      const mine = this.ledger.attempts(j.contract_id).filter((a) => a.run_id === j.id);
       this.closeJudgment(j, mine.some(isPaid) ? "approved" : "nothing");
       return false;
     }
     const rid = requestIdFor(row.hash, seq, attempt);
     this.d.db.transaction(() => {
-      this.insertAttempt({ request_id: rid, kind: "payout", contract_id: j.contract_id, seq, attempt, run_id: j.id, recipient: terms.payee.address, amount: plan.amount, lines: plan.lines, auto });
+      this.ledger.insertAttempt({ request_id: rid, kind: "payout", contract_id: j.contract_id, seq, attempt, run_id: j.id, recipient: terms.payee.address, amount: plan.amount, lines: plan.lines, auto });
     })();
-    this.event(j.contract_id, "request", `Requesting ${usdText(plan.amount)} for ${plan.lines.map((l) => l.deliverable_id).join(", ")} (${rid}).`);
-    await this.send(rid);
+    this.ledger.event(j.contract_id, "request", `Requesting ${usdText(plan.amount)} for ${plan.lines.map((l) => l.deliverable_id).join(", ")} (${rid}).`);
+    await this.follower.send(rid);
     return true;
   }
 
@@ -1028,16 +1124,16 @@ export class Engine {
   }
 
   private finalizeJudgmentRecords(j: JudgmentRow, outcome: "approved" | "rejected" | "dropped" | "nothing" | "disputed") {
-    const now = this.nowIso();
+    const now = this.ledger.nowIso();
     this.d.db.query("UPDATE judgments SET outcome = ?, closed_at = ? WHERE id = ? AND outcome IN ('pending', 'disputed')").run(outcome, now, j.id);
-    const job = this.jobForJudgment(j.id);
+    const job = this.ledger.jobForJudgment(j.id);
     if (job) {
-      const mine = this.attempts(j.contract_id).filter((a) => a.run_id === j.id);
+      const mine = this.ledger.attempts(j.contract_id).filter((a) => a.run_id === j.id);
       const confirmed = mine.some((a) => a.state === "paid") && mine.filter(isCommitted).every((a) => a.state === "paid");
       const cancelled = !!job.changes && mine.every((a) => !isCommitted(a));
       const state = outcome === "disputed" ? "disputed" : cancelled ? "changes_requested" : outcome === "approved" && confirmed ? "settled" : "closed";
       this.d.db.query("UPDATE job_submissions SET state = ? WHERE id = ?").run(state, job.id);
-      this.event(j.contract_id, "submission", `Submission ${job.id}: ${state}. ${cancelled ? "No live payout remains; the builder can submit a new immutable revision." : "Approval and payment evidence remain linked through the judgment and request IDs."}`);
+      this.ledger.event(j.contract_id, "submission", `Submission ${job.id}: ${state}. ${cancelled ? "No live payout remains; the builder can submit a new immutable revision." : "Approval and payment evidence remain linked through the judgment and request IDs."}`);
       return;
     }
     const judgment = JSON.parse(j.json) as Judgment;
@@ -1045,16 +1141,16 @@ export class Engine {
     if (outcome === "approved") {
       for (const p of eligible)
         this.d.db.query("INSERT INTO pr_reviews (contract_id, pr_key, verdict, at) VALUES (?, ?, 'approved', ?) ON CONFLICT(contract_id, pr_key) DO UPDATE SET verdict = 'approved', at = excluded.at").run(j.contract_id, p.key, now);
-      this.event(j.contract_id, "judgment", "Judgment approved: every payout of it was approved and paid. Its completion now carries forward.");
+      this.ledger.event(j.contract_id, "judgment", "Judgment approved: every payout of it was approved and paid. Its completion now carries forward.");
     } else if (outcome === "rejected") {
       const excluded: string[] = [];
       for (const p of eligible) {
         const r = this.d.db.query("INSERT INTO pr_reviews (contract_id, pr_key, verdict, at) VALUES (?, ?, 'rejected', ?) ON CONFLICT(contract_id, pr_key) DO NOTHING").run(j.contract_id, p.key, now);
         if (r.changes > 0) excluded.push(p.key);
       }
-      this.event(j.contract_id, "judgment", `Judgment rejected. ${excluded.length ? `Excluded from future runs: ${excluded.join(", ")}.` : "No new pull requests to exclude."} Money already paid stays paid.`);
+      this.ledger.event(j.contract_id, "judgment", `Judgment rejected. ${excluded.length ? `Excluded from future runs: ${excluded.join(", ")}.` : "No new pull requests to exclude."} Money already paid stays paid.`);
     } else if (outcome === "dropped") {
-      this.event(j.contract_id, "judgment", "Judgment dropped by the representative. Its pull requests will be judged again on the next run.");
+      this.ledger.event(j.contract_id, "judgment", "Judgment dropped by the representative. Its pull requests will be judged again on the next run.");
     }
   }
 
@@ -1063,36 +1159,50 @@ export class Engine {
   private reconcileDisputedJudgments(id: string) {
     const rows = this.d.db.query("SELECT * FROM judgments WHERE contract_id = ? AND outcome = 'disputed'").all(id) as JudgmentRow[];
     for (const j of rows) {
-      const mine = this.attempts(id).filter(a => a.kind === "payout" && a.run_id === j.id);
+      const mine = this.ledger.attempts(id).filter(a => a.kind === "payout" && a.run_id === j.id);
       if (!mine.some(a => a.state === "paid") || mine.filter(isCommitted).some(a => a.state !== "paid")) continue;
-      const job = this.jobForJudgment(j.id);
+      const job = this.ledger.jobForJudgment(j.id);
       const confirmed = mine.filter(a => a.state === "paid").reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
-      const complete = job ? confirmed >= BigInt(job.proposed_atomic) : this.owedTotal(id, this.terms(this.row(id)), j) === 0n;
+      const complete = job ? confirmed >= BigInt(job.proposed_atomic) : this.owedTotal(id, this.ledger.terms(this.ledger.row(id)), j) === 0n;
       if (!complete) continue;
       this.d.db.transaction(() => {
         this.finalizeJudgmentRecords(j, "approved");
-        this.event(id, "resolve", `Late platform evidence confirmed the full disputed proposal ${j.id} under its original payment identities. No replacement payment was requested.`);
+        this.ledger.event(id, "resolve", `Late platform evidence confirmed the full disputed proposal ${j.id} under its original payment identities. No replacement payment was requested.`);
       })();
     }
   }
 
   // ================================================================ contractor verification
 
-  async publicVerification(id: string): Promise<PublicVerificationView> {
-    const row = this.row(id);
+  /**
+   * Anonymous reads share one recent result per job, so public traffic cannot multiply platform and chain reads.
+   * Concurrent callers await the same check; a failed check is not retained.
+   */
+  publicVerification(id: string): Promise<PublicVerificationView> {
+    this.ledger.row(id); // unknown jobs are refused before anything is cached
+    const now = this.d.now().getTime();
+    const cached = this.publicChecks.get(id);
+    if (cached && now - cached.at < PUBLIC_VERIFICATION_TTL_MS) return cached.view;
+    const view = this.checkPublicly(id);
+    this.publicChecks.set(id, { at: now, view });
+    view.catch(() => { if (this.publicChecks.get(id)?.view === view) this.publicChecks.delete(id); });
+    return view;
+  }
+
+  private async checkPublicly(id: string): Promise<PublicVerificationView> {
+    const row = this.ledger.row(id);
     const result = await this.verify(id);
     const checks: PublicVerificationView["checks"] = {};
     for (const key of PUBLIC_VERIFICATION_CHECKS) {
       const check = result.checks.find((item) => item.id === key);
       if (check) checks[key] = check.ok;
     }
-    return { terms_hash: row.hash, workflow_version: this.terms(row).v, overall: result.overall, checks, checked_at: this.d.now().toISOString() };
+    return { terms_hash: row.hash, workflow_version: this.ledger.terms(row).v, overall: result.overall, checks, checked_at: this.d.now().toISOString() };
   }
 
   async verify(id: string): Promise<VerifyView> {
-    const row = this.row(id);
-    const terms = this.terms(row);
-    const expected = expectations(terms);
+    const row = this.ledger.row(id);
+    const terms = this.ledger.terms(row);
     const checks: VerifyView["checks"] = [];
     checks.push({ id: "terms", label: "Terms hash matches the terms", ok: termsHash(terms) === row.hash });
     for (const role of ["representative", "contractor"] as const) {
@@ -1100,6 +1210,14 @@ export class Engine {
       const ok = !!s && verifyNep413({ message: termsSigningMessage(row.hash, row.signing_recipient), nonce: nonceFromString(s.nonce), recipient: row.signing_recipient }, s) && (await this.d.chain.isFullAccessKey(s.account_id, s.public_key));
       checks.push({ id: `sig-${role}`, label: `${role === "representative" ? "Representative" : "Contractor"} signature verifies with a full-access key`, ok, detail: s?.account_id });
     }
+    if (isMarketSettled(terms)) {
+      // No platform agent or policy exists; the Market holds and releases the awarded price.
+      let status: string | null = null;
+      try { status = this.d.marketJobStatus ? await this.d.marketJobStatus(terms.market_source.job_id) : null; } catch { status = null; }
+      checks.push({ id: "market", label: "The awarded Agent Market job is readable", ok: status !== null, detail: status ?? "The Market job could not be read." });
+      return { overall: checks.every((c) => c.ok) ? "green" : "red", checks, expected: null, observed: null, consents: [] };
+    }
+    const expected = expectations(terms);
     const a = this.onboarding.agentRow(row.organization);
     let observed: Overview | null = null;
     let consents: VerifyView["consents"] = [];
@@ -1115,7 +1233,7 @@ export class Engine {
     }
     const p = observed.policy;
     const now = this.d.now().getTime();
-    const largest = largestAtomic(terms);
+    const cap = capAtomic(terms);
     const payoutConsent = consents.find((c) => c.id === a!.payout_consent_id) ?? consents.find((c) => c.scopes.includes("payout") && !c.revoked);
     const grant = liveGrant(observed, now);
     checks.push(
@@ -1123,18 +1241,18 @@ export class Engine {
       { id: "actions", label: "The agent can only withdraw", ok: !!p && p.actions.length === 1 && p.actions[0] === "withdraw", detail: p ? p.actions.join(", ") : undefined },
       { id: "assets", label: "USDC is the only asset", ok: !!p && Array.isArray(p.assets) && p.assets.length === 1 && p.assets[0] === terms.asset },
       { id: "payee", label: `Withdrawals go only to ${terms.payee.address}`, ok: !!p && p.withdrawals.length === 1 && p.withdrawals[0]?.toLowerCase() === terms.payee.address, detail: p?.withdrawals.join(", ") },
-      { id: "cap", label: "No single payment above the largest deliverable", ok: p?.limits.per_transaction?.[terms.asset] === largest, detail: p?.limits.per_transaction?.[terms.asset] },
+      { id: "cap", label: `No single payment above the ${capsAtScope(terms) ? "scope total" : "largest deliverable"}`, ok: p?.limits.per_transaction?.[terms.asset] === cap, detail: p?.limits.per_transaction?.[terms.asset] },
       { id: "approval", label: terms.v === 3 && terms.agency_owner ? "Every payout waits for the DAO's approval" : "Every payout waits for the representative's approval", ok: !!p?.owner_approval },
       { id: "frozen", label: "The agent is not frozen", ok: !!p && !p.frozen },
       { id: "grant", label: "A live payout grant exists", ok: !!grant, detail: grant ? `The platform chose its expiry: ${grant.expiresAt}` : undefined },
       {
         id: "consent",
-        label: "Paperwork's payout access ends at or before the contract end",
-        ok: !!payoutConsent && !payoutConsent.revoked && Date.parse(payoutConsent.expiresAt) > now && Date.parse(payoutConsent.expiresAt) <= Date.parse(endInstant(terms)),
+        label: `Paperwork's payout access ends at or before the ${payoutEndInstant(terms) === endInstant(terms) ? "contract end" : "end of the signed review window"}`,
+        ok: !!payoutConsent && !payoutConsent.revoked && Date.parse(payoutConsent.expiresAt) > now && Date.parse(payoutConsent.expiresAt) <= Date.parse(payoutEndInstant(terms)),
         detail: payoutConsent?.expiresAt,
       },
     );
-    const paid = this.attempts(id).filter(isPaid).reduce((n, x) => n + BigInt(x.amount_atomic), 0n);
+    const paid = this.ledger.attempts(id).filter(isPaid).reduce((n, x) => n + BigInt(x.amount_atomic), 0n);
     const balance = BigInt(observed.usdc || "0");
     checks.push(
       { id: "funded", label: "Paid plus balance against the scope total (information: the company could deposit more)", ok: paid + balance <= BigInt(totalAtomic(terms)), info: true, detail: `paid ${usdText(paid)} + balance ${usdText(balance)} of ${usdText(totalAtomic(terms))}` },
@@ -1151,11 +1269,11 @@ export class Engine {
     if (!SCENARIOS.includes(scenario)) throw new UserError("Unknown scenario", 404);
     if (this.d.platform.mode === "remote" && !this.d.config.stackDir) throw new UserError("Attacks run only against the platform stand-in or a local stack, never a real deployment.", 403);
     return this.mutex.run(id, async () => {
-      const row = this.row(id);
-      const terms = this.terms(row);
+      const row = this.ledger.row(id);
+      const terms = this.ledger.platformTerms(row);
       const a = this.onboarding.agentRow(row.organization);
       if (!a || a.stage !== "ready") throw new UserError("Set up the contract's agent first.");
-      const largest = BigInt(largestAtomic(terms));
+      const largest = BigInt(capAtomic(terms));
       const one = toAtomic("1", USDC_DECIMALS);
       let recipient = terms.payee.address;
       let amount = one;
@@ -1168,12 +1286,12 @@ export class Engine {
           break;
         case "overpay":
           amount = largest + one;
-          story = `Pay ${usdText(amount)} in one payment; the largest deliverable is worth ${usdText(largest)}.`;
+          story = `Pay ${usdText(amount)} in one payment; the per-payment cap is ${usdText(largest)}.`;
           break;
         case "after_end":
-          if (this.d.now().getTime() <= Date.parse(endInstant(terms)))
+          if (this.d.now().getTime() <= Date.parse(payoutEndInstant(terms)))
             return { scenario, ready: false, story: "Pay $1.00 after the contract ended.", hint: "Fast-forward the clock past the end date, then try again." };
-          story = `Pay $1.00 on ${this.nowIso().slice(0, 10)}, after the contract ended on ${terms.end}.`;
+          story = `Pay $1.00 on ${this.ledger.nowIso().slice(0, 10)}, after the contract ended on ${terms.end}.`;
           break;
         case "injected": {
           const o = await this.onboarding.handle(a).overview();
@@ -1181,22 +1299,22 @@ export class Engine {
           amount = balance < largest ? balance : largest;
           if (amount <= 0n) return { scenario, ready: false, story: "A fooled judge asks for an in-cap payment.", hint: "The wallet has no balance left to attack." };
           story = `A pull request hides instructions for the AI reviewer. Suppose the judge is fooled and asks for ${usdText(amount)}, inside every limit.`;
-          extra = { pull_request: injectedPullRequest(terms.repos[0]!, terms.contractor.github, this.nowIso()) };
+          extra = { pull_request: injectedFor(terms, this.ledger.nowIso()) };
           break;
         }
       }
-      const seq = this.nextSeq(id, "attack");
+      const seq = this.ledger.nextSeq(id, "attack");
       const rid = attackIdFor(scenario, sha256Hex(randomNonce()));
       this.d.db.transaction(() => {
-        this.insertAttempt({ request_id: rid, kind: "attack", contract_id: id, seq, attempt: 1, run_id: null, recipient, amount, lines: [], scenario });
+        this.ledger.insertAttempt({ request_id: rid, kind: "attack", contract_id: id, seq, attempt: 1, run_id: null, recipient, amount, lines: [], scenario });
       })();
-      await this.send(rid);
-      const att = this.attempt(rid);
+      await this.follower.send(rid);
+      const att = this.ledger.attempt(rid);
       const outcome: AttackReport["outcome"] =
         att.state === "refused" ? "refused" : att.fail_kind === "forbidden" ? "forbidden" : att.state === "held" ? "held" : att.state === "blocked" ? "blocked" : att.state === "unknown" ? "unknown" : "allowed";
       const view = this.payoutView(att);
       const note = outcome === "held" ? "NOT STOPPED by policy — the approval is the second layer. Reject it." : undefined;
-      this.event(id, "attack", `Attack "${scenario}": ${outcome === "held" ? "NOT STOPPED by policy; held for the representative's approval" : outcome === "allowed" ? "NOT STOPPED" : `stopped (${att.code})`}.`);
+      this.ledger.event(id, "attack", `Attack "${scenario}": ${outcome === "held" ? "NOT STOPPED by policy; held for the representative's approval" : outcome === "allowed" ? "NOT STOPPED" : `stopped (${att.code})`}.`);
       return { scenario, ready: true, story, request: { recipient, amount_usd: usdOf(amount) }, outcome, code: att.code, clause: view.clause, note, payout: view, ...extra };
     });
   }
@@ -1204,28 +1322,30 @@ export class Engine {
   // ================================================================ views
 
   private async view(id: string): Promise<ContractView> {
-    const row = this.row(id);
-    const terms = this.terms(row);
+    const row = this.ledger.row(id);
+    const terms = this.ledger.terms(row);
     const a = this.onboarding.agentRow(row.organization);
     let ov: Overview | null = null;
     if (a?.agent && a.agent_id) {
       const o = await this.onboarding.handle(a).overview();
       ov = o.ok ? o.value : null;
-      if (ov) this.syncFrozen(row, ov);
+      if (ov) this.ledger.syncFrozen(row, ov);
+      // Lists read stored records only; keep the last observed balance for their funding state.
+      if (ov && ov.usdc !== a.usdc_observed) this.onboarding.setAgent(row.organization, { usdc_observed: ov.usdc });
     }
-    const attempts = this.attempts(id);
+    const attempts = this.ledger.attempts(id);
     const payoutsOnly = attempts.filter((x) => x.kind === "payout");
     const paid = payoutsOnly.filter(isPaid).reduce((n, x) => n + BigInt(x.amount_atomic), 0n);
     const committed = payoutsOnly.filter(isCommitted).reduce((n, x) => n + BigInt(x.amount_atomic), 0n);
     const open = this.openJudgmentView(id, terms);
     const latest = this.d.db.query("SELECT * FROM judgments WHERE contract_id = ? ORDER BY rowid DESC LIMIT 1").get(id) as JudgmentRow | null;
-    const stage = this.stageOf(this.row(id), a, ov);
+    const stage = this.stageOf(this.ledger.row(id), a, ov);
     return {
       id: row.id,
       hash: row.hash,
       terms,
       organization: row.organization,
-      now: this.nowIso(),
+      now: this.ledger.nowIso(),
       stage,
       next_step: this.peekNext(a, stage),
       payee_registered: row.payee_registered === null ? null : row.payee_registered === 1,
@@ -1249,7 +1369,7 @@ export class Engine {
       open_judgment: open,
       payouts: attempts.map((x) => this.payoutView(x)),
       submissions: this.jobSubmissions(id),
-      events: this.events(id),
+      events: this.ledger.events(id),
     };
   }
 
@@ -1271,13 +1391,13 @@ export class Engine {
   }
 
   private payoutView(p: AttemptRow): PayoutView {
-    const terms = this.terms(this.row(p.contract_id));
+    const terms = this.ledger.platformTerms(this.ledger.row(p.contract_id));
     const lines = this.d.db.query("SELECT * FROM payout_lines WHERE request_id = ?").all(p.request_id) as LineRow[];
     const j = p.run_id ? this.judgmentOf(p.run_id) : null;
     const ids = new Set(lines.map((l) => l.deliverable_id));
     const prs =
       p.kind === "attack" && p.scenario === "injected"
-        ? [{ ...pick(injectedPullRequest(terms.repos[0]!, terms.contractor.github, p.created_at)), flags: ["possible_prompt_injection"] }]
+        ? [{ ...pick(injectedFor(terms, p.created_at)), flags: ["possible_prompt_injection"] }]
         : (j?.prs ?? []).filter((x) => x.eligible && ((x.deliverable && ids.has(x.deliverable)) || x.flags.length > 0)).map((x) => ({ key: x.key, title: x.title, url: x.url, flags: x.flags }));
     const state: AttemptState = p.state === "failed" && p.resolution === "disputed" ? "disputed" : p.state === "failed" && p.resolution !== null ? "resolved" : p.state;
     return {
@@ -1307,7 +1427,7 @@ export class Engine {
     };
   }
 
-  private clauseOf(p: AttemptRow, terms: Terms) {
+  private clauseOf(p: AttemptRow, terms: PlatformTerms) {
     const now = this.d.now();
     if (p.state === "held") return clauseFor({ kind: "held", code: null }, terms, now);
     if (p.state === "refused") return clauseFor({ kind: "refused", code: p.code }, terms, now);
@@ -1319,7 +1439,7 @@ export class Engine {
   }
 
   private scopeView(id: string, terms: Terms, attempts: AttemptRow[]): ScopeRow[] {
-    const lines = this.allLines(id);
+    const lines = this.ledger.allLines(id);
     const paid = sumLines(attempts, lines, isPaid);
     const committed = sumLines(attempts, lines, isCommitted);
     const accepted = this.acceptedCompletion(id);
@@ -1335,132 +1455,73 @@ export class Engine {
   }
 
   private openJudgmentView(id: string, terms: Terms): ContractView["open_judgment"] {
-    const j = this.openJudgment(id);
+    const j = this.ledger.openJudgment(id);
     if (!j) return null;
-    const paid = this.attempts(id)
+    const paid = this.ledger.attempts(id)
       .filter((a) => a.run_id === j.id && isPaid(a))
       .reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
     return { id: j.id, outcome: j.outcome, owed_usd: usdOf(this.owedTotal(id, terms, j)), paid_usd: usdOf(paid) };
   }
 
   private stageOf(row: ContractRow, a: PlatformAgentRow | null, ov: Overview | null): SetupStage {
-    const terms = this.terms(row);
+    const terms = this.ledger.terms(row);
     if (ov?.policy ? ov.policy.frozen : row.frozen) return "frozen";
     if (!row.rep_sig || !row.contractor_sig) return "needs_signatures";
+    // The Market funded and settles this job: there is no platform agent to set up or fund.
+    if (isMarketSettled(terms)) return this.d.now().getTime() > Date.parse(endInstant(terms)) ? "ended" : "active";
     if (!a || a.stage === "needs_setup") return "needs_setup";
-    if (this.d.now().getTime() > Date.parse(endInstant(terms)) && a.agent_id) return "ended";
+    if (this.d.now().getTime() > Date.parse(payoutEndInstant(terms)) && a.agent_id) return "ended";
     if (a.stage !== "ready") return a.stage;
-    const hasPayouts = (this.d.db.query("SELECT 1 FROM payout_attempts WHERE contract_id = ? AND kind = 'payout' LIMIT 1").get(row.id) as unknown) !== null;
-    if (ov && BigInt(ov.usdc || "0") === 0n && !hasPayouts) return "needs_funding";
+    const usdc = ov ? ov.usdc : a.usdc_observed;
+    if (usdc !== null && BigInt(usdc || "0") === 0n) {
+      const hasPayouts = (this.d.db.query("SELECT 1 FROM payout_attempts WHERE contract_id = ? AND kind = 'payout' LIMIT 1").get(row.id) as unknown) !== null;
+      if (!hasPayouts) return "needs_funding";
+    }
     return "active";
   }
 
   // ================================================================ helpers
 
-  /**
-   * A freeze is reversible: contracts.frozen follows the platform's read. Frozen, nothing is requested; once the
-   * owner unfreezes, the flag clears and payouts continue (re-checked against the whole signed policy first).
-   */
-  private syncFrozen(row: ContractRow, ov: Overview) {
-    if (!ov.policy) return;
-    const frozen = ov.policy.frozen ? 1 : 0;
-    if (frozen === row.frozen) return;
-    this.d.db.query("UPDATE contracts SET frozen = ? WHERE id = ?").run(frozen, row.id);
-    row.frozen = frozen;
-    this.event(row.id, "freeze", frozen ? "The owner froze the contract's agent. Nothing pays until they unfreeze it." : "The owner unfroze the contract's agent. Payouts continue.");
-  }
-
   /** Read the platform's freeze state into contracts.frozen (no-op before the agent exists or when it doesn't answer). */
   private async refreshFrozen(id: string) {
-    const row = this.row(id);
+    const row = this.ledger.row(id);
     const a = this.onboarding.agentRow(row.organization);
     if (!a?.agent || !a.agent_id) return;
     const o = await this.onboarding.handle(a).overview();
-    if (o.ok) this.syncFrozen(row, o.value);
-  }
-
-  private handleFor(att: AttemptRow) {
-    const row = this.row(att.contract_id);
-    const a = this.onboarding.agentRow(row.organization);
-    return a?.agent ? this.onboarding.handle(a) : null;
+    if (o.ok) this.ledger.syncFrozen(row, o.value);
   }
 
   private readyAgent(id: string): PlatformAgentRow {
-    const row = this.row(id);
+    const row = this.ledger.row(id);
     const a = this.onboarding.agentRow(row.organization);
     if (!a?.agent_id) throw new UserError("Set up the contract's agent first.");
     return a;
   }
 
-  private insertAttempt(i: { request_id: string; kind: "payout" | "attack"; contract_id: string; seq: number; attempt: number; run_id: string | null; recipient: string; amount: bigint; lines: Line[]; auto?: boolean; scenario?: string }) {
-    const now = this.nowIso();
-    this.d.db
-      .query(
-        "INSERT INTO payout_attempts (request_id, kind, contract_id, seq, attempt, run_id, recipient, amount_atomic, state, auto_retry, scenario, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)",
-      )
-      .run(i.request_id, i.kind, i.contract_id, i.seq, i.attempt, i.run_id, i.recipient, i.amount.toString(), i.auto ? 1 : 0, i.scenario ?? null, now, now);
-    for (const l of i.lines) this.d.db.query("INSERT INTO payout_lines (request_id, deliverable_id, amount_atomic) VALUES (?, ?, ?)").run(i.request_id, l.deliverable_id, l.amount.toString());
-  }
-
-  private nextSeq(id: string, kind: "payout" | "attack"): number {
-    const r = this.d.db.query("SELECT MAX(seq) AS m FROM payout_attempts WHERE contract_id = ? AND kind = ?").get(id, kind) as { m: number | null };
-    return (r.m ?? 0) + 1;
-  }
-
-  private attempts(id: string): AttemptRow[] {
-    return this.d.db.query("SELECT * FROM payout_attempts WHERE contract_id = ? ORDER BY created_at DESC, rowid DESC").all(id) as AttemptRow[];
-  }
-
   attempt(requestId: string): AttemptRow {
-    const a = this.d.db.query("SELECT * FROM payout_attempts WHERE request_id = ?").get(requestId) as AttemptRow | null;
-    if (!a) throw new UserError("No such payout.", 404);
-    return a;
+    return this.ledger.attempt(requestId);
   }
 
   payoutContract(requestId: string): string {
-    return this.attempt(requestId).contract_id;
-  }
-
-  private setAttempt(requestId: string, fields: Partial<Omit<AttemptRow, "request_id">>) {
-    const keys = Object.keys(fields);
-    if (!keys.length) return;
-    this.d.db
-      .query(`UPDATE payout_attempts SET ${keys.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE request_id = ?`)
-      .run(...(Object.values(fields) as (string | number | null)[]), this.nowIso(), requestId);
-  }
-
-  private allLines(id: string): LineRow[] {
-    return this.d.db.query("SELECT l.* FROM payout_lines l JOIN payout_attempts a ON a.request_id = l.request_id WHERE a.contract_id = ?").all(id) as LineRow[];
-  }
-
-  private committedBy(id: string): Map<string, bigint> {
-    return sumLines(this.attempts(id), this.allLines(id), isCommitted);
+    return this.ledger.attempt(requestId).contract_id;
   }
 
   private owedTotal(id: string, terms: Terms, j: JudgmentRow): bigint {
-    const owed = owedFor(terms, completionOf(JSON.parse(j.json) as Judgment), this.committedBy(id)).reduce((n, l) => n + l.amount, 0n);
+    const owed = owedFor(terms, completionOf(JSON.parse(j.json) as Judgment), this.ledger.committedBy(id)).reduce((n, l) => n + l.amount, 0n);
     const remaining = this.jobBudgetRemaining(j);
     return remaining !== undefined && remaining < owed ? remaining : owed;
   }
 
   private jobBudgetRemaining(j: JudgmentRow): bigint | undefined {
-    const job = this.jobForJudgment(j.id);
+    const job = this.ledger.jobForJudgment(j.id);
     if (!job) return undefined;
-    const committed = this.attempts(j.contract_id).filter((a) => a.run_id === j.id && isCommitted(a)).reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
+    const committed = this.ledger.attempts(j.contract_id).filter((a) => a.run_id === j.id && isCommitted(a)).reduce((n, a) => n + BigInt(a.amount_atomic), 0n);
     const left = BigInt(job.proposed_atomic) - committed;
     return left > 0n ? left : 0n;
   }
 
-  private openJudgment(id: string): JudgmentRow | null {
-    return this.d.db.query("SELECT * FROM judgments WHERE contract_id = ? AND outcome = 'pending'").get(id) as JudgmentRow | null;
-  }
-
-  private judgmentRow(runId: string): JudgmentRow | null {
-    return this.d.db.query("SELECT * FROM judgments WHERE id = ?").get(runId) as JudgmentRow | null;
-  }
-
   private judgmentOf(runId: string): Judgment | null {
-    const r = this.judgmentRow(runId);
+    const r = this.ledger.judgmentRow(runId);
     return r ? (JSON.parse(r.json) as Judgment) : null;
   }
 
@@ -1478,7 +1539,7 @@ export class Engine {
   }
 
   private window(terms: Terms) {
-    const now = this.nowIso();
+    const now = this.ledger.nowIso();
     return { since: startInstant(terms), until: [now, endInstant(terms)].sort()[0]! };
   }
 
@@ -1487,59 +1548,8 @@ export class Engine {
     if (a?.stage === "needs_grant" && a.policy_revision !== null) throw new UserError("The agent's payout grant has expired. Issue it again (the next setup step), then run the agent.", 409);
     if (!a || a.stage !== "ready") throw new UserError("The contract's agent is not set up yet.");
     if (row.frozen) throw new UserError("The owner froze this contract's agent. Nothing pays until they unfreeze it.", 409);
-    if (this.d.now().getTime() > Date.parse(endInstant(terms))) throw new UserError("The contract has ended.");
+    if (this.d.now().getTime() > Date.parse(payoutEndInstant(terms))) throw new UserError("The contract has ended.");
     if (this.d.now().getTime() < Date.parse(startInstant(terms))) throw new UserError(`The contract starts ${terms.start}.`);
-  }
-
-  private stateText(a: AttemptRow): string {
-    const amt = usdText(a.amount_atomic);
-    const what = a.kind === "attack" ? `Attack payout ${amt} to ${a.recipient}` : `Payout ${amt} (${a.request_id})`;
-    switch (a.state) {
-      case "held":
-        return `${what} is held for the representative's approval.`;
-      case "processing":
-        return `${what} is approved and moving.`;
-      case "paid":
-        return `${what} settled to ${a.recipient}.${a.tx_hash ? ` Tx ${a.tx_hash}.` : ""}`;
-      case "refused":
-        return `${what} was refused by the platform (${a.code}). Nothing was sent.`;
-      case "rejected":
-        return `${what} was rejected by the representative. Nothing was sent.`;
-      case "failed":
-        return `${what} failed${a.failure_code ? ` (${a.failure_code})` : ""}. It stays counted until the representative checks the evidence.`;
-      case "unknown":
-        return `${what}: no answer from the platform. Paperwork will ask for its status; it is never sent under a new id.`;
-      case "waiting":
-        return `${what} waits (${a.code}); the same request id will be asked again.`;
-      case "blocked":
-        return `${what} is blocked (${a.code}).`;
-      case "dropped":
-        return `${what} was dropped by the representative while blocked (${a.code}). The platform never recorded it.`;
-      default:
-        return `${what}: ${a.state}.`;
-    }
-  }
-
-  private events(contractId: string): EventView[] {
-    return (this.d.db.query("SELECT * FROM events WHERE contract_id = ? ORDER BY id DESC LIMIT 100").all(contractId) as EventRow[]).map((e) => ({ id: e.id, at: e.at, kind: e.kind, text: e.text }));
-  }
-
-  private event(contractId: string, kind: string, text: string) {
-    this.d.db.query("INSERT INTO events (contract_id, at, kind, text) VALUES (?, ?, ?, ?)").run(contractId, this.nowIso(), kind, text);
-  }
-
-  private row(id: string): ContractRow {
-    const row = this.d.db.query("SELECT * FROM contracts WHERE id = ?").get(id) as ContractRow | null;
-    if (!row) throw new UserError("No such contract.", 404);
-    return row;
-  }
-
-  private terms(row: ContractRow): Terms {
-    return JSON.parse(row.terms) as Terms;
-  }
-
-  private nowIso(): string {
-    return this.d.now().toISOString();
   }
 
   // ---------------------------------------------------------------- timers
@@ -1556,21 +1566,17 @@ export function orgFor(contractId: string): string {
   return contractId;
 }
 
-/** A live payout grant (label `payout`, or `invoices` on the local stack: platform-gaps G9) that lasts past `until`. */
-function liveGrant(o: Overview, until: number) {
-  return o.grants.find((g) => (g.label === "payout" || g.label === "invoices") && !g.revoked && Date.parse(g.expiresAt) > until) ?? null;
-}
-
 function completionOf(j: Judgment): Record<string, number> {
   return Object.fromEntries(j.deliverables.map((x) => [x.id, x.completion]));
 }
 
-function pick(pr: { repo: string; number: number; title: string; url: string }) {
-  return { key: `${pr.repo}#${pr.number}`, title: pr.title, url: pr.url };
+/** The demo's injected pull request; report-and-invoice terms may name no repository or GitHub identity. */
+function injectedFor(terms: Terms, at: string) {
+  return injectedPullRequest(terms.repos?.[0] ?? "demo/repository", terms.contractor.github ?? terms.contractor.near_account, at);
 }
 
-function eventKind(state: AttemptState): string {
-  return state === "paid" ? "paid" : state === "held" ? "held" : state === "refused" ? "refused" : state === "rejected" ? "reject" : state === "failed" ? "failed" : "payout";
+function pick(pr: { repo: string; number: number; title: string; url: string }) {
+  return { key: `${pr.repo}#${pr.number}`, title: pr.title, url: pr.url };
 }
 
 function sig(json: string | null): SignatureRecord | null {
@@ -1584,11 +1590,6 @@ function sigView(json: string | null) {
 
 function usdOf(atomic: bigint | string): string {
   return fromAtomic(BigInt(atomic), USDC_DECIMALS);
-}
-
-export function usdText(atomic: bigint | string): string {
-  const [w, f = ""] = fromAtomic(BigInt(atomic), USDC_DECIMALS).split(".");
-  return `$${w}.${(f + "00").slice(0, 2)}`;
 }
 
 function errText(err: unknown) {

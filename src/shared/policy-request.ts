@@ -3,10 +3,10 @@
 import type { Budget, Overview, PolicyChanges } from "../server/platform/port";
 import type { Expectations } from "./views";
 import { fromAtomic, normalizeDecimal, toAtomic } from "./money";
-import { endInstant, largestDeliverable, scopeTotal, type Terms, USDC_DECIMALS } from "./terms";
+import { type CapTerms, payoutEndInstant, perPaymentCap, type PlatformTerms, scopeTotal, type Terms, USDC_DECIMALS } from "./terms";
 
-export function largestAtomic(terms: Pick<Terms, "scope">): string {
-  return toAtomic(largestDeliverable(terms), USDC_DECIMALS).toString();
+export function capAtomic(terms: CapTerms): string {
+  return toAtomic(perPaymentCap(terms), USDC_DECIMALS).toString();
 }
 
 export function totalAtomic(terms: Pick<Terms, "scope">): string {
@@ -22,27 +22,27 @@ export function budgetFor(terms: Pick<Terms, "scope">): Budget {
 
 /**
  * The one policy edit made at onboarding: the full withdrawals list (only the payee), owner approval on,
- * per-payment cap = the largest deliverable, daily and monthly = the scope total, and the USD budget.
+ * the signed per-payment cap, daily and monthly = the scope total, and the USD budget.
  */
-export function policyChanges(terms: Terms): PolicyChanges {
+export function policyChanges(terms: PlatformTerms): PolicyChanges {
   const asset = terms.asset;
   const total = totalAtomic(terms);
   return {
     withdrawals: [{ address: terms.payee.address }],
     owner_approval: true,
-    limits: { per_transaction: { [asset]: largestAtomic(terms) }, daily: { [asset]: total }, monthly: { [asset]: total } },
+    limits: { per_transaction: { [asset]: capAtomic(terms) }, daily: { [asset]: total }, monthly: { [asset]: total } },
     budget: budgetFor(terms),
   };
 }
 
-export function expectations(terms: Terms): Expectations {
+export function expectations(terms: PlatformTerms): Expectations {
   return {
     payee: terms.payee.address,
     asset: terms.asset,
-    per_transaction: largestAtomic(terms),
+    per_transaction: capAtomic(terms),
     owner_approval: true,
     withdrawals: [terms.payee.address],
-    payout_consent_expires_by: endInstant(terms),
+    payout_consent_expires_by: payoutEndInstant(terms),
     total: totalAtomic(terms),
   };
 }
@@ -57,7 +57,7 @@ const usdEq = (a: string | null | undefined, b: string | null) => (a ?? null) ==
  * the daily and monthly limits and the USD budget. A revision bump that leaves all of these equal (a freeze and
  * unfreeze, say) is not a difference.
  */
-export function policyDifferences(p: LivePolicy, terms: Terms): string[] {
+export function policyDifferences(p: LivePolicy, terms: PlatformTerms): string[] {
   const out: string[] = [];
   const signed = policyChanges(terms);
   const asset = terms.asset;
@@ -82,7 +82,7 @@ export function policyDifferences(p: LivePolicy, terms: Terms): string[] {
  * The policy facts every payout request depends on. Returns the first problem, or null when the platform's
  * read is in force, not frozen, and the whole live policy matches what Paperwork signed (policyDifferences).
  */
-export function policyProblem(o: Overview | null, terms: Terms): { code: string; waiting: boolean; detail: string } | null {
+export function policyProblem(o: Overview | null, terms: PlatformTerms): { code: string; waiting: boolean; detail: string } | null {
   if (!o || !o.policy) return { code: "policy_not_in_force", waiting: true, detail: "No policy read yet." };
   const p = o.policy;
   // Before notInForce: the platform reports a frozen agent as not in force too, and a freeze is not a wait.

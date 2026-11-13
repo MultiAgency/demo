@@ -8,3 +8,6 @@ data/
 dist/
 .DS_Store
 web-dist/
+
+# Local browser diagnostics can contain private session details.
+.playwright-mcp/

@@ -5,6 +5,15 @@ import { useAccountResource } from "../useAccountResource";
 import { useSession } from "../session";
 import { Alert, Button } from "./ui";
 
+/** The agency's view of the same check: an unregistered payee blocks every payout, and only the payee can fix it. */
+export function PayeeCheck({ id, account }: { id: string; account: string }) {
+  const read = useCallback(() => api<RegistrationQuote>("GET", `/contracts/${id}/registration`), [id]);
+  const resource = useAccountResource(`registration:${id}`, read);
+  return resource.value?.registered === false
+    ? <Alert tone="warning">{account} is not registered to receive USDC yet, so payouts to it will be blocked. Ask the builder to register from their job page; it is a one-time step from the payee's own wallet.</Alert>
+    : null;
+}
+
 export function PayeeRegistration({ id, account, builder }: { id: string; account: string; builder: string }) {
   const session = useSession();
   const read = useCallback(() => api<RegistrationQuote>("GET", `/contracts/${id}/registration`), [id]);

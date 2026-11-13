@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import type { JobAttention, MyJob } from "../../shared/my-jobs";
+import { jobHref } from "../../shared/job-actions";
 import { api } from "../api";
 import { Alert, Badge, Button, Card, CardHeader, dateText, Empty, PageLoading, usd } from "../components/ui";
 import { useSession } from "../session";
@@ -57,22 +58,22 @@ export function MyJobsContent({ jobs, demo, error = null, reload }: {
     </header>
     {demo ? <Alert tone="warning">Keyless demonstration: showing simulated account-scoped jobs. Submitting work still requires the agency's original private invitation link, including after acceptance.</Alert> : null}
     {error ? <Alert tone="warning">Your jobs could not refresh. Showing the last loaded jobs and recorded actions; they may be out of date. {error}</Alert> : null}
-    {!jobs.length && !error ? <Empty icon="file" title="No jobs for this account yet" sub="Apply to a published opening or return to an agency's original invitation link." action={<a className="btn btn-primary btn-sm" href="#/start">Get started</a>} /> : null}
+    {!jobs.length && !error ? <Empty icon="file" title="No jobs for this account yet" sub="Apply to a published opening, or ask the agency to name this account in its offer." action={<a className="btn btn-primary btn-sm" href="#/start">Get started</a>} /> : null}
     {([
       ["needs_action", "Needs your action"], ["waiting", "Waiting"], ["completed", "Completed"],
     ] as const).map(([state, label]) => {
       const rows = jobs.filter((job) => recordedAttention(job.attention).state === state);
       return rows.length ? <section className="stack" key={state} aria-labelledby={`my-jobs-${state}`}>
         <h2 id={`my-jobs-${state}`}>{label}</h2>
-        {rows.map((job) => <MyJobCard key={job.id} job={job} />)}
+        {rows.map((job) => <MyJobCard key={job.id} job={job} demo={demo} />)}
       </section> : null;
     })}
   </div>;
 }
 
-function MyJobCard({ job }: { job: MyJob }) {
+function MyJobCard({ job, demo }: { job: MyJob; demo: boolean }) {
   const stage = STAGES[job.stage];
-  const base = `#/c/${encodeURIComponent(job.id)}`;
+  const base = jobHref(job.id, "agency");
   const attention = recordedAttention(job.attention);
   const agencyAction = attention.actions.find((action) => action.role === "agency");
   const builderAction = attention.actions.find((action) => action.role === "builder");
@@ -85,10 +86,10 @@ function MyJobCard({ job }: { job: MyJob }) {
         <span className="small muted">{job.workflow === "report_invoice" ? "Report and invoice" : "Pay on merge"}</span>
       </div>
       <div className="title-row small muted"><span>Scope {usd(job.scope_usd)}</span><span>Setup: {stage?.label ?? job.stage}</span><span>Starts {dateText(job.start)}</span><span>Deadline {dateText(job.end)}</span></div>
-      {job.roles.includes("builder") && !job.builder_accepted ? <Alert tone="info">To accept this job, open the agency's original private invitation link and review its terms. That link is still required before you can sign.</Alert> : null}
+      {demo && job.roles.includes("builder") && !job.builder_accepted ? <Alert tone="info">To accept this job in the keyless demonstration, open the agency's original private invitation link.</Alert> : null}
       <div className="header-actions">
         {job.roles.includes("agency") ? <a className={`btn btn-${agencyAction ? "primary" : "secondary"} btn-sm`} href={base}>{agencyAction?.label ?? "Open agency view"}</a> : null}
-        {job.roles.includes("builder") ? <a className={`btn btn-${job.builder_accepted && builderAction ? "primary" : "secondary"} btn-sm`} href={`${base}/sign`}>{job.builder_accepted ? builderAction?.label ?? "Open builder view" : "View offered terms"}</a> : null}
+        {job.roles.includes("builder") ? <a className={`btn btn-${builderAction && (job.builder_accepted || !demo) ? "primary" : "secondary"} btn-sm`} href={jobHref(job.id, "builder")}>{job.builder_accepted ? builderAction?.label ?? "Open builder view" : demo ? "View offered terms" : "Review and sign terms"}</a> : null}
       </div>
     </div>
   </Card>;

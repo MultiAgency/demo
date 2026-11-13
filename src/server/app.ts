@@ -1,12 +1,16 @@
 import { Hono } from "hono";
+import { AGENT_EXECUTION_CONTRACT } from "../shared/agent-contracts";
 import { z } from "zod";
 import { toAtomic } from "../shared/money";
-import { scopeTotal, type Terms, USDC_DECIMALS } from "../shared/terms";
+import { isMarketSettled, scopeTotal, type Terms, termsSchema, USDC_DECIMALS } from "../shared/terms";
 import type { ConfigView, ContractView } from "../shared/views";
+import type { JobSubmissionView } from "../shared/jobs";
 import { type Auth, createAuth, type SessionInfo, sessionFrom } from "./auth";
 import type { Config } from "./config";
 import { bindAppDeployment, openDb } from "./db";
 import { Engine, type Role, type Scenario, SCENARIOS, toUserError, UserError } from "./engine";
+import { errorCode, jsonBody } from "./errors";
+import { AGENT_CAPABILITIES, JOB_ACTION_SCHEMA_VERSION, jobActionPlan } from "../shared/job-actions";
 import { type EvidenceSource, FakeEvidence, GitHubEvidence } from "./evidence/github";
 import { NearAiJudge, RulesJudge } from "./judge";
 import { Market } from "./market/index";
@@ -103,16 +107,20 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
     trustedOrigins: [config.auth.publicUrl],
   });
   const evidence = config.evidence === "fake" ? new FakeEvidence(clock.now) : new GitHubEvidence(config.githubToken ?? undefined);
+  const boardToken = config.market.boardToken ?? config.market.worker?.token;
+  const boardApi = opts.boardApi !== undefined ? opts.boardApi
+    : boardToken ? new MarketApi(kit.market?.url ?? config.market.url ?? "https://market.near.ai", boardToken) : null;
   const engine = new Engine({
     db,
     platform: kit.platform,
     chain: kit.chain,
     evidence,
-    judge: config.judge.kind === "near-ai" && config.judge.apiKey ? new NearAiJudge(config.judge.apiKey, config.judge.model, config.judge.baseUrl) : new RulesJudge(),
+    judge: config.judge.kind === "near-ai" && config.judge.apiKey ? new NearAiJudge(config.judge) : new RulesJudge(),
     config,
     now: clock.now,
     attacker: opts.attacker ?? DEMO_ACCOUNTS.attacker,
     log: opts.log,
+    ...(boardApi && { marketJobStatus: async (jobId: string) => (await boardApi.job(jobId)).status }),
   });
   const market = kit.market
     ? new Market({
@@ -126,9 +134,6 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
         now: clock.now,
       })
     : null;
-  const boardToken = config.market.boardToken ?? config.market.worker?.token;
-  const boardApi = opts.boardApi !== undefined ? opts.boardApi
-    : boardToken ? new MarketApi(kit.market?.url ?? config.market.url ?? "https://market.near.ai", boardToken) : null;
   const openings = opts.openings ?? new MultiAgencyOpenings();
   const rt = { engine, auth, kit, clock, config, evidence, market, boardApi, openings, reviewFetch: opts.reviewFetch, reviewNearClient: opts.reviewNearClient };
   return { ...rt, app: buildApp(rt) };
@@ -154,8 +159,9 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
 
   app.onError((err, c) => {
     const e = err instanceof z.ZodError ? new UserError(err.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ")) : toUserError(err);
-    return c.json({ error: e.message }, e.status as 400);
+    return c.json({ error: e.message, code: errorCode(e.status), ...(e.reason && { reason: e.reason }) }, e.status as 400);
   });
+  app.notFound((c) => c.json({ error: "No such API route.", code: "not_found" }, 404));
 
   // Railway's health check. The server answers only once its configuration was checked at startup (loadConfig).
   app.get("/health", (c) => c.json({ ok: true }));
@@ -181,15 +187,24 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   const requireAccount = (session: SessionInfo | null, account: string, role: string) => {
     if (!config.auth.required) return;
     if (!session) throw new UserError("Sign in with NEAR to access this action.", 401);
-    if (session.accountId !== account) throw new UserError("This action is not available to this account.", 403);
+    if (session.accountId !== account) throw new UserError("This action is not available to this account.", 403, "account_mismatch");
   };
-  const builderView = (view: ContractView): ContractView => ({ ...view, next_step: null, platform: { ...view.platform, deposit: null, consents: null } });
+  /** The agent's assessment is the agency's review material: a builder sees a proposal only once the agency acts on it. */
+  const forBuilder = (s: JobSubmissionView): JobSubmissionView => ({ ...s, assessment: null });
+  // A Market-settled assessment is stored as the latest judgment before the agency decides; the same rule applies to it.
+  const builderView = (view: ContractView): ContractView => ({
+    ...view, next_step: null, platform: { ...view.platform, deposit: null, consents: null },
+    submissions: view.submissions.map(forBuilder), ...(isMarketSettled(view.terms) && { judgment: null }),
+  });
   const asRepresentative = (session: SessionInfo | null, contractId: string) => requireAccount(session, engine.parties(contractId).representative, "representative");
+  const isRepresentative = (session: SessionInfo | null, contractId: string) => {
+    try { asRepresentative(session, contractId); return true; } catch { return false; }
+  };
   const asParty = (session: SessionInfo | null, id: string) => {
     if (!config.auth.required) return;
     const parties = engine.parties(id);
     if (!session) throw new UserError("Sign in as a party to this job.", 401);
-    if (session.accountId !== parties.representative && session.accountId !== parties.contractor) throw new UserError("Only the agency or builder can read the submission.", 403);
+    if (session.accountId !== parties.representative && session.accountId !== parties.contractor) throw new UserError("Only the agency or builder can read the submission.", 403, "named_party_required");
   };
 
   app.get("/config", (c) => {
@@ -209,6 +224,27 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   });
 
   app.get("/me", (c) => c.json({ session: c.get("session") }));
+
+  app.get("/agent", (c) => c.json(AGENT_CAPABILITIES));
+  app.get("/agent/contracts", (c) => c.json(AGENT_EXECUTION_CONTRACT));
+
+  app.get("/jobs/mine/actions", (c) => {
+    const session = c.get("session");
+    if (config.auth.required && !session) throw new UserError("Sign in with NEAR to see your private jobs.", 401);
+    const account = session?.accountId ?? DEMO_ACCOUNTS.contractor;
+    return c.json({ schema_version: JOB_ACTION_SCHEMA_VERSION, generated_at: clock.now().toISOString(),
+      source: "stored_records", live_status_checked: false, demo: !config.auth.required,
+      jobs: engine.jobsFor(account).map(jobActionPlan) });
+  });
+
+  app.get("/jobs/:id/snapshot", (c) => {
+    const id = c.req.param("id");
+    asParty(c.get("session"), id);
+    const account = c.get("session")?.accountId ?? engine.parties(id).representative;
+    return c.json({ schema_version: JOB_ACTION_SCHEMA_VERSION, generated_at: clock.now().toISOString(),
+      source: "stored_records", live_status_checked: false, demo: !config.auth.required,
+      ...engine.recordedJobSnapshot(id, account) });
+  });
 
   app.get("/jobs/mine", (c) => {
     const session = c.get("session");
@@ -242,6 +278,19 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     }
   });
 
+  // One public Market job, to pre-fill an offer. Reading it grants no bid, award, hire or payment authority.
+  app.get("/market/jobs/:id", async (c) => {
+    if (config.auth.required && !c.get("session")) throw new UserError("Sign in with NEAR to import a Market job.", 401);
+    if (!boardApi) throw new UserError("The Agent Market connection is not configured, so Market jobs cannot be imported.", 503);
+    try { return c.json(await boardApi.job(c.req.param("id"))); }
+    catch (error) {
+      if (!(error instanceof MarketHttpError)) throw error;
+      if (error.status === 400) throw new UserError(error.message, 400);
+      if (error.status === 404) throw new UserError("That Market job was not found or is not public.", 404);
+      throw new UserError(`The Market job could not be read (${error.status || "connection failed"}).`, 502);
+    }
+  });
+
   app.get("/contracts", (c) => {
     const s = c.get("session");
     if (c.req.query("role") === "agency") {
@@ -253,8 +302,23 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   });
 
   app.post("/contracts", async (c) => {
-    const body = await c.req.json();
+    const body = await jsonBody(c);
     requireAccount(c.get("session"), String(body?.representative?.near_account ?? "").toLowerCase(), "representative");
+    // A Market source that cannot be read now could never pass the setup check; refuse before anyone signs it.
+    // Invalid terms fall through to createContract's own validation message.
+    const parsed = termsSchema.safeParse(body);
+    const source = parsed.success && parsed.data.v === 3 ? parsed.data.market_source : undefined;
+    if (source) {
+      if (!boardApi) throw new UserError("The Agent Market connection is not configured, so this job cannot name a Market source.", 503);
+      let status: string;
+      try { status = (await boardApi.job(source.job_id)).status; }
+      catch (error) {
+        if (error instanceof MarketHttpError) throw new UserError("The source Market job could not be read as a public job. Check its id; nothing was created.", 409);
+        throw error;
+      }
+      if (parsed.success && isMarketSettled(parsed.data) && (status === "closed" || status === "completed"))
+        throw new UserError(`That Market job is ${status}, so it cannot settle this job. Nothing was created.`, 409);
+    }
     const { id, contractorToken } = engine.createContract(body);
     return c.json({ id, contractor_link: `/#/c/${id}/sign?t=${contractorToken}`, contractor_token: contractorToken }, 201);
   });
@@ -264,12 +328,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     // Authorize private records before any platform read or reconciliation work.
     asParty(c.get("session"), id);
     // Only the representative's reads move payouts along; anyone else gets the view (the status timer still follows up).
-    let representative = true;
-    try {
-      asRepresentative(c.get("session"), id);
-    } catch {
-      representative = false;
-    }
+    const representative = isRepresentative(c.get("session"), id);
     const view = representative ? await engine.getContract(id) : await engine.viewContract(id);
     c.header("Cache-Control", "no-store");
     return c.json(representative ? view : builderView(view));
@@ -281,6 +340,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     asParty(c.get("session"), id);
     c.header("Cache-Control", "no-store");
     const view = await engine.viewContract(id);
+    if (isMarketSettled(view.terms)) throw new UserError("This job settles on the Agent Market; there is no NEAR payee to register.", 409);
     if (!kit.chain.registrationQuote) throw new UserError("Registration quotes are unavailable in this environment.", 503);
     try { return c.json(await kit.chain.registrationQuote(view.terms.asset, view.terms.payee.address)); }
     catch (error) { throw new UserError(`Registration check unavailable: ${error instanceof Error ? error.message : "Try again."}`, 503); }
@@ -296,11 +356,12 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
 
   app.post("/contracts/:id/signatures", async (c) => {
     const id = c.req.param("id");
-    const body = await c.req.json();
+    const body = await jsonBody(c);
     const role = body.role as Role;
     if (role !== "representative" && role !== "contractor") throw new UserError("role must be representative or contractor");
     requireAccount(c.get("session"), engine.parties(id)[role], role);
-    const view = await engine.addSignature(id, role, signedBody.parse(body.signed), body.contractor_token);
+    // A session for the named builder replaces the private invitation; the keyless demo has no sessions and keeps it.
+    const view = await engine.addSignature(id, role, signedBody.parse(body.signed), body.contractor_token, !config.auth.required);
     return c.json(config.auth.required && role === "contractor" && c.get("session")?.accountId !== engine.parties(id).representative ? builderView(view) : view);
   });
 
@@ -313,7 +374,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   app.post("/contracts/:id/onboarding/signed", async (c) => {
     const id = c.req.param("id");
     asRepresentative(c.get("session"), id);
-    const body = z.object({ step: z.enum(["setup", "consent_payout", "consent_owner"]), nonce: z.string(), publicKey: z.string(), signature: z.string() }).parse(await c.req.json());
+    const body = z.object({ step: z.enum(["setup", "consent_payout", "consent_owner"]), nonce: z.string(), publicKey: z.string(), signature: z.string() }).parse(await jsonBody(c));
     return c.json(await engine.signed(id, body));
   });
   // The platform checks the wallet signature against the owner key; Paperwork also requires the representative's session.
@@ -322,7 +383,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     const contractId = engine.ownerStepContract(cid);
     if (contractId) asRepresentative(c.get("session"), contractId);
     else if (config.auth.required) throw new UserError("This owner step belongs to no job.", 403);
-    return c.json(await engine.submitOwnerStep(cid, walletSig.parse(await c.req.json())));
+    return c.json(await engine.submitOwnerStep(cid, walletSig.parse(await jsonBody(c))));
   });
   app.get("/owner-steps/:cid", async (c) => {
     const cid = c.req.param("cid");
@@ -337,34 +398,67 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     asRepresentative(c.get("session"), id);
     return c.json(await engine.deposit(id));
   });
+  app.get("/contracts/:id/funding-recovery", async (c) => {
+    const id = c.req.param("id");
+    asRepresentative(c.get("session"), id);
+    return c.json(await engine.fundingRecovery(id));
+  });
+  app.post("/contracts/:id/funding-recovery/observe", async (c) => {
+    const id = c.req.param("id");
+    asRepresentative(c.get("session"), id);
+    return c.json(await engine.observeFundingRecovery(id));
+  });
+  app.post("/contracts/:id/funding-recovery/prepare", async (c) => {
+    const id = c.req.param("id");
+    asRepresentative(c.get("session"), id);
+    const body = z.object({ reconciliation_id: z.string().min(1).max(256), plan_hash: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(await jsonBody(c));
+    return c.json(await engine.prepareFundingRecovery(id, body.reconciliation_id, body.plan_hash), 201);
+  });
 
   // ---------- immutable reports and invoices; only v3 signed terms opt into this workflow
   reviewRoutes(app, { engine, config, asRepresentative, fetch: rt.reviewFetch, nearClient: rt.reviewNearClient });
   app.get("/contracts/:id/submissions", (c) => {
     const id = c.req.param("id");
     asParty(c.get("session"), id);
-    return c.json(engine.jobSubmissions(id));
+    const submissions = engine.jobSubmissions(id);
+    return c.json(isRepresentative(c.get("session"), id) ? submissions : submissions.map(forBuilder));
+  });
+  app.get("/contracts/:id/submissions/:sid", (c) => {
+    const id = c.req.param("id");
+    asParty(c.get("session"), id);
+    const submission = engine.jobSubmission(id, c.req.param("sid"));
+    return c.json(isRepresentative(c.get("session"), id) ? submission : forBuilder(submission));
   });
   app.post("/contracts/:id/submissions", async (c) => {
     const id = c.req.param("id");
     const builder = engine.parties(id).contractor;
     requireAccount(c.get("session"), builder, "builder");
-    const { contractor_token, ...body } = await c.req.json();
+    const { contractor_token, ...body } = await jsonBody(c);
     // The keyless demo has no sessions; use the existing private builder link as its filing capability.
     if (!config.auth.required) {
       engine.requireContractorToken(id, contractor_token);
     }
-    return c.json(await engine.submitJob(id, body, builder), 201);
+    const filed = await engine.submitJob(id, body, builder);
+    engine.assessLater(filed.id);
+    return c.json(forBuilder(filed), 201);
   });
   app.post("/submissions/:sid/propose", async (c) => {
     const sid = c.req.param("sid");
     asRepresentative(c.get("session"), engine.jobContract(sid));
     return c.json(await engine.proposeJob(sid));
   });
+  // Market-settled jobs: record acceptance only when the public Market job reads completed.
+  app.post("/submissions/:sid/market-acceptance", async (c) => {
+    const sid = c.req.param("sid");
+    const id = engine.jobContract(sid);
+    asParty(c.get("session"), id);
+    const view = await engine.confirmMarketAcceptance(sid);
+    return c.json(isRepresentative(c.get("session"), id) ? view : builderView(view));
+  });
   app.post("/submissions/:sid/changes", async (c) => {
     const sid = c.req.param("sid");
     asRepresentative(c.get("session"), engine.jobContract(sid));
-    const body = z.object({ reason: z.string().trim().min(3).max(4000) }).strict().parse(await c.req.json());
+    const body = z.object({ reason: z.string().trim().min(3).max(4000) }).strict().parse(await jsonBody(c));
     return c.json(await engine.requestJobChanges(sid, body.reason));
   });
 
@@ -387,13 +481,13 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   app.post("/payouts/:rid/vote", async (c) => {
     const rid = c.req.param("rid");
     asRepresentative(c.get("session"), engine.payoutContract(rid));
-    const body = z.object({ verdict: z.enum(["approve", "reject"]) }).parse(await c.req.json());
+    const body = z.object({ verdict: z.enum(["approve", "reject"]) }).parse(await jsonBody(c));
     return c.json(await engine.vote(rid, body.verdict));
   });
   app.post("/payouts/:rid/resolve", async (c) => {
     const rid = c.req.param("rid");
     asRepresentative(c.get("session"), engine.payoutContract(rid));
-    const body = z.object({ outcome: z.enum(["arrived", "reowe", "rejected", "disputed"]), reason: z.string().trim().min(3).max(4000).optional() }).parse(await c.req.json());
+    const body = z.object({ outcome: z.enum(["arrived", "reowe", "rejected", "disputed"]), reason: z.string().trim().min(3).max(4000).optional() }).parse(await jsonBody(c));
     return c.json(await engine.resolve(rid, body.outcome, body.reason));
   });
 
@@ -416,19 +510,26 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   if (market) marketRoutes(app, market, { authRequired: config.auth.required, controls: kit.controls });
 
   // ---------- demo controls (platform stand-in; local stack when PLATFORM_STACK_DIR)
+  // With sign-in required, each control follows the access rule of the action it stands in for.
   const controls = kit.controls;
   if (controls) {
+    const signedIn = (session: SessionInfo | null) => {
+      if (config.auth.required && !session) throw new UserError("Sign in with NEAR to use the demo controls.", 401);
+    };
     app.post("/sim/sign", async (c) => {
-      const body = z.object({ account_id: z.string(), message: z.string(), nonce: z.string(), recipient: z.string() }).parse(await c.req.json());
+      const body = z.object({ account_id: z.string(), message: z.string(), nonce: z.string(), recipient: z.string() }).parse(await jsonBody(c));
+      requireAccount(c.get("session"), body.account_id, "signer");
       if (!kit.devSigner) throw new UserError("No demo signer.");
       const s = await kit.devSigner.sign413({ message: body.message, recipient: body.recipient, nonce: body.nonce });
       return c.json({ account_id: body.account_id, publicKey: s.publicKey, public_key: s.publicKey, signature: s.signature, nonce: body.nonce, simulated: true });
     });
     app.post("/sim/fund", async (c) => {
-      const body = z.object({ contract_id: z.string().optional(), agent_id: z.string().optional(), usd: z.string().optional() }).parse(await c.req.json());
+      const body = z.object({ contract_id: z.string().optional(), agent_id: z.string().optional(), usd: z.string().optional() }).parse(await jsonBody(c));
       let agentId = body.agent_id;
       let usd = body.usd;
+      if (config.auth.required && !body.contract_id) throw new UserError("Give contract_id.");
       if (body.contract_id) {
+        asRepresentative(c.get("session"), body.contract_id);
         const v = await engine.getContract(body.contract_id);
         agentId ??= v.platform.agent_id ?? undefined;
         usd ??= scopeTotal(v.terms as Terms);
@@ -438,7 +539,11 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
       return c.json({ agent_id: agentId, funded_usd: usd });
     });
     app.post("/sim/settle", async (c) => {
-      const body = z.object({ contract_id: z.string().optional(), request_id: z.string().optional(), correlation_id: z.string().optional() }).parse(await c.req.json());
+      const body = z.object({ contract_id: z.string().optional(), request_id: z.string().optional(), correlation_id: z.string().optional() }).parse(await jsonBody(c));
+      if (config.auth.required && body.correlation_id) throw new UserError("Give contract_id or request_id.");
+      const contractId = body.request_id ? engine.attempt(body.request_id).contract_id : body.contract_id;
+      if (contractId) asParty(c.get("session"), contractId);
+      else signedIn(c.get("session"));
       let cids: string[] = [];
       if (body.correlation_id) cids = [body.correlation_id];
       else if (body.request_id) cids = [engine.attempt(body.request_id).correlation_id ?? ""].filter(Boolean);
@@ -449,17 +554,22 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     });
     app.post("/sim/merge", async (c) => {
       if (!(evidence instanceof FakeEvidence)) throw new UserError("Only available with the demo evidence source.");
-      const body = z.object({ contract_id: z.string() }).parse(await c.req.json());
-      return c.json({ merged: evidence.mergeNext((await engine.getContract(body.contract_id)).terms) });
+      const body = z.object({ contract_id: z.string() }).parse(await jsonBody(c));
+      asParty(c.get("session"), body.contract_id);
+      const { terms } = await engine.getContract(body.contract_id);
+      if (terms.v !== 2) throw new UserError("Only Pay on merge jobs have merges to simulate.", 409);
+      return c.json({ merged: evidence.mergeNext(terms) });
     });
     app.post("/sim/advance", async (c) => {
+      signedIn(c.get("session"));
       if (kit.platform.mode !== "fake" || !clock.movable) throw new UserError("The clock only moves with the platform stand-in.");
-      const body = z.object({ ms: z.number().int().positive().optional(), to: z.string().datetime().optional() }).parse(await c.req.json());
+      const body = z.object({ ms: z.number().int().positive().optional(), to: z.string().datetime().optional() }).parse(await jsonBody(c));
       const now = body.to ? clock.set(new Date(body.to)) : clock.advance(body.ms ?? 60_000);
       return c.json({ now: now.toISOString() });
     });
     app.post("/sim/confirm", async (c) => {
-      const body = z.object({ url: z.string() }).parse(await c.req.json());
+      signedIn(c.get("session"));
+      const body = z.object({ url: z.string() }).parse(await jsonBody(c));
       if (!controls.completeConfirm) throw new UserError("This platform can't complete confirm links headlessly.");
       await controls.completeConfirm(body.url);
       return c.json({ confirmed: true });

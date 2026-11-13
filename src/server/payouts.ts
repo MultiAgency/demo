@@ -8,7 +8,7 @@
 import type { Fail, PayoutAnswer } from "./platform/port";
 import type { AttemptState, PayoutResolution } from "../shared/views";
 import { minBig, toAtomic } from "../shared/money";
-import { type Terms, USDC_DECIMALS } from "../shared/terms";
+import { type CapTerms, perPaymentCap, type Terms, USDC_DECIMALS } from "../shared/terms";
 
 export interface AttemptLike {
   request_id: string;
@@ -83,16 +83,15 @@ export function owedFor(terms: Pick<Terms, "scope">, completion: Record<string, 
 }
 
 /**
- * The next payout for a judgment: amount = min(total owed, largest deliverable), lines filled in scope order
+ * The next payout for a judgment: amount = min(total owed, signed per-payment cap), lines filled in scope order
  * (the last one may be partial). Null when nothing is owed.
  */
-export function planPayout(terms: Pick<Terms, "scope">, completion: Record<string, number>, committed: Map<string, bigint>, invoiceRemaining?: bigint): { amount: bigint; lines: Line[] } | null {
+export function planPayout(terms: CapTerms, completion: Record<string, number>, committed: Map<string, bigint>, invoiceRemaining?: bigint): { amount: bigint; lines: Line[] } | null {
   const owed = owedFor(terms, completion, committed);
   const owedTotal = owed.reduce((n, l) => n + l.amount, 0n);
   const total = invoiceRemaining === undefined ? owedTotal : minBig(owedTotal, invoiceRemaining);
   if (total <= 0n) return null;
-  const largest = terms.scope.reduce((m, d) => (toAtomic(d.value_usd, USDC_DECIMALS) > m ? toAtomic(d.value_usd, USDC_DECIMALS) : m), 0n);
-  const amount = minBig(total, largest);
+  const amount = minBig(total, toAtomic(perPaymentCap(terms), USDC_DECIMALS));
   const lines: Line[] = [];
   let left = amount;
   for (const l of owed) {
@@ -111,6 +110,7 @@ export interface Transition {
   code: string | null;
   failKind: "refused" | "forbidden" | "session" | "blocked" | null;
   correlationId?: string | null;
+  /** The platform's non-execution claim. Proof additionally needs a FAILED payment read without counterevidence. */
   neverExecuted?: boolean;
   failureCode?: string | null;
   /** When the same id may be asked again (waiting/blocked). */

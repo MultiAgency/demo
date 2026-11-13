@@ -1,0 +1,66 @@
+{
+  "as_of": "2026-11-13T21:38:20.733416+00:00",
+  "result": "DEPLOYMENT_AND_READ_ONLY_CHECKS_PASS",
+  "authorization": "User, verbatim in this session: deploy release candidate eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108 to the Railway production environment (desk.multiagency.ai); protected snapshot and the three rollback queries first, stop if any returns rows; deploy exactly that frozen tree; read-only acceptance (health, sign-in, existing signed job loads with unchanged terms hash, verification green). No allocation, funding, payout, credential, variable or staging changes.",
+  "origin": "https://desk.multiagency.ai",
+  "railway": {
+    "project": "paperwork",
+    "environment": "production",
+    "service": "server"
+  },
+  "source": {
+    "kind": "frozen_uncommitted_export",
+    "manifest_sha256": "eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108",
+    "record": "docs/release-candidate-eac99283.json",
+    "base_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
+    "export_files": 120,
+    "export_note": "119 manifest inputs plus .dockerignore; export manifest recomputed before upload and matched"
+  },
+  "image_digest": "sha256:2e905d06e25211009b7790bf94bbca69dc3029c7a0c82e01b6f7b87808c196ac",
+  "preservation": {
+    "snapshot_on_original_volume": "/data/protected-snapshots/release-eac99283-20261113T213515Z/snapshot.sqlite",
+    "method": "VACUUM INTO from a read-only connection",
+    "snapshot_sha256": "384f3cfce3e3a351be2ff7ce02ce192a8115188d375b3d6c1269089309b4bc6f",
+    "snapshot_bytes": 327680,
+    "integrity": "ok",
+    "state_copied_locally": false,
+    "counts": {
+      "contracts": 1,
+      "payout_attempts": 0,
+      "job_submissions": 0,
+      "judgments": 0,
+      "owner_steps": 3,
+      "platform_agents": 1
+    }
+  },
+  "rollback_gate_before_deploy": {
+    "contracts_new_kind": [],
+    "payout_counterevidence": [],
+    "funding_recovery_attempts": "no such table (treated as no rows)",
+    "result": "rollback to 33c4899 remained available before this deploy"
+  },
+  "hosted_checks": {
+    "health": "200 {\"ok\":true}",
+    "config": "platform remote, host api.dev.multiagency.ai, demo_controls false, auth required (mainnet)",
+    "auth_endpoints": "/api/auth/ok 200; /api/me session null when signed out; unknown API route JSON 404",
+    "runtime_source": "118 of 119 manifest files present in the running image match by sha256; Dockerfile is not copied into the image; 0 mismatches",
+    "signed_job": "c_a2002ec56bf1: stored hash a2002ec56bf163b7cb0330afdf2ee9257267d6d55d204804d4cc41bc6aebd763 recomputed by the deployed code; both signatures present",
+    "verification": "public verification green, 13 checks, terms_hash unchanged",
+    "privacy": "anonymous full-job read 401",
+    "migrations": "funding_recovery_attempts table, payout_attempts.counterevidence, job_submissions.assessment, platform_agents.usdc_observed present; record counts unchanged from the snapshot",
+    "wallet_sign_in": "Confirmed by the owner after deployment (2026-11-13)"
+  },
+  "not_verified": [
+    "Hosted report/invoice submission, approval and settlement",
+    "Funding: still held pending provider reconciliation"
+  ],
+  "financial_actions": {
+    "allocations_requested": 0,
+    "funding": false,
+    "payouts_created": 0,
+    "approvals_submitted": 0,
+    "credentials_or_variables_changed": false,
+    "staging_changed": false
+  },
+  "rollback_after_deploy": "Still available while the three queries in docs/deploy.md return no rows; the first new-kind job (the new-job form signs per_payment and review_days by default) makes it forward-only."
+}

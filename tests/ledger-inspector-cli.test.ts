@@ -47,7 +47,7 @@ function fixture(unsafe = false) {
         request_id TEXT PRIMARY KEY, kind TEXT, contract_id TEXT, seq INTEGER, attempt INTEGER,
         run_id TEXT, recipient TEXT, amount_atomic TEXT, state TEXT, code TEXT,
         correlation_id TEXT, approval_id TEXT, vote_correlation_id TEXT,
-        never_executed INTEGER, tx_hash TEXT, refund_tx_hash TEXT, refunded_amount TEXT, resolution TEXT
+        never_executed INTEGER, tx_hash TEXT, refund_tx_hash TEXT, refunded_amount TEXT, counterevidence TEXT, resolution TEXT
       );
       CREATE TABLE payout_lines (request_id TEXT, deliverable_id TEXT, amount_atomic TEXT);
       CREATE TABLE owner_steps (

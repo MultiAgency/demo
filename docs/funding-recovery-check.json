@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-11-13T21:12:51.565394+00:00",
+  "scope": "Local explicit funding recovery; proposed trusted-platform port, no remote adapter enabled",
+  "fixture_only": true,
+  "hosted_changes": false,
+  "funds_moved": false,
+  "typecheck": "passed",
+  "frontend_build": "passed, 3 manifest-retained files",
+  "workflow_lint": "passed",
+  "full_suite": {
+    "passed": 1661,
+    "failed": 0,
+    "assertions": 11441,
+    "files": 81
+  },
+  "focused_funding_tests": {
+    "passed": 12,
+    "failed": 0
+  },
+  "browser": {
+    "passed": true,
+    "wallet_opened": false,
+    "mutation_calls": 0,
+    "checks": [
+      "keyboard disclosure",
+      "exact credit/remainder/fee/transfer",
+      "explicit acknowledgement",
+      "desktop light and phone dark reflow",
+      "axe WCAG",
+      "retained legacy browser marker",
+      "unresolved and expired result refusal",
+      "account switch clears destination review"
+    ],
+    "private_fixture_artifacts": "data/release-evidence/funding-recovery-browser-pnGD8g/receipt.json"
+  },
+  "key_guards": [
+    "Representative session and current job/owner/agent/terms/deployment/host/origin binding",
+    "Read-only trusted result; copied receipts and caller plans are not authority",
+    "Fresh signed policy, available credit and exact atomic arithmetic",
+    "One durable claim per job before wallet I/O; duplicate processes, lost responses and reopened SQLite stay blocked",
+    "Existing browser funding marker and cross-tab lock retained; no marker or allocation reset",
+    "Recovery preflight avoids deposit allocation and ordinary contract reconciliation endpoints",
+    "Ordinary deposit endpoint refuses a claimed recovery"
+  ],
+  "remaining": [
+    "Platform/SDK must review and implement the proposed read-only fundingRecovery contract; pinned remote SDK has no adapter",
+    "Original allocation remains unresolved and current private receipt does not clear funding",
+    "No existing browser-marker correction or second-attempt authorization path; those require separately specified authoritative recovery evidence",
+    "Hosted recovery wallet/provider acceptance and deployment are unperformed"
+  ],
+  "source_sha256": {
+    "src/shared/funding-recovery.ts": "8b8f353825b0af21ed6883c31b941443349ab64d731cdb9c840fbb99e1e4dbda",
+    "src/server/platform/port.ts": "54dcfd487f055adef5fefb3efab085bf13c4553fd29b58bf68b8b6e3fefba0aa",
+    "src/server/engine.ts": "a87545607430c8fbd24fbf1236472b0c2d820adf5d3c6daf73bb304318c45f4d",
+    "src/server/db.ts": "1c2ca7bf989c0fae8ddc37412f61fe78ce448a8965d70abe601f90429965de1c",
+    "src/server/app.ts": "60399ec3493000881282e4eb5053990a1ed5fb23bf855144177753a61387e125",
+    "src/web/funding.ts": "e033436b0d85864eeb77bc1ed9b5c41805023a504117fae09135698280021aac",
+    "src/web/session.tsx": "6dbaed009d5cc7e24d09350a8b1fd22ffd2d4f6d0f0feb2b2d985e63295dd860",
+    "src/web/components/FundingRecovery.tsx": "3d117c627a086ef42bdc157885e22e1a7cf749ae11ff3d70659459d31bcde066",
+    "src/web/pages/Contract.tsx": "3c9988876042d5dddc36a587d865bde3fe867201b60ede0d0a316ede0362cc66",
+    "src/web/styles.css": "6edb5b037d68b7b555e1be4d2d3525b63abd347f53ea032b30794e0f3968ccbb",
+    "tests/funding-recovery.test.ts": "a0cb7fd990f7a2d8e71b9fb72b22d711b68342d3df5ceade1eef05ef61c6cf99",
+    "scripts/demo-funding-recovery-browser.ts": "126a069e5449dd6f60be7e05976657b39a647e86a77c07b11541d59621d37951",
+    ".github/workflows/verify.yml": "e18a8b1f734ea9f9c4f04a719aceb018cd1bde28145a1363c08dbb25241e9e17"
+  }
+}

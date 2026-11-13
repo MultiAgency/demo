@@ -13,8 +13,6 @@
     "demo": "bun src/server/index.ts",
     "demo:job": "bun scripts/demo-job.ts",
     "demo:browser": "bun scripts/demo-browser.ts",
-    "demo:jobs": "bun scripts/demo-jobs.ts",
-    "demo:jobs:check": "bun scripts/demo-jobs.ts --check",
     "demo:desk": "bun scripts/demo-jobs.ts",
     "demo:desk:check": "bun scripts/demo-jobs.ts --check",
     "demo:job:restart": "bun scripts/demo-job-restart-local.ts",
@@ -25,9 +23,13 @@
     "demo:review:check": "bun --no-env-file scripts/demo-review.ts --check",
     "test": "bun test",
     "typecheck": "tsc --noEmit && tsc -p .railway",
+    "test:responsive": "bun --no-env-file scripts/check-responsive.ts",
+    "test:accessibility": "bun --no-env-file scripts/check-accessibility-recovery.ts",
+    "profile:reads": "bun --no-env-file scripts/profile-job-reads.ts",
     "demo:stack": "bun scripts/demo-stack.ts",
     "demo:market": "bun scripts/demo-market.ts",
-    "demo:privacy:browser": "bun --no-env-file scripts/demo-privacy-browser.ts"
+    "demo:privacy:browser": "bun --no-env-file scripts/demo-privacy-browser.ts",
+    "demo:market:browser": "bun --no-env-file scripts/demo-market-settled-browser.ts"
   },
   "dependencies": {
     "@ag-ui/client": "1.0.4",
@@ -57,6 +59,7 @@
     "@types/bun": "^1.4.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "axe-core": "^4.14.0",
     "railway": "3.16.0",
     "typescript": "^7.0.2"
   }

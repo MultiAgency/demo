@@ -593,3 +593,12 @@ describe("only coherent standalone SQLite snapshots are admitted", () => {
     expect(readdirSync(dirname(path))).toEqual(["snapshot.sqlite"]);
   });
 });
+
+test("retained REFUNDED counterevidence is reported and contradicts stored proof", () => {
+  const path = fixture({ version: 3, state: "failed", resolution: null, proof: 1 });
+  change(path, db => db.exec("ALTER TABLE payout_attempts ADD COLUMN counterevidence TEXT; UPDATE payout_attempts SET counterevidence = 'payment status REFUNDED'"));
+  const report = inspectLedger(path);
+  expect(report.attempts[0]).toMatchObject({ never_executed: true, counterevidence: "payment status REFUNDED" });
+  expect(report.findings).toEqual(expect.arrayContaining([expect.objectContaining({ code: "contradictory_non_execution", request_id: ids.request })]));
+  expect(report.findings.some(finding => finding.code === "missing_column" && finding.column === "counterevidence")).toBe(false);
+});

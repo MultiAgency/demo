@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-13T20:44:24.922207+00:00",
+  "provider_observed_at_approximately": "2026-11-13T20:41:00Z",
+  "source": "Platform-session private reconciliation receipt, reviewed by the Paperwork session; live provider/RPC observations were not independently repeated.",
+  "independently_verified_by_paperwork_session": false,
+  "private_receipt_reference": "/Users/jlwaugh/agencies/dao/sdk/.test-artifacts/private-reconciliation/paperwork-20261113/reconciliation.json",
+  "funding_clearance": "blocked",
+  "job_id": "c_a2002ec56bf1",
+  "reported_findings": {
+    "owner_binding": "App-recorded agent belongs to multiagentic.near, is active, and has revision 2 applied and synchronized.",
+    "successful_cached_address_abbreviation": "aa2a\u2026ca538",
+    "successful_allocation_status": "SUCCESS",
+    "deposited_and_credited_atomic_usdc": "10000",
+    "confidential_balance_atomic_usdc": "10000",
+    "available_balance_atomic_usdc": "10000",
+    "other_cached_addresses": [
+      {
+        "abbreviation": "9055\u2026e37eb",
+        "status": "PENDING_DEPOSIT"
+      },
+      {
+        "abbreviation": "0b9c\u2026d8c10",
+        "status": "PENDING_DEPOSIT"
+      }
+    ],
+    "other_address_expiries_reported": "2026-11-19; exact timestamps must be retained privately.",
+    "allocation_discovery": "Provider history with include_unpaid:true recovered exact operations; separate empty provider-record arrays were incomplete evidence.",
+    "historical_receipts": "Platform session reports independent NEAR mainnet verification of final successful deposit and settlement transactions, token receipt for exactly 10000 atomic USDC, credit through intents.near and matching provider balance.",
+    "payout_policy": "Withdrawal to buildr.near with owner approval; configuration alone does not establish working payout route."
+  },
+  "unresolved": [
+    "Original unknown allocation request is not bound to one exact provider operation; time or amount matching is insufficient.",
+    "Earlier failed allocation remains FAILED; its cause is unresolved.",
+    "Current payout route readiness and independent builder receipt are unverified.",
+    "Existing 0.01 USDC credit is insufficient for the 1 USD job and conflicts with the current zero-balance-only funding flow."
+  ],
+  "required_next_actions": [
+    "Platform owner supplies the retained private receipt and separate gateway audit findings to the provider through its authorized support channel.",
+    "Provider owner searches internal request records for authoritative original-request/idempotency-key-to-operation binding, or supplies a supported reconciliation procedure if identity cannot be recovered.",
+    "Paperwork reviews the provider response before proposing any app-state correction. Preserve the original unknown outcome, cached allocations, existing credit and zero-balance funding guard."
+  ],
+  "contract_requirement": {
+    "owner": "Platform/SDK; versioned app-scoped contract required before Paperwork integration.",
+    "prepare": "Persist an app-scoped allocation requestId before provider submission.",
+    "follow": "Read-only status returns original requestId, correlation, instructions and outcome; unverifiable binding remains unknown.",
+    "paperwork": "Persist the original requestId and returned correlation. No retry or reset bypass for legacy ambiguity."
+  },
+  "actions_taken_by_this_followup": "Private receipt reviewed read-only and reference/hash retained. No provider/RPC call, app-state correction, allocation, deployment or financial action.",
+  "boundary": "Historical 0.01 USDC funding is stronger evidence, not clearance to reuse an address, add funds or approve a payout.",
+  "private_receipt_sha256": "d4a7b73425555a59c2bfe09ecbf895ddc5bd36f6f12767da56e51123e4b8d1d8",
+  "receipt_reviewed_at": "2026-11-13T20:46:15.335631+00:00",
+  "receipt_review": {
+    "job_owner_agent_consistent": true,
+    "cached_credit_bound": true,
+    "original_unknown_attempt_bound": false,
+    "funding_clearance": false,
+    "payout_route_readiness": "unverified",
+    "app_allocation_events_in_receipt": 0,
+    "limitation": "Receipt reports no deposit_pending/deposit_ready events in the current app query. This does not resolve the original unknown outcome."
+  },
+  "gateway_audit_review": {
+    "reference": "/Users/jlwaugh/agencies/dao/sdk/.test-artifacts/private-reconciliation/paperwork-20261113/gateway-audit-findings.json",
+    "sha256": "b2865f989573ad80d974c71b9a8188678ca4859634874668f934c32861763063",
+    "reviewed_at": "2026-11-13T20:51:45.336118+00:00",
+    "deposit_call_entries": 13,
+    "entries_retaining_identity": 0,
+    "matching_journal_records": 0,
+    "binding": "Unrecoverable from inspected retained gateway records; provider internal recoverability remains unknown.",
+    "original_receipt_fingerprint_unchanged": true,
+    "funding_clearance": false
+  }
+}

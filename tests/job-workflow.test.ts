@@ -8,7 +8,7 @@ import type { Auth } from "../src/server/auth";
 import { loadConfig } from "../src/server/config";
 import { JOB_DEMO_TERMS } from "../src/shared/demo";
 import { jobSubmissionSchema } from "../src/shared/jobs";
-import { termsHash, parseTerms } from "../src/shared/terms";
+import { JOB_PAYMENT_TERMS, termsHash, parseTerms } from "../src/shared/terms";
 import { activate, castVote, onboard, setup, signTerms, START } from "./support/harness";
 
 const builder = JOB_DEMO_TERMS.contractor.near_account;
@@ -118,6 +118,87 @@ describe("one builder job — simulated platform", () => {
     }
   });
 
+  test("a titled job without a GitHub identity or repositories reaches a held proposal and lists under its title", async () => {
+    const ctx = await activate("300", { ...JOB_DEMO_TERMS, title: "Monthly report export", repos: undefined, contractor: { name: "Maria Lopez", near_account: builder } });
+    const c = ctx.rt.engine;
+    expect(c.jobsFor(agency)[0]!.title).toBe("Monthly report export");
+    const s = await c.submitJob(ctx.id, submission(), builder);
+    expect(onlyPayout(await c.proposeJob(s.id))).toMatchObject({ state: "held", amount_usd: "300" });
+  });
+
+  test("a signed-in named builder accepts without the private invitation; other accounts and the keyless demo cannot", async () => {
+    const ctx = await setup(JOB_DEMO_TERMS);
+    const req = ctx.rt.engine.signingRequest(ctx.id, "contractor");
+    const sig = ctx.stub.sign(req);
+    const body = json({ role: "contractor", signed: { account_id: req.account_id, public_key: sig.publicKey, signature: sig.signature, nonce: req.nonce } });
+    const path = `/api/contracts/${ctx.id}/signatures`;
+    // Without sessions the private invitation is still the only acceptance capability.
+    expect((await buildApp(ctx.rt).request(path, body)).status).toBe(403);
+    for (const account of [null, agency, "unrelated.demo"])
+      expect([401, 403]).toContain((await appAs(ctx.rt, account).request(path, body)).status);
+    expect((await ctx.rt.engine.viewContract(ctx.id)).signatures.contractor).toBeNull();
+    const accepted = await appAs(ctx.rt, builder).request(path, body);
+    expect(accepted.status).toBe(200);
+    expect((await ctx.rt.engine.viewContract(ctx.id)).signatures.contractor).toMatchObject({ account_id: builder });
+  });
+
+  test("a filed report is assessed for review without any payout request; approval then files the assessed amount once", async () => {
+    const ctx = await activate("300", JOB_DEMO_TERMS);
+    const c = ctx.rt.engine;
+    const filed = await appAs(ctx.rt, builder).request(`/api/contracts/${ctx.id}/submissions`, json(submission("assessed-key-001", "INV-ASSESSED", "250")));
+    expect(filed.status).toBe(201);
+    const sid = ((await filed.json()) as { id: string }).id;
+    await c.assessJob(sid); // joins the assessment the filing started; a second call records nothing new
+    const assessed = (await c.viewContract(ctx.id)).submissions[0]!;
+    expect(assessed).toMatchObject({ state: "submitted", judgment_id: null, proposed_usd: "0", assessment: { proposed_usd: "250", deliverables: [{ id: "d1", completion: 1 }] } });
+    expect((await c.viewContract(ctx.id)).payouts).toHaveLength(0);
+    expect(ctx.stub.calls.requestPayout).toBe(0);
+    expect((await c.viewContract(ctx.id)).events.filter((e) => e.kind === "assessment")).toHaveLength(1);
+
+    // The assessment is the agency's review material: the builder's reads never carry it.
+    const read = async (account: string, path: string) => (await appAs(ctx.rt, account).request(path)).json() as Promise<any>;
+    expect((await read(agency, `/api/contracts/${ctx.id}`)).submissions[0].assessment).toMatchObject({ proposed_usd: "250", payment_usd: "250" });
+    expect((await read(builder, `/api/contracts/${ctx.id}`)).submissions[0].assessment).toBeNull();
+    expect((await read(builder, `/api/contracts/${ctx.id}/submissions`))[0].assessment).toBeNull();
+    expect((await read(builder, `/api/contracts/${ctx.id}/submissions/${sid}`)).assessment).toBeNull();
+    expect(JSON.stringify((await read(builder, `/api/contracts/${ctx.id}`)).events)).not.toContain("Rule-based demo proposal");
+
+    const proposed = await c.proposeJob(sid);
+    expect(onlyPayout(proposed)).toMatchObject({ state: "held", amount_usd: "250" });
+    expect(proposed.submissions[0]).toMatchObject({ state: "proposed", proposed_usd: "250", assessment: null });
+    expect(ctx.stub.calls.requestPayout).toBe(1);
+  });
+
+  test("under a largest-deliverable cap the assessment names the first payment, not the whole proposal", async () => {
+    const ctx = await activate("300", {
+      ...JOB_DEMO_TERMS,
+      scope: [
+        { ...JOB_DEMO_TERMS.scope[0]!, value_usd: "200" },
+        { ...JOB_DEMO_TERMS.scope[0]!, id: "d2", title: "CSV export documentation", value_usd: "100" },
+      ],
+    });
+    const body = submission("first-payment-key", "INV-FIRST", "300");
+    body.evidence.push({ deliverable_id: "d2", label: "Export documentation", url: "https://github.com/acme/app/pull/102" });
+    const s = await ctx.rt.engine.submitJob(ctx.id, body, builder);
+    await ctx.rt.engine.assessJob(s.id);
+    expect((await ctx.rt.engine.viewContract(ctx.id)).submissions[0]!.assessment).toMatchObject({ proposed_usd: "300", payment_usd: "200" });
+    expect(onlyPayout(await ctx.rt.engine.proposeJob(s.id)).amount_usd).toBe("200");
+  });
+
+  test("changes requested on an assessed report need no payout rejection and discard nothing the builder filed", async () => {
+    const ctx = await activate("300", JOB_DEMO_TERMS);
+    const c = ctx.rt.engine;
+    const s = await c.submitJob(ctx.id, submission(), builder);
+    await c.assessJob(s.id);
+    const changed = await c.requestJobChanges(s.id, "Please add the missing test evidence.");
+    expect(changed.submissions[0]).toMatchObject({ state: "changes_requested", assessment: null });
+    expect(changed.payouts).toHaveLength(0);
+    // The revision is assessed on its own content.
+    const revised = await c.submitJob(ctx.id, submission("revised-key-0001", "INV-002"), builder);
+    await c.assessJob(revised.id);
+    expect((await c.viewContract(ctx.id)).submissions.find((x) => x.id === revised.id)!.assessment).toMatchObject({ proposed_usd: "300" });
+  });
+
   test("compensation is capped by the invoice and repeated proposal cannot create another request", async () => {
     const ctx = await activate("300", JOB_DEMO_TERMS);
     const s = await ctx.rt.engine.submitJob(ctx.id, submission("invoice-cap-001", "INV-CAP", "75"), builder);
@@ -167,6 +248,65 @@ describe("one builder job — simulated platform", () => {
     expect(ctx.stub.transfers.map((t) => t.amount)).toEqual(["150000000", "100000000"]);
     // Settled compensation remains charged to the signed budget, even when a new invoice is filed.
     await expect(ctx.rt.engine.submitJob(ctx.id, submission("over-remaining-budget", "INV-OVER", "51"), builder)).rejects.toThrow();
+  });
+
+  test("terms that sign a scope-total cap pay a multi-deliverable invoice with one held payout and one approval", async () => {
+    const terms = {
+      ...JOB_DEMO_TERMS,
+      payment_terms: { ...JOB_PAYMENT_TERMS, per_payment: "scope_total" },
+      scope: [
+        { ...JOB_DEMO_TERMS.scope[0]!, value_usd: "150" },
+        { ...JOB_DEMO_TERMS.scope[0]!, id: "d2", title: "CSV export documentation", value_usd: "150" },
+      ],
+    };
+    const ctx = await activate("300", terms);
+    // The applied policy carries the signed cap, and Verify reads it back as matching.
+    expect(ctx.stub.agents.get(ctx.rt.engine.onboarding.agentRow(ctx.id)!.agent!)!.policy.limits.per_transaction).toEqual({ [JOB_DEMO_TERMS.asset]: "300000000" });
+    expect((await ctx.rt.engine.verify(ctx.id)).checks.find((x) => x.id === "cap")).toMatchObject({ ok: true, label: "No single payment above the scope total" });
+    const body = submission("single-payout-key", "INV-SINGLE", "250");
+    body.evidence.push({ deliverable_id: "d2", label: "Export documentation", url: "https://github.com/acme/app/pull/102" });
+    const s = await ctx.rt.engine.submitJob(ctx.id, body, builder);
+    const only = onlyPayout(await ctx.rt.engine.proposeJob(s.id));
+    expect(only).toMatchObject({ state: "held", amount_usd: "250" });
+    await castVote(ctx, only.request_id, "approve");
+    ctx.stub.settle(ctx.rt.engine.attempt(only.request_id).correlation_id!);
+    const paid = await ctx.rt.engine.getContract(ctx.id);
+    expect(paid.submissions[0]).toMatchObject({ state: "settled", paid_usd: "250" });
+    expect(paid.payouts).toHaveLength(1);
+    expect(ctx.stub.calls.requestPayout).toBe(1);
+    expect(ctx.stub.transfers.map((t) => t.amount)).toEqual(["250000000"]);
+  });
+
+  test("a signed review window keeps review and payment open after the work deadline, and closes with the window", async () => {
+    const DAY = 86_400_000;
+    const ctx = await activate("300", { ...JOB_DEMO_TERMS, payment_terms: { ...JOB_PAYMENT_TERMS, review_days: 14 } });
+    const c = ctx.rt.engine;
+    // Paperwork's payout access is signed to the end of the window, and Verify expects exactly that.
+    expect(c.onboarding.agentRow(ctx.id)!.payout_consent_expires_at).toBe("2026-12-14T23:59:59.000Z");
+    expect((await c.verify(ctx.id)).checks.find((x) => x.id === "consent")).toMatchObject({ ok: true, label: "Paperwork's payout access ends at or before the end of the signed review window" });
+    const s = await c.submitJob(ctx.id, submission(), builder);
+
+    // One hour after the end date: nothing new can be filed, but the filed work is still proposed, approved and paid.
+    ctx.rt.clock.advance(Date.parse("2026-12-01T01:00:00Z") - START);
+    expect((await c.getContract(ctx.id)).stage).toBe("active");
+    await expect(c.submitJob(ctx.id, submission("late-key-0001", "INV-LATE"), builder)).rejects.toThrow("submission deadline");
+    const held = onlyPayout(await c.proposeJob(s.id));
+    expect(held.state).toBe("held");
+    await castVote(ctx, held.request_id, "approve");
+    ctx.stub.settle(c.attempt(held.request_id).correlation_id!);
+    expect((await c.getContract(ctx.id)).submissions[0]).toMatchObject({ state: "settled", paid_usd: "300" });
+
+    ctx.rt.clock.advance(14 * DAY);
+    expect((await c.getContract(ctx.id)).stage).toBe("ended");
+  });
+
+  test("without a signed review window nothing can be proposed after the end date", async () => {
+    const ctx = await activate("300", JOB_DEMO_TERMS);
+    const s = await ctx.rt.engine.submitJob(ctx.id, submission(), builder);
+    ctx.rt.clock.advance(Date.parse("2026-12-01T01:00:00Z") - START);
+    expect((await ctx.rt.engine.getContract(ctx.id)).stage).toBe("ended");
+    await expect(ctx.rt.engine.proposeJob(s.id)).rejects.toThrow("ended");
+    expect(ctx.stub.calls.requestPayout).toBe(0);
   });
 
   test("submission identities are idempotent and invoices cannot be filed again under a new key", async () => {

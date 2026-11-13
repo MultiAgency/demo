@@ -1,5 +1,19 @@
 # Paperwork browser demo
 
+## Accessibility and failure recovery
+
+Run `bun run test:accessibility` for the offline fixture suite, also run by CI. It retains axe results, Chromium accessibility-tree snapshots, screenshots and a JSON receipt under `PAPERWORK_DEMO_ARTIFACTS` (the system temp directory by default). Failures exit nonzero; `--observe` is a development-only way to record failures before fixing them.
+
+The complete runners support `bun run demo:browser --keyboard` and `bun --no-env-file scripts/demo-v2-browser.ts --keyboard`. CI uses this mode: primary buttons are focused and activated with Enter, including acceptance, report filing, proposal/approval and simulated settlement. Normal pointer-mode runs remain available. Receipts record `keyboard_controls: true` for keyboard runs. [The retained accessibility/recovery result](accessibility-recovery-check.json) distinguishes automated results from unverified native assistive-technology checks.
+
+The suite covers v3 report/invoice and v2 Pay on merge: light/dark WCAG rule scans of agency, builder and offer screens; real Arrow/Home/End tab activation, keyboard offer submission, skip links and route focus; named progress; 200% CSS layout/text scaling and 320px reflow; readable payment figures and phone tab labels; touch-target minimums; slow/failed reads; a lost report submission response followed by reload and retry; a lost merge-check response; account changes with late old-account responses; and expired owner signatures without payment or replacement payout creation. The complete payment journeys below separately retain explicit approval and confirmed simulated settlement evidence.
+
+Temporary network/server failures preserve existing form state on manual and automatic refresh. Authentication/authorization refusals still clear private data. A cross-tab auth notification carries no identity or authority: it clears the old actor and reads the server session. Focus/visibility checks catch changed sessions, while an active logout remains guarded. A lost submission response retains its exact saved request ID and payload for retry.
+
+Automated axe/Chromium semantics are **not** an actual VoiceOver/NVDA walkthrough or accessibility certification. Human acceptance should verify heading/landmark navigation, tab names and selection announcements, form labels/errors, asynchronous submission/payment status announcements, and uninterrupted keyboard focus through the full offer → acceptance → report/invoice → proposal → agency approval → confirmed payment flow. Repeat with native browser zoom at 200% and reflow at 400%. Hosted wallet prompts and real settlement remain separate acceptance evidence; these fixture checks perform neither.
+
+## Complete report/invoice journey
+
 ```bash
 bun run demo:browser
 ```
@@ -12,16 +26,16 @@ The browser journey performs:
 
 1. Create one report/invoice job for a $300 deliverable, then sign the exact terms from both party screens.
 2. Complete the agency's setup/consent/grant/policy/funding checklist.
-3. Submit a builder report, invoice and HTTPS evidence reference; show that submission alone requests no payment.
-4. Propose compensation, request changes, show the builder waiting for cancellation, and sign rejection of the held payout.
+3. Submit a builder report, invoice and HTTPS evidence reference; the agent's assessment appears for the agency and no payment is requested.
+4. Request changes from the assessment; no payout exists to cancel, so the builder can revise at once.
 5. Submit an immutable revision with a distinct invoice and the original terms hash.
-6. Propose and approve compensation; show processing while confirmed paid remains zero.
+6. Approve the revision in one action, which files the held payout and its approval; show processing while confirmed paid remains zero.
 7. Use the explicit settlement control, wait for both party views to update, and confirm the same payment request and one successful simulated transfer.
 8. Capture both outcomes at desktop 1440×1000 and mobile 390×844, checking for horizontal page overflow.
 
 Visible agency and builder job views check status every five seconds and when focused; **Refresh status** is also available. Proposals and agency decisions remain explicit actions.
 
-The command prints its temporary artifact directory. `receipt.json` links the job, accepted terms, revised report/invoice, proposal, approval, payment request/correlation and labelled fake transaction. Screenshots cover the held proposal, cancellation wait, approval before settlement and both parties' desktop/mobile outcomes. All signatures, provider/chain behavior and settlement in this browser proof are simulated. Production authentication is not exercised; named-role 401/403 checks remain in `tests/job-workflow.test.ts`.
+The command prints its temporary artifact directory. `receipt.json` links the job, accepted terms, revised report/invoice, proposal, approval, payment request/correlation and labelled fake transaction. Screenshots cover the assessed report, the builder's requested changes, approval before settlement and both parties' desktop/mobile outcomes. All signatures, provider/chain behavior and settlement in this browser proof are simulated. Production authentication is not exercised; named-role 401/403 checks remain in `tests/job-workflow.test.ts`.
 
 The runner closes only its own browser sessions and server. On failure it retains screenshots, an accessibility snapshot and an error under the artifact directory; it creates no replacement payment to repair a failed assertion. A subsequent run uses an independent fresh fixture server.
 

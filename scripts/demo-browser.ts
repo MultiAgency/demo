@@ -10,8 +10,10 @@ import type { ContractView } from "../src/shared/views";
 import { toAtomic } from "../src/shared/money";
 import { readStack } from "../src/server/platform/stack";
 import type { HireView } from "../src/shared/market";
+import { payeeOf } from "../src/shared/terms";
 
 type Actor = "agency" | "builder";
+const keyboard = process.argv.includes("--keyboard");
 const full = process.env.PAPERWORK_BROWSER_FULL === "1";
 const stack = full && process.env.PLATFORM_STACK_DIR ? readStack(process.env.PLATFORM_STACK_DIR) : null;
 if (full && (!stack?.marketUrl || ![stack.url, stack.rpcUrl, stack.marketUrl].every(url => ["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname))))
@@ -59,16 +61,22 @@ async function reference(actor: Actor, role: string, name: string, prefix = fals
   check(entry, `No ${role} named ${name}`);
   return `@${entry[0]}`;
 }
+async function activateControl(actor: Actor, selector: string) {
+  if (keyboard) {
+    await command(actor, "focus", selector);
+    await command(actor, "press", "Enter");
+  } else await command(actor, "click", selector);
+}
 async function click(actor: Actor, selector: string) {
   // agent-browser 0.26 clicks offscreen coordinates without scrolling. Explicitly reveal every target.
   await command(actor, "scrollintoview", selector);
-  await command(actor, "click", selector);
+  await activateControl(actor, selector);
   await pause();
 }
 async function button(actor: Actor, text: string) {
   await pageWait(actor, `[...document.querySelectorAll('button')].some(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled)`, text);
   await command(actor, "scrollintoview", await reference(actor, "button", text));
-  await command(actor, "click", await reference(actor, "button", text));
+  await activateControl(actor, await reference(actor, "button", text));
   await pause();
 }
 async function actionOrDone(actor: Actor, pattern: string, done: () => boolean | Promise<boolean>, label: string) {
@@ -80,7 +88,7 @@ async function actionOrDone(actor: Actor, pattern: string, done: () => boolean |
     try {
       await command(actor, "scrollintoview", await reference(actor, "button", action));
       if (await done()) return;
-      await command(actor, "click", await reference(actor, "button", action));
+      await activateControl(actor, await reference(actor, "button", action));
       await pause();
       return;
     } catch (error) { if (await done()) return; throw error; }
@@ -149,7 +157,7 @@ async function submitRevision(revision: number) {
   }
   await button("builder", revision === 1 ? "Submit report and invoice" : "Submit revised report and invoice");
   const submitted = await state(v => v.submissions[0]?.revision === revision && v.submissions[0]?.state === "submitted", "submitted revision");
-  await pageWait("builder", "document.body.innerText.includes('Submitted · awaiting proposal')", "visible submission outcome");
+  await pageWait("builder", "document.body.innerText.includes('Submitted · awaiting agency review')", "visible submission outcome");
   check(submitted.paid_usd === "0", "Submission must not count as payment");
   return submitted.submissions[0]!;
 }
@@ -213,7 +221,7 @@ console.log("Paperwork browser walkthrough · SIMULATED accounts, signatures, pr
 console.log(`Artifacts: ${dir}`);
 try {
   await open("agency", `${base}/#/new`);
-  check(await evaluate<boolean>("agency", "document.title==='Paperwork'&&document.querySelector('h1')?.textContent==='New job'&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Agency')&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Openings')"), "Expected Paperwork branding and Desk workspace navigation");
+  check(await evaluate<boolean>("agency", "document.title.endsWith('Paperwork')&&document.querySelector('h1')?.textContent==='New job'&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Agency')&&[...document.querySelectorAll('a')].some(a=>a.textContent.trim()==='Openings')"), "Expected Paperwork branding and Desk workspace navigation");
   await pageWait("agency", "!!document.querySelector('button[aria-label=\"Remove d3\"]')", "offer form");
   await click("agency", 'button[aria-label="Remove d3"]');
   await click("agency", 'button[aria-label="Remove d2"]');
@@ -228,7 +236,8 @@ try {
 
   await button("agency", "Sign as acme.demo");
   await state(v => !!v.signatures.representative, "agency signature");
-  const builderUrl = await evaluate<string>("agency", "[...document.querySelectorAll('a')].find(a=>a.textContent.trim()==='Builder submission').href");
+  await pageWait("agency", "!!document.querySelector('a[data-action=\"open-builder-workflow\"]')", "builder workflow link");
+  const builderUrl = await evaluate<string>("agency", "document.querySelector('a[data-action=\"open-builder-workflow\"]').href");
   await open("builder", builderUrl);
   await button("builder", "Sign as maria.demo (demo wallet)");
   await state(v => !!v.signatures.contractor, "builder acceptance");
@@ -263,28 +272,25 @@ try {
   step("Builder submits report, invoice and evidence; no payout is yet requested");
   check((await view()).payouts.length === 0, "Submission must not create a payout");
 
-  await button("agency", "Propose compensation");
-  step("Agency discovers the builder submission and can propose compensation without a page reload");
-  const held = await state(v => v.payouts[0]?.state === "held", "held proposal");
-  check(held.paid_usd === "0", "Held proposal is unpaid");
-  await pageWait("agency", "document.body.innerText.includes('Held for your approval')", "visible held proposal");
-  await capture("agency", "01-held-proposal");
+  const assessed = await state(v => v.submissions[0]?.assessment?.proposed_usd === "300", "agent assessment of the filed report");
+  check(assessed.payouts.length === 0 && assessed.paid_usd === "0", "An assessment must not request a payout");
+  await pageWait("agency", "document.body.innerText.includes('Agent assessment')", "visible assessment without a page reload");
+  await capture("agency", "01-assessed-report");
+  step("Agency sees the agent's assessment of the submission without a page reload; no payout is requested");
   let revised = first;
   if (!full) {
   await fill("agency", "Changes needed", "Attach a CSV sample and acceptance test output before payout.");
   await button("agency", "Request changes");
-  await state(v => v.submissions[0]?.state === "changes_pending", "cancellation pending");
-  await pageWait("builder", "document.body.innerText.includes('Wait for cancellation')", "builder waits for cancellation");
-  await capture("builder", "02-changes-pending");
-  await button("agency", "Reject held payout for revision");
-  await state(v => v.submissions[0]?.state === "changes_requested", "confirmed rejection");
-  step("Agency requests changes and signs rejection; builder waits for confirmed cancellation");
+  await state(v => v.submissions.some(x => x.id === first.id && x.state === "changes_requested"), "changes requested");
+  await pageWait("builder", "document.body.innerText.includes('Changes requested for revision 1')", "builder sees the requested changes");
+  await capture("builder", "02-changes-requested");
+  check((await view()).payouts.length === 0, "Requesting changes on an assessed report must not involve a payout");
+  step("Agency requests changes on the assessed report; no payout existed to cancel");
 
   revised = await submitRevision(2);
   check(revised.terms_hash === offered.hash && revised.invoice.id !== first.invoice.id, "Revision must retain terms and a distinct invoice identity");
-  await button("agency", "Propose compensation");
-  await state(v => v.submissions[0]?.payout_request_ids.some(id => v.payouts.some(p => p.request_id === id && p.state === "held")) ?? false, "revised held proposal");
-  } else step("Pinned SDK simulator rework is separately blocked by missing non-execution proof; original submission proceeds to explicit review");
+  await state(v => v.submissions.some(x => x.id === revised.id && x.assessment?.proposed_usd === "300"), "assessment of the revision");
+  } else step("Rework is exercised in the keyless run; this run proceeds from the assessment to explicit approval");
   await button("agency", "Approve $300.00");
   const approved = await state(v => v.payouts[0]?.state === "processing", "approved, unsettled payout");
   check(approved.paid_usd === "0", "Approval must not count as settlement");
@@ -311,7 +317,7 @@ try {
   const transfers = await rt.kit.controls!.transfers();
   const successful = transfers.filter(p => p.status === "SUCCESS");
   check(successful.length === 1, "Expected exactly one successful simulated transfer");
-  check(successful[0]!.recipient === paid.terms.payee.address && successful[0]!.amount === toAtomic(paid.total_usd, 6).toString(), "The successful simulated transfer must match the signed payee and gross amount");
+  check(successful[0]!.recipient === payeeOf(paid.terms) && successful[0]!.amount === toAtomic(paid.total_usd, 6).toString(), "The successful simulated transfer must match the signed payee and gross amount");
   check(paid.paid_usd === paid.total_usd, "Expected the agreed gross scope amount to be settled");
   if (!full) check(paid.submissions.length === 2 && paid.submissions[1]?.state === "changes_requested", "Original revision and feedback must remain visible");
   const payment = paid.payouts.find(p => p.state === "paid")!;
@@ -325,7 +331,7 @@ try {
   // A fresh document excludes resource timing entries from the prior private job page.
   await open("builder", `${base}/?public-verification=1#/c/${contractId}/verify`);
   await pageWait("builder", "document.querySelector('h1')?.textContent==='Verification status'", "minimal public verification");
-  check(await evaluate<boolean>("builder", `!document.body.innerText.includes(${JSON.stringify(paid.terms.payee.address)}) && !document.body.innerText.includes('The funded total is what caps the job')`), "Public verification exposed private details or claimed a funding cap");
+  check(await evaluate<boolean>("builder", `!document.body.innerText.includes(${JSON.stringify(payeeOf(paid.terms))}) && !document.body.innerText.includes('The funded total is what caps the job')`), "Public verification exposed private details or claimed a funding cap");
   check(await evaluate<boolean>("builder", `!performance.getEntriesByType('resource').some(r => new URL(r.name).pathname === ${JSON.stringify(`/api/contracts/${contractId}`)})`), "Public verification fetched a private full-job response");
   await command("builder", "set", "viewport", "390", "844");
   check(await evaluate<boolean>("builder", "document.documentElement.scrollWidth<=innerWidth"), "Public verification overflows mobile viewport");
@@ -339,7 +345,7 @@ try {
   await capture("builder", "07-personal-confirmed-complete");
   step("Assigned to me waits during processing and completes only after confirmed full-scope payment, without another transfer");
   const market = full ? await marketJourney(payment.request_id) : null;
-  writeFileSync(join(dir, "receipt.json"), JSON.stringify({ simulated: true, scope: full ? "One browser app with builder payout and a separate marketplace service hire through SDK; no real wallet/payment" : "Builder job with simulated revision", automation: "agent-browser; scrollintoview before trusted clicks", job: contractId, terms_hash: paid.hash, submission: revised.id, invoice: revised.invoice.id, proposal: finalSubmission.judgment_id, request: payment.request_id, approval: payment.approval_vote_id, payment: payment.payment_correlation_id, tx_hash: payment.tx_hash, paid_usd: paid.paid_usd, successful_transfers: 1, market, steps, captures }, null, 2));
+  writeFileSync(join(dir, "receipt.json"), JSON.stringify({ simulated: true, keyboard_controls: keyboard, scope: full ? "One browser app with builder payout and a separate marketplace service hire through SDK; no real wallet/payment" : "Builder job with simulated revision", automation: keyboard ? "agent-browser; focus and Enter activation" : "agent-browser; scrollintoview before trusted clicks", job: contractId, terms_hash: paid.hash, submission: revised.id, invoice: revised.invoice.id, proposal: finalSubmission.judgment_id, request: payment.request_id, approval: payment.approval_vote_id, payment: payment.payment_correlation_id, tx_hash: payment.tx_hash, paid_usd: paid.paid_usd, successful_transfers: 1, market, steps, captures }, null, 2));
   console.log(`PASS · ${full ? "combined builder and market browser experience" : "complete browser job with revision"} · receipt ${join(dir, "receipt.json")}`);
 } catch (error) {
   writeFileSync(join(dir, "failure.txt"), String(error));

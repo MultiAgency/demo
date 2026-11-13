@@ -45,7 +45,7 @@ test("My jobs matches only the exact named agency/builder account and retains bo
       stage: "needs_signatures", builder_accepted: false, workflow: "report_invoice" });
     // Being the payee of an unrelated job, or matching a name/partial/case variant, grants no discovery role.
     expect(mine.some((job) => job.id === ids.unrelated.id)).toBe(false);
-    for (const account of ["", "acme", "ACME.DEMO", "not-a-party.demo", JOB_DEMO_TERMS.contractor.github])
+    for (const account of ["", "acme", "ACME.DEMO", "not-a-party.demo", DEMO_TERMS.contractor.github])
       expect(ctx.rt.engine.jobsFor(account)).toEqual([]);
     expect(ctx.rt.engine.jobsFor(builder).map((job) => job.id)).toEqual([ctx.id]);
   } finally { await close(ctx); }

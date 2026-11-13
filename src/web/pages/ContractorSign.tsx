@@ -8,6 +8,7 @@ import { Alert, Avatar, Button, dateText, Disclosure, Mono, PageLoading, short, 
 import type { AppConfig, ContractView, TermsSigningRequest } from "../types";
 import { AccountReadGate, useAccountResource } from "../useAccountResource";
 import { useSession } from "../session";
+import { capsAtScope, isMarketSettled, perPaymentCap } from "../../shared/terms";
 
 /** The contractor's page: what they're agreeing to, and one button. */
 export function ContractorSign({ id, token, config }: { id: string; token: string | null; config: AppConfig }) {
@@ -49,6 +50,11 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           </div>
         </div>
 
+        {t.v === 3 && (t.title || t.description) ? <div className="stack">
+          {t.title ? <strong>{t.title}</strong> : null}
+          {t.description ? <p className="small" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{t.description}</p> : null}
+        </div> : null}
+
         <div className="doc-tiles">
           <div className="doc-tile">
             <span>Scope</span>
@@ -83,8 +89,8 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           <li>
             <Icon name="user" size={15} />
             <span>Paid to</span>
-            <strong>{t.payee.address}</strong>
-            <em>USDC on NEAR</em>
+            <strong>{isMarketSettled(t) ? "Your Agent Market worker account" : t.payee.address}</strong>
+            <em>{isMarketSettled(t) ? "By the Agent Market" : "USDC on NEAR"}</em>
           </li>
           <li>
             <Icon name="pr" size={15} />
@@ -100,8 +106,11 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           </li>
         </ul>
 
+        {isMarketSettled(t)
+          ? <p className="small">Settled on the Agent Market: job <code>{t.market_source.job_id}</code>. The Market pays its awarded price when {t.company} accepts your work there, or when its acceptance window lapses. Paperwork records your report, invoice and review; it makes no payment.</p>
+          : t.v === 3 && t.market_source ? <p className="small">Sourced from Agent Market job <code>{t.market_source.job_id}</code>. You are paid for this job only through the platform after the agency approves, not by a Market award.</p> : null}
         {t.v === 3 && t.agency_owner ? <p className="small">DAO owner: {t.agency_owner.account_id}. The representative signs these terms; the DAO separately votes on agent setup and payouts.</p> : null}
-        {t.v === 3 ? <p className="small">Payment terms: completed scope value less amounts already committed, capped by your invoice. {t.company} explicitly approves each payout. USDC payment to {t.payee.address} follows approval; confirmation appears below after settlement.</p> : null}
+        {t.v === 3 && !isMarketSettled(t) ? <p className="small">Payment terms: completed scope value less amounts already committed, capped by your invoice. {t.company} explicitly approves each payout{capsAtScope(t) ? ", and one payout can cover a whole invoice" : `; no single payout exceeds ${usd(perPaymentCap(t))}, the largest deliverable`}. {t.payment_terms.review_days ? `Work is due by ${dateText(t.end)}; ${t.company} can review and pay for ${t.payment_terms.review_days} more days. ` : ""}USDC payment to {t.payee.address} follows approval; confirmation appears below after settlement.</p> : null}
 
         <Disclosure label="Scope and details">
           <div className="kv-line">
@@ -114,8 +123,8 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           </div>
         </Disclosure>
 
-        {signed && c.stage !== "active" && c.stage !== "ended" && c.stage !== "frozen" ? <Alert tone="info">Terms accepted. Waiting on {t.company} to finish preparing this job. Registration below is separate; it does not complete agency setup.</Alert> : null}
-        {config.demo_controls
+        {signed && c.stage !== "active" && c.stage !== "ended" && c.stage !== "frozen" ? <Alert tone="info">Terms accepted. Waiting on {t.company} to finish preparing this job.{config.demo_controls ? "" : " Registration below is separate; it does not complete agency setup."}</Alert> : null}
+        {isMarketSettled(t) ? null : config.demo_controls
           ? c.payee_registered === false ? <Alert tone="warning">USDC registration is simulated in this demo. No live registration transaction is available here.</Alert> : null
           : <PayeeRegistration key={id} id={id} account={t.payee.address} builder={t.contractor.near_account} />}
         {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -134,7 +143,7 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
               <Icon name="shieldCheck" /> <span>Verify policy</span>
             </a>
           </div>
-        ) : !token ? (
+        ) : !token && !config.auth.required ? (
           <Alert tone="warning">This link is missing its signing token. Ask {t.company} for the full link.</Alert>
         ) : (
           <Button icon="pen" full onClick={sign} disabled={!config.demo_controls && (session.loading || session.account !== t.contractor.near_account)}>

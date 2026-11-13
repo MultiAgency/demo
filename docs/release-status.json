@@ -1,7 +1,7 @@
 {
-  "as_of": "2026-11-13T07:22:02.513056-05:00",
-  "scope": "Dated release/deployment status; not standing operational authorization",
-  "validated_code_commit": "3ee5b4146f26c62806f6181afa4fb167da01e90b",
+  "as_of": "2026-11-13T21:38:20.733416+00:00",
+  "scope": "Current frozen deployment and read-only acceptance; financial acceptance remains blocked",
+  "validated_code_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
   "pins": {
     "sdk_version": "0.5.9",
     "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
@@ -23,17 +23,17 @@
   },
   "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
   "remaining": [
-    "Hosted signed-in funding UI and actual Intear wallet transaction remain unverified; no wallet opened during acceptance.",
-    "Funding, deposit-address registration and payments remain unapproved; no live financial action performed.",
-    "Exact-current-source offline wallet funding checks are simulated. Retained six-case exact-gateway consumer evidence predates this app change.",
-    "Hosted DAO/quorum, DAO SIGKILL and other retained recovery limitations remain open.",
-    "Fresh logical snapshot stays on original volume; historical native backup predates setup.",
-    "Credential renewal requires separate authorization before 2026-11-19T21:07:23.584Z."
+    "Provider owner must investigate internal request records: binding is unrecoverable from the inspected gateway audit/journals. Provider-side recoverability and payout-route readiness remain unknown.",
+    "Empty provider arrays do not prove non-receipt; prior FAILED route_unavailable and original unknown outcome remain unresolved.",
+    "Host-side source/hash acceptance does not exercise a live deposit allocation or Intear funding transaction.",
+    "Retained exact-gateway consumer runs predate this app fix; current-source CI/funding/recovery regressions are simulated.",
+    "Protected logical snapshot remains on the original volume; native backup is historical.",
+    "Credential renewal before 2026-11-19T21:07:23.584Z needs separate authorization."
   ],
-  "authorization": "Renewed one-snapshot/one-app-update scope completed and consumed; no-write window released. No additional deploy, restart, credential change, wallet action, funding or payment is authorized.",
-  "deployed_source_commit": "3ee5b4146f26c62806f6181afa4fb167da01e90b",
-  "deployment_acceptance": "docs/deployment-update-3ee5b41.json",
-  "local_followup": "Local deposit-allocation stability fix is uncommitted and undeployed alongside deployment documentation. Live 3ee5b41 still reallocates on lookup; hosted funding attempts should remain paused. The upstream unknown allocation needs platform-owner reconciliation. No new deployment or financial action is authorized.",
+  "authorization": "User go-for-it scope executed: one protected snapshot and one frozen app update; authentication and read-only checks. No allocation, reset, funding or payout performed; provider hold remains.",
+  "deployed_source_commit": null,
+  "deployment_acceptance": "docs/deployment-update-eac99283.json",
+  "local_followup": "Readiness candidate 0791b0e2 deployed as c5808392: typed agent contracts, batch discovery and direct submission reads, accessibility/recovery and bundled UI changes. 116 runtime inputs and all original rows across 25 tables verified. Later workspace edits are not implicitly part of this frozen deployment.",
   "wallet_login_acceptance": {
     "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/wallet-checks-summary.json",
     "accounts": [
@@ -55,12 +55,12 @@
     "payee_registered": false
   },
   "ci_qualification": {
-    "pushed_commit": "3ee5b4146f26c62806f6181afa4fb167da01e90b",
-    "run": "https://github.com/MultiAgency/demo/actions/runs/43370609039",
+    "pushed_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43429512218",
     "github_conclusion": "success",
     "positive_receipts_verified": true,
     "native_linux_container_smoke": "passed",
-    "receipt": "data/release-evidence/update-3ee5b41/verified-ci.json"
+    "receipt": "data/release-evidence/update-33c4899/verified-ci.json"
   },
   "initial_deployment_acceptance": "docs/deployment-acceptance.json",
   "deployed_gateway": {
@@ -81,5 +81,29 @@
     "local_correction_checks": "Complete v3 browser and v2/v3 privacy recipes pass; typecheck, actionlint and pipeline failure-propagation check pass. Local simulated receipts: data/release-evidence/ci-correction-39e521d/review.json"
   },
   "hosted_setup_checkpoint": "On-instance app records confirm completed wallet-owned setup through revision 2 for c_a2002ec56bf1, with no submission or payout rows. This is not independent provider/mainnet or DAO quorum acceptance.",
-  "funding_button": "Deployed 3ee5b41; runtime/served source hashes verified. Hosted wallet opening and sending remain unverified and unapproved. See docs/job-funding.md."
+  "funding_button": "Deployed; do not open or submit a funding transaction while destination and route clearance remain unverified.",
+  "funding_hold": "Historical 0.01 USDC credit is supported by the retained receipt. Thirteen gateway deposit audit entries retain no identifying request/key/correlation/outcome, and inspected journals have no match. Exact original allocation binding now requires provider-owned records or supported recovery. No new allocation, replay, marker reset, address reuse or funds movement is cleared.",
+  "deployed_candidate_manifest_sha256": "0791b0e2ebbd3194c1581487b2237e3157da838c5d179157f384cecc30547ad8",
+  "current_hosted_readiness": {
+    "builder_sign_in": "passed via clean Intear Web flow as buildr.near",
+    "builder_session_survives_update_and_reload": true,
+    "capabilities": "200, schema_version 1",
+    "actions": "200, one named job",
+    "snapshot": "200, original c_a2002ec56bf1, 1 USD scope, accepted, no payouts",
+    "builder_agency_signing_request": "403 account_mismatch",
+    "builder_agency_onboarding_prepare": "403 account_mismatch; no owner action prepared",
+    "direct_missing_submission": "404 not_found",
+    "logout": "Private job content cleared; actions, snapshot and direct submission return 401",
+    "agency_switch": "Earlier automated Intear flow stalled; user completed normal-browser sign-in. Fresh active multiagentic.near server session confirmed. Normal-browser UI/reload and switching remain uninspected."
+  },
+  "agency_login_followup": {
+    "verified_at": "2026-11-13T20:12:31.311088+00:00",
+    "account": "multiagentic.near",
+    "active_session": true,
+    "session_created_at": "2026-11-13T20:09:45.190Z",
+    "evidence": "Read-only server query of session creation/expiry metadata; no token read or exported. User reports normal-browser sign-in completed.",
+    "limitation": "Normal-browser tab was not accessible for UI, reload or end-to-end account-switch inspection."
+  },
+  "provider_reconciliation_followup": "docs/provider-reconciliation-summary.json",
+  "deployed_release_candidate": "eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108"
 }

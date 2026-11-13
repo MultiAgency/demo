@@ -1,0 +1,302 @@
+{
+  "date": "2026-11-13",
+  "environment": "Local fixtures; no hosted wallet or real payment acceptance",
+  "automated": {
+    "accessibility_recovery": {
+      "passed": 56,
+      "failed": 0,
+      "checks": [
+        {
+          "name": "v2-agency light: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v2-agency dark: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v2-agency: main landmark",
+          "passed": true
+        },
+        {
+          "name": "v2-agency: keyboard skip link",
+          "passed": true
+        },
+        {
+          "name": "v2: route navigation focuses heading",
+          "passed": true
+        },
+        {
+          "name": "v2: tabs follow arrow keys",
+          "passed": true
+        },
+        {
+          "name": "v2: End reaches last tab",
+          "passed": true
+        },
+        {
+          "name": "v2: Home reaches first tab",
+          "passed": true
+        },
+        {
+          "name": "v2: tablist has one tab stop",
+          "passed": true
+        },
+        {
+          "name": "v2: progress has accessible names",
+          "passed": true
+        },
+        {
+          "name": "v2: 200% zoom reflows",
+          "passed": true
+        },
+        {
+          "name": "v2: zoom keeps payment figures readable",
+          "passed": true
+        },
+        {
+          "name": "v2: standalone touch targets at least 24px",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v2: phone tab labels stay readable",
+          "passed": true
+        },
+        {
+          "name": "v2-builder light: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v2-builder dark: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v2-builder: main landmark",
+          "passed": true
+        },
+        {
+          "name": "v2-builder: keyboard skip link",
+          "passed": true
+        },
+        {
+          "name": "v3-agency light: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v3-agency dark: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v3-agency: main landmark",
+          "passed": true
+        },
+        {
+          "name": "v3-agency: keyboard skip link",
+          "passed": true
+        },
+        {
+          "name": "v3: route navigation focuses heading",
+          "passed": true
+        },
+        {
+          "name": "v3: tabs follow arrow keys",
+          "passed": true
+        },
+        {
+          "name": "v3: End reaches last tab",
+          "passed": true
+        },
+        {
+          "name": "v3: Home reaches first tab",
+          "passed": true
+        },
+        {
+          "name": "v3: tablist has one tab stop",
+          "passed": true
+        },
+        {
+          "name": "v3: progress has accessible names",
+          "passed": true
+        },
+        {
+          "name": "v3: 200% zoom reflows",
+          "passed": true
+        },
+        {
+          "name": "v3: zoom keeps payment figures readable",
+          "passed": true
+        },
+        {
+          "name": "v3: standalone touch targets at least 24px",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v3: phone tab labels stay readable",
+          "passed": true
+        },
+        {
+          "name": "v3-builder light: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v3-builder dark: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v3-builder: main landmark",
+          "passed": true
+        },
+        {
+          "name": "v3-builder: keyboard skip link",
+          "passed": true
+        },
+        {
+          "name": "v2-offer light: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v2-offer dark: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v2-offer: main landmark",
+          "passed": true
+        },
+        {
+          "name": "v2-offer: keyboard skip link",
+          "passed": true
+        },
+        {
+          "name": "v2: keyboard creates offer without acceptance or payment",
+          "passed": true
+        },
+        {
+          "name": "v3-offer light: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v3-offer dark: axe WCAG checks",
+          "passed": true,
+          "detail": []
+        },
+        {
+          "name": "v3-offer: main landmark",
+          "passed": true
+        },
+        {
+          "name": "v3-offer: keyboard skip link",
+          "passed": true
+        },
+        {
+          "name": "v3: keyboard creates offer without acceptance or payment",
+          "passed": true
+        },
+        {
+          "name": "explicit failed refresh preserves report draft",
+          "passed": true
+        },
+        {
+          "name": "slow status read keeps form mounted",
+          "passed": true
+        },
+        {
+          "name": "lost submission response retries the same identity once without a payout",
+          "passed": true
+        },
+        {
+          "name": "v2: lost merge result preserves original payout on retry",
+          "passed": true
+        },
+        {
+          "name": "v2: account switch discards late private responses",
+          "passed": true
+        },
+        {
+          "name": "v2: title retains no private party name",
+          "passed": true
+        },
+        {
+          "name": "v3: account switch discards late private responses",
+          "passed": true
+        },
+        {
+          "name": "v3: title retains no private party name",
+          "passed": true
+        },
+        {
+          "name": "v2: expired signature cannot pay or create a replacement payout",
+          "passed": true
+        },
+        {
+          "name": "v3: expired signature cannot pay or create a replacement payout",
+          "passed": true
+        }
+      ],
+      "receipt": "/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-accessibility-GgikGt/receipt.json"
+    },
+    "axe": {
+      "scans": 12,
+      "violations": 0,
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "surfaces": [
+        "v2/v3 agency job",
+        "v2/v3 builder job",
+        "v2/v3 offer"
+      ]
+    },
+    "responsive": {
+      "views": 50,
+      "widths": [
+        320,
+        390,
+        768,
+        1024,
+        1440
+      ],
+      "themes": [
+        "light",
+        "dark"
+      ],
+      "receipt": "/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-responsive-mMpBH7/receipt.json"
+    },
+    "payment_journeys": {
+      "report_invoice": {
+        "passed": true,
+        "keyboard_controls": true,
+        "receipt": "/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-browser-APMStb/receipt.json"
+      },
+      "pay_on_merge": {
+        "passed": true,
+        "keyboard_controls": true,
+        "receipt": "/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-v2-browser-7VA7D2/receipt.json"
+      }
+    },
+    "unit_integration": {
+      "passed": 1614,
+      "failed": 0
+    },
+    "typecheck": "passed"
+  },
+  "limits": {
+    "screen_reader": "Automated Chromium accessibility-tree and axe semantics pass. Actual VoiceOver/NVDA interaction and speech remain unverified. The local VoiceOver AppleScript probe did not respond; it was canceled and no VoiceOver process remained running. No assistive-technology settings were changed.",
+    "zoom": "Automated 200% CSS layout/text scaling and 320px reflow pass; native browser zoom and a human assistive-technology walkthrough remain unverified.",
+    "accessibility_certification": false,
+    "real_signatures_and_payments": false
+  }
+}

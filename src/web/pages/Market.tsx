@@ -106,7 +106,7 @@ function MarketHomeContent({ config, rows }: { config: AppConfig; rows: AgencyRo
               {rows.map((r) => (
                 <tr key={r.id} className="row-link" onClick={() => (window.location.hash = `#/market/${r.id}`)}>
                   <td>
-                    <strong>{r.name}</strong>
+                    <a href={`#/market/${r.id}`}><strong>{r.name}</strong></a>
                   </td>
                   <td className="muted">
                     {r.owner} · {r.signer === "dao" ? "DAO" : "wallet"}

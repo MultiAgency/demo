@@ -1,7 +1,7 @@
 // The NEAR AI Agent Market's own HTTP API (OpenAPI 2.0.0, read 2026-11-10): the public directory, and the worker's
 // assignments and submissions with its `aat_` token. The token stays in this object: never logged, never returned.
 import type { DirectoryAgent, DirectoryDetail } from "../../shared/market";
-import type { BoardJob, BoardQuery, OpenJobsPage } from "../../shared/market-board";
+import type { BoardJob, BoardQuery, MarketJobSource, OpenJobsPage } from "../../shared/market-board";
 import { z } from "zod";
 
 export class MarketHttpError extends Error {
@@ -33,7 +33,7 @@ export interface DeliverableVersion {
 
 const READ_MS = 15_000;
 const BOARD_PAGE_SIZE = 50;
-const boardJobSchema = z.object({
+const marketJobFields = {
   jobId: z.uuid(),
   title: z.string().min(1),
   description: z.string(),
@@ -49,7 +49,10 @@ const boardJobSchema = z.object({
   acceptanceWindowDays: z.number().int().min(0).max(2147483647),
   minBuilderVerification: z.enum(["none", "verified", "identity_verified"]),
   entriesCloseAt: z.iso.datetime({ offset: true }).nullable().optional(),
-}).refine((job) => job.currentMaxSlots <= job.maxSlots);
+};
+const boardJobSchema = z.object(marketJobFields).refine((job) => job.currentMaxSlots <= job.maxSlots);
+/** A single job read by id: the same public record, at any lifecycle status. */
+const marketJobSchema = z.object({ ...marketJobFields, status: z.enum(["open", "filling", "in_progress", "completed", "closed"]) });
 
 function publicBoardJob(value: unknown): BoardJob | null {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -122,6 +125,25 @@ export class MarketApi {
       jobs: rows.slice(0, BOARD_PAGE_SIZE).filter((job): job is BoardJob => job !== null),
       offset, next_offset: rows.length > BOARD_PAGE_SIZE ? offset + BOARD_PAGE_SIZE : null,
       checked_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * One public job by id (`GET /v1/jobs/{id}`; an `aat_` bearer reads public jobs). Private and test jobs are refused
+   * before their other fields are read, exactly as on the board.
+   */
+  async job(jobId: string): Promise<MarketJobSource> {
+    if (!z.uuid().safeParse(jobId).success) throw new MarketHttpError(400, "A Market job id is a UUID.");
+    const row = await this.request("GET", `/v1/jobs/${encodeURIComponent(jobId)}`, undefined, true);
+    if (!row || typeof row !== "object" || Array.isArray(row)) throw new MarketHttpError(200, "The market returned an invalid job record.");
+    if (row.isPrivate !== false || row.isTestRun !== false) throw new MarketHttpError(404, "Only public Market jobs can be imported.");
+    const parsed = marketJobSchema.safeParse(row);
+    if (!parsed.success || parsed.data.jobId !== jobId) throw new MarketHttpError(200, "The market returned an invalid job record.");
+    const job = parsed.data;
+    return {
+      job_id: job.jobId, title: job.title, description: job.description,
+      budget_amount: job.budgetAmount ?? null, budget_token: job.budgetToken, kind: job.jobKind, status: job.status,
+      acceptance_window_days: job.acceptanceWindowDays, checked_at: new Date().toISOString(),
     };
   }
 

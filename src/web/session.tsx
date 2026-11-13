@@ -1,11 +1,11 @@
-import { FundingWallet, fundingRequest, fundingTransactionFor, assertFundingVerification, type FundingRequest } from "./funding";
+import { FundingWallet, fundingRequest, refreshRecoveryFunding, fundingTransactionFor, assertFundingVerification, type FundingRequest } from "./funding";
 import { RegistrationWallet } from "./registration";
 import type { RegistrationQuote } from "../shared/registration";
 import { createAuthClient } from "better-auth/react";
 import { siwnClient } from "better-near-auth/client";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { AuthOperationGate, signInAndRefresh } from "./auth-lifecycle";
+import { AUTH_CHANGE_KEY, announceAuthChange, AuthOperationGate, signInAndRefresh } from "./auth-lifecycle";
 import type { AppConfig, ContractView, Deposit, VerifyView } from "./types";
 import { WorkflowWalletSigner, type WalletSigningSession, type WorkflowSigner } from "./wallet-signing";
 
@@ -89,6 +89,7 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
       return { account: state?.accountId ?? null, network: state?.networkId === config.auth.network ? client.near.getNetwork() : "mismatch", connected: client.near.isWalletConnected() };
     },
     fresh: async q => {
+      if (q.recovery) return refreshRecoveryFunding(q, api);
       const c = await api<ContractView>("GET", `/contracts/${q.job}`);
       const deposit = await api<Deposit>("POST", `/contracts/${q.job}/deposit`);
       const fresh = fundingRequest(c, deposit);
@@ -118,9 +119,18 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
     const version = ++refreshVersion.current;
     try {
       const me = await api<{ session: { accountId: string } | null }>("GET", "/me");
-      if (version === refreshVersion.current) { setAccount(me.session?.accountId ?? null); setError(null); }
+      if (version === refreshVersion.current) {
+        const nextAccount = me.session?.accountId ?? null;
+        if (nextAccount !== signingSession.current.account) operation.current++;
+        signingSession.current = { account: nextAccount, loading: false, version: operation.current };
+        setAccount(nextAccount); setError(null);
+      }
     } catch (e) {
-      if (version === refreshVersion.current) { setAccount(null); setError((e as Error).message); }
+      if (version === refreshVersion.current) {
+        operation.current++;
+        signingSession.current = { account: null, loading: false, version: operation.current };
+        setAccount(null); setError((e as Error).message);
+      }
     } finally {
       if (version === refreshVersion.current) setLoading(false);
     }
@@ -128,6 +138,31 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    let checking = false;
+    const onFocus = () => {
+      if (document.visibilityState === "hidden" || checking || authOperations.current.isSigningOut) return;
+      checking = true;
+      void refresh().finally(() => { checking = false; });
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== AUTH_CHANGE_KEY || authOperations.current.isSigningOut) return;
+      operation.current++;
+      refreshVersion.current++;
+      signingSession.current = { account: null, loading: true, version: operation.current };
+      setAccount(null); setLoading(true);
+      void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("storage", onStorage);
+    };
   }, [refresh]);
 
   const signIn = useCallback(() => authOperations.current.signIn(async () => {
@@ -142,6 +177,7 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
       async () => { if (operation.current === current) await refresh(); },
       (e) => { if (operation.current === current) setError(e.message || "Sign-in failed"); },
     );
+    announceAuthChange();
     if (operation.current === current) setLoading(false);
   }), [client, refresh]);
 
@@ -162,7 +198,7 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
       const result = await client.signOut();
       if (result.error) throw new Error(result.error.message || "Sign-out failed");
     } catch (e) { if (operation.current === current) setError((e as Error).message); }
-    finally { if (operation.current === current) setLoading(false); }
+    finally { if (operation.current === current) setLoading(false); announceAuthChange(); }
   }), [client]);
 
   const value = useMemo(() => ({ account, loading, required: config.auth.required, signIn, signOut, signWorkflow, registerUsdc, fundJob, error }), [account, loading, config, signIn, signOut, signWorkflow, registerUsdc, fundJob, error]);

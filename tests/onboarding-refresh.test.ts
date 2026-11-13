@@ -82,6 +82,21 @@ test("funding refresh advances from needs_funding using observed balance without
   expect(ctx.stub.calls.requestPayout).toBe(0);
 });
 
+test("the stored job list follows the last observed balance without a platform read of its own", async () => {
+  const ctx = await activate("0");
+  const mine = () => ctx.rt.engine.jobsFor("acme.demo")[0]!;
+  // Never observed: the list keeps its cautious readiness state.
+  expect(mine().attention.reason_code).not.toBe("funding_required");
+  await ctx.rt.engine.getContract(ctx.id);
+  expect(mine()).toMatchObject({ stage: "needs_funding", attention: { reason_code: "funding_required", state: "needs_action", actions: [{ role: "agency", label: "Fund the job" }] } });
+  await ctx.rt.kit.controls!.fund(ctx.rt.engine.onboarding.agentRow(ctx.id)!.agent_id!, "1000000000");
+  // The deposit is invisible to the list until a job read observes it.
+  expect(mine().stage).toBe("needs_funding");
+  await ctx.rt.engine.getContract(ctx.id);
+  expect(mine().stage).toBe("active");
+  expect(mine().attention.reason_code).not.toBe("funding_required");
+});
+
 test("refresh observes an existing DAO vote without filing the next proposal", async () => {
   const { JOB_DEMO_TERMS } = await import("../src/shared/demo");
   const ctx = await setup({ ...JOB_DEMO_TERMS, agency_owner: { type: "dao", account_id: "agency.sputnik-dao.near" } });

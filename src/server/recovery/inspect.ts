@@ -39,6 +39,8 @@ interface InspectedAttempt {
   tx_hash: string | null;
   refund_tx_hash: string | null;
   refunded_amount: string | null;
+  /** Retained payment status that contradicts non-execution (REFUNDED); null when absent or not recorded by older versions. */
+  counterevidence: string | null;
   lines: { deliverable_id: string | null; amount_atomic: string | null }[];
   same_obligation_request_ids: string[];
   other_same_job_request_ids: string[];
@@ -86,7 +88,7 @@ const PROJECTIONS = {
   app_identity: ["id", "deployment"],
   contracts: ["id", "terms", "hash", "organization", "signing_recipient"],
   platform_agents: ["organization", "agent", "agent_id"],
-  payout_attempts: ["request_id", "kind", "contract_id", "seq", "attempt", "run_id", "recipient", "amount_atomic", "state", "code", "correlation_id", "approval_id", "vote_correlation_id", "never_executed", "tx_hash", "refund_tx_hash", "refunded_amount", "resolution"],
+  payout_attempts: ["request_id", "kind", "contract_id", "seq", "attempt", "run_id", "recipient", "amount_atomic", "state", "code", "correlation_id", "approval_id", "vote_correlation_id", "never_executed", "tx_hash", "refund_tx_hash", "refunded_amount", "counterevidence", "resolution"],
   payout_lines: ["request_id", "deliverable_id", "amount_atomic"],
   owner_steps: ["correlation_id", "contract_id", "organization", "kind", "state", "request_id", "verdict"],
   job_submissions: ["id", "contract_id", "judgment_id"],
@@ -296,7 +298,7 @@ function inventory(db: Database): Omit<LedgerInspection, "snapshot"> {
       request_id: request, contract_id: contract, kind: string(row.kind), seq: integer(row.seq), attempt: integer(row.attempt), judgment_id: string(row.run_id),
       recipient: string(row.recipient), amount_atomic: amount(row.amount_atomic), state: string(row.state), resolution: string(row.resolution), code: string(row.code),
       payout_correlation_id: string(row.correlation_id), approval_id: string(row.approval_id), owner_step_correlation_id: string(row.vote_correlation_id),
-      never_executed: proof, tx_hash: string(row.tx_hash), refund_tx_hash: string(row.refund_tx_hash), refunded_amount: amount(row.refunded_amount), lines,
+      never_executed: proof, tx_hash: string(row.tx_hash), refund_tx_hash: string(row.refund_tx_hash), refunded_amount: amount(row.refunded_amount), counterevidence: string(row.counterevidence), lines,
       same_obligation_request_ids: [], other_same_job_request_ids: [],
     };
     if (!jobById.has(contract) || !["payout", "attack"].includes(item.kind ?? "") || !ATTEMPT_STATES.has(item.state ?? "") ||
@@ -304,7 +306,7 @@ function inventory(db: Database): Omit<LedgerInspection, "snapshot"> {
         item.amount_atomic === null || BigInt(item.amount_atomic) <= 0n || item.seq === null || item.seq < 1 || item.attempt === null || item.attempt < 1 ||
         (proof === null && present.get("payout_attempts")?.has("never_executed")) ||
         (row.tx_hash !== null && item.tx_hash === null) || (row.refund_tx_hash !== null && item.refund_tx_hash === null) ||
-        (row.refunded_amount !== null && item.refunded_amount === null) ||
+        (row.refunded_amount !== null && item.refunded_amount === null) || (row.counterevidence != null && item.counterevidence === null) ||
         lines.some(line => !line.deliverable_id || line.amount_atomic === null || BigInt(line.amount_atomic) <= 0n))
       findings.push({ code: "invalid_record", request_id: request, contract_id: contract, message: "A payout has incomplete or invalid identity, status, resolution, recipient, amount, sequence or proof information." });
     if (item.kind === "payout") {
@@ -315,7 +317,7 @@ function inventory(db: Database): Omit<LedgerInspection, "snapshot"> {
       const released = item.state === "rejected" || (item.state === "failed" && (item.resolution === "reowe" || item.resolution === "rejected"));
       if (released) findings.push({ code: proof === true ? "recorded_release_requires_verification" : "unproven_budget_release", request_id: request, contract_id: contract,
         message: proof === true ? "A historical release has stored proof; verify its original platform binding and every related attempt before reconciliation." : "A historical release lacks positive stored non-execution proof. Preserve it and inspect every related attempt." });
-      const counterevidence = row.tx_hash !== null || row.refund_tx_hash !== null || row.refunded_amount !== null;
+      const counterevidence = row.tx_hash !== null || row.refund_tx_hash !== null || row.refunded_amount !== null || item.counterevidence !== null;
       if ((proof === true && (counterevidence || ["paid", "pending", "blocked", "waiting", "unknown", "processing", "held"].includes(item.state ?? "") || item.resolution === "arrived")) ||
           (item.state === "refused" && counterevidence))
         findings.push({ code: "contradictory_non_execution", request_id: request, contract_id: contract, message: "The stored non-execution outcome or proof conflicts with payment, refund or arrival information." });

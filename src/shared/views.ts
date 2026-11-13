@@ -120,7 +120,7 @@ export interface ContractView {
 export interface Expectations {
   payee: string;
   asset: string;
-  per_transaction: string; // atomic, = largest deliverable
+  per_transaction: string; // atomic, the signed per-payment cap
   owner_approval: true;
   withdrawals: string[];
   payout_consent_expires_by: string; // ISO, = contract end
@@ -130,7 +130,8 @@ export interface Expectations {
 export interface VerifyView {
   overall: "green" | "red" | "incomplete";
   checks: { id: string; label: string; ok: boolean; info?: boolean; detail?: string }[];
-  expected: Expectations;
+  /** Null for a Market-settled job, which has no platform policy to expect. */
+  expected: Expectations | null;
   observed: Overview | null;
   consents: Consent[];
 }

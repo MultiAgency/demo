@@ -34,10 +34,10 @@ export class AccountResource<T> {
   /** Automatic reads never overlap another read; explicit reloads can still supersede an older poll. */
   async refresh(scope: string, read: () => Promise<T>): Promise<void> {
     if (this.snapshot.loading) return;
-    await this.load(scope, read, { background: true });
+    await this.load(scope, read);
   }
 
-  async load(scope: string, read: () => Promise<T>, { background = false } = {}): Promise<void> {
+  async load(scope: string, read: () => Promise<T>): Promise<void> {
     if (scope !== this.scope) return;
     const generation = ++this.generation;
     this.publish({ ...this.snapshot, scope, error: null, loading: true });
@@ -48,7 +48,7 @@ export class AccountResource<T> {
       if (scope === this.scope && generation === this.generation) this.publish({
         scope,
         // Keep unfinished forms mounted during a temporary outage. Access refusals always clear private data.
-        value: background && transientReadFailure(error) ? this.snapshot.value : null,
+        value: transientReadFailure(error) ? this.snapshot.value : null,
         error: error instanceof Error ? error.message : String(error), loading: false,
       });
     }
