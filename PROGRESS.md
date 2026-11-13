@@ -1,8 +1,13 @@
 # Progress
 
-## Local wallet funding button — not deployed
+## Local deposit-allocation correction — not deployed
 
-Step 8 now has a local **Review funding in wallet** implementation, reusing pinned SDK registration + USDC transfer actions. It checks the representative/mainnet wallet, signed scope, fresh deposit instructions and policy/authority/zero-balance verification. Full address and exact minimum are shown. Browser-local locking and a persisted unresolved marker prevent automatic resend after an interrupted wallet result. No live wallet or financial action was performed. See [funding behavior and limitations](docs/job-funding.md).
+Hosted funding preflight incorrectly allocated a new one-time deposit address on each refresh, then refused its own changed instructions. The local correction reuses valid saved instructions under the job mutex, persists allocation uncertainty before I/O, and blocks replacement after unknown/invalid/thrown replies or expired instructions. Reopen tests preserve the pending state without another platform allocation. No schema or pin changes, no live allocation retry, and no wallet/funding action performed. The platform's reported `unknown` cause remains unverified; see [stable instructions](docs/job-funding.md#local-correction-stable-deposit-instructions).
+
+
+## Wallet funding button — deployed 3ee5b41
+
+Step 8 now has a deployed **Review funding in wallet** implementation, reusing pinned SDK registration + USDC transfer actions. It checks the representative/mainnet wallet, signed scope, fresh deposit instructions and policy/authority/zero-balance verification. Full address and exact minimum are shown. Browser-local locking and a persisted unresolved marker prevent automatic resend after an interrupted wallet result. All 107 running source/SDK files, frontend/served assets, TLS/access checks and all original database records passed read-only acceptance. Original volume, credentials and pins are preserved; the no-write window is released. No live wallet or financial action was performed. See [deployment receipt](docs/deployment-update-3ee5b41.json) and [funding behavior and limitations](docs/job-funding.md).
 
 ## Setup refresh correction · deployed f85f2c3
 
@@ -10,7 +15,7 @@ Ordinary representative job reads now reconcile existing creation, grant, policy
 
 Owner-reported hosted progress for `c_a2002ec56bf1` is 7 of 8 steps: policy revision 2 in force, funding not performed here. The correction is deployed from `f85f2c3`; all 105 runtime source/SDK files, frontend and served assets, TLS/access checks and all prior database records passed verification. The original volume, credentials and SDK/gateway pins are preserved. The no-write window is released; see [deployment receipt](docs/deployment-update-f85f2c3.json). Funding, payment and DAO hosted acceptance remain separate gates. Offline checks and evidence boundaries are recorded in [setup refresh review](docs/setup-refresh-review.json).
 
-Current release and deployment status: [release-status.json](docs/release-status.json). Paperwork source `f85f2c3` is deployed at https://desk.multiagency.ai; scoped read-only acceptance passes. [Exact source, image and acceptance record](docs/deployment-update-f85f2c3.json). The dated checkpoints below preserve their original evidence and then-open limitations.
+Current release and deployment status: [release-status.json](docs/release-status.json). Paperwork source `3ee5b41` is deployed at https://desk.multiagency.ai; scoped read-only acceptance passes. [Exact source, image and acceptance record](docs/deployment-update-3ee5b41.json). The dated checkpoints below preserve their original evidence and then-open limitations.
 
 ## Previous deployment checkpoint — ef73b58
 

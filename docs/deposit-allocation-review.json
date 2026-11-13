@@ -1,0 +1,38 @@
+{
+  "reviewed_at": "2026-11-13T12:53:36.003739+00:00",
+  "status": "LOCAL_REVIEWED_NOT_DEPLOYED",
+  "root_cause": "Paperwork treated allocating a one-time deposit address as a refresh/read and allocated again during wallet preflight. The pinned platform creates a new idempotency key for each deposit call.",
+  "fix": "Job-mutex serialization; valid saved instructions reused; durable existing event row before first allocation; successful response and completion event atomically saved; uncertain/expired/missing resolved instructions refuse replacement. No schema changes.",
+  "source_sha256": {
+    "src/server/engine.ts": "4dee0b874d95eda936d04dc9289403a330b5ae96601307aa9c82412129ee3895",
+    "tests/deposit-allocation.test.ts": "300a360dc415b2fb00f06ed2a1613dd35f31c884c75cc523cd5d1d57c2165cdd"
+  },
+  "checks": {
+    "full_suite": "1582 pass, 0 fail, 10602 assertions across 71 files; final reviewed code",
+    "focused_regressions": "8 pass, 0 fail, 28 assertions",
+    "typecheck": "PASS"
+  },
+  "limitations": [
+    "Platform unknown outcome/cause remains unverified; read-only owner reconciliation prompt prepared but not sent.",
+    "Lost original allocation cannot be recovered/replayed through a client request ID in the pinned interface; no reset/retry bypass added.",
+    "Old deployed 3ee5b41 still has the address-churn bug. No new deployment authorized by this investigation.",
+    "No live deposit allocation, wallet opening, signature, funding or payment performed."
+  ],
+  "evidence": "data/release-evidence/deposit-allocation-review",
+  "review_findings": [
+    {
+      "finding": "Pending-allocation lookup and durable claim must be atomic across database connections.",
+      "resolution": "Moved both into one SQLite transaction before external I/O, retaining the job mutex."
+    }
+  ],
+  "reviewed_file_set": [
+    "src/server/engine.ts",
+    "tests/deposit-allocation.test.ts",
+    "PROGRESS.md",
+    "TASKS.md",
+    "docs/job-funding.md",
+    "docs/release-status.json",
+    "docs/deposit-allocation-review.json",
+    "docs/deployment-update-3ee5b41.json"
+  ]
+}

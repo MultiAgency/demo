@@ -1,7 +1,7 @@
 {
-  "as_of": "2026-11-13T00:10:48.206293-05:00",
+  "as_of": "2026-11-13T07:22:02.513056-05:00",
   "scope": "Dated release/deployment status; not standing operational authorization",
-  "validated_code_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
+  "validated_code_commit": "3ee5b4146f26c62806f6181afa4fb167da01e90b",
   "pins": {
     "sdk_version": "0.5.9",
     "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
@@ -23,17 +23,17 @@
   },
   "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
   "remaining": [
-    "Fresh signed-in hosted walkthrough of the setup UX is not performed by this read-only acceptance.",
-    "Funding and payments remain unapproved and unverified; no wallet actions occurred during update.",
-    "Hosted DAO/quorum and other retained recovery limitations remain open.",
-    "Fresh six-scenario exact-gateway consumer run for f85f2c3 not performed; prior same-package compatibility plus current-source CI retained.",
-    "Fresh logical snapshot remains on original volume; accepted native backup predates setup.",
+    "Hosted signed-in funding UI and actual Intear wallet transaction remain unverified; no wallet opened during acceptance.",
+    "Funding, deposit-address registration and payments remain unapproved; no live financial action performed.",
+    "Exact-current-source offline wallet funding checks are simulated. Retained six-case exact-gateway consumer evidence predates this app change.",
+    "Hosted DAO/quorum, DAO SIGKILL and other retained recovery limitations remain open.",
+    "Fresh logical snapshot stays on original volume; historical native backup predates setup.",
     "Credential renewal requires separate authorization before 2026-11-19T21:07:23.584Z."
   ],
-  "authorization": "One protected SQLite snapshot and app-only update completed; no-write window released. No additional deployment, restart, credential change, wallet action, funding or payment is authorized.",
-  "deployed_source_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
-  "deployment_acceptance": "docs/deployment-update-f85f2c3.json",
-  "local_followup": "Reviewed wallet-funding implementation and deployment documentation are in this local candidate. The funding button is not deployed; published-head CI and separately authorized deployment remain pending. Live service remains f85f2c3. No funding or payment authorization exists.",
+  "authorization": "Renewed one-snapshot/one-app-update scope completed and consumed; no-write window released. No additional deploy, restart, credential change, wallet action, funding or payment is authorized.",
+  "deployed_source_commit": "3ee5b4146f26c62806f6181afa4fb167da01e90b",
+  "deployment_acceptance": "docs/deployment-update-3ee5b41.json",
+  "local_followup": "Local deposit-allocation stability fix is uncommitted and undeployed alongside deployment documentation. Live 3ee5b41 still reallocates on lookup; hosted funding attempts should remain paused. The upstream unknown allocation needs platform-owner reconciliation. No new deployment or financial action is authorized.",
   "wallet_login_acceptance": {
     "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/wallet-checks-summary.json",
     "accounts": [
@@ -55,12 +55,12 @@
     "payee_registered": false
   },
   "ci_qualification": {
-    "pushed_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
-    "run": "https://github.com/MultiAgency/demo/actions/runs/43361986371",
+    "pushed_commit": "3ee5b4146f26c62806f6181afa4fb167da01e90b",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43370609039",
     "github_conclusion": "success",
     "positive_receipts_verified": true,
     "native_linux_container_smoke": "passed",
-    "receipt": "data/release-evidence/update-f85f2c3/preparation-review.json"
+    "receipt": "data/release-evidence/update-3ee5b41/verified-ci.json"
   },
   "initial_deployment_acceptance": "docs/deployment-acceptance.json",
   "deployed_gateway": {
@@ -81,5 +81,5 @@
     "local_correction_checks": "Complete v3 browser and v2/v3 privacy recipes pass; typecheck, actionlint and pipeline failure-propagation check pass. Local simulated receipts: data/release-evidence/ci-correction-39e521d/review.json"
   },
   "hosted_setup_checkpoint": "On-instance app records confirm completed wallet-owned setup through revision 2 for c_a2002ec56bf1, with no submission or payout rows. This is not independent provider/mainnet or DAO quorum acceptance.",
-  "funding_button": "docs/job-funding.md"
+  "funding_button": "Deployed 3ee5b41; runtime/served source hashes verified. Hosted wallet opening and sending remain unverified and unapproved. See docs/job-funding.md."
 }

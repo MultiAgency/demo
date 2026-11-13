@@ -1,18 +1,26 @@
 # Tasks
 
-Paperwork is deployed at https://desk.multiagency.ai from `f85f2c3`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-f85f2c3.json). Scoped wallet login and both exact job-terms signatures are complete. The owner subsequently supervised registration and wallet-owned setup through policy revision 2; funding and payment remain unapproved. These are user-reported hosted checkpoints, separate from the retained deployment receipt.
+Paperwork is deployed at https://desk.multiagency.ai from `3ee5b41`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-3ee5b41.json). Scoped wallet login and both exact job-terms signatures are complete. The owner subsequently supervised registration and wallet-owned setup through policy revision 2; funding and payment remain unapproved. These are user-reported hosted checkpoints, separate from the retained deployment receipt.
 
 Current pins, completed acceptance and remaining gates: [release-status.json](docs/release-status.json). Dated implementation checkpoints below are historical evidence.
 
 Work on one task at a time, with a concrete result and an appropriate check. Routine implementation choices within an authorized task do not need another approval round; changes to authority or live operations follow [RULES.md](RULES.md).
 
-## Current task: wallet funding button
+## Current task: stable deposit instructions
+
+- [x] Identify address allocation being mistaken for a read in refresh/funding preflight.
+- [x] Reuse valid instructions and persist uncertain allocation state without schema changes or replacement requests.
+- [x] Verify concurrent lookups, legacy reuse, invalid/expired/unknown replies and database reopen without reallocation.
+- [ ] Review/commit the local correction, obtain exact-head CI and a separately approved app update. Reconcile the platform's unknown allocation before hosted funding acceptance.
+
+## Wallet funding button
 
 - [x] Add an explicit wallet-review button using the pinned SDK's registration + transfer actions and the signed scope amount.
 - [x] Verify identity/network, fresh deposit/policy/authority/zero balance, local duplicate-send protection and exact minimum display.
 - [x] Add focused transaction regressions and desktop/mobile fixture browser coverage to CI.
 - [x] Review and commit the local funding change with outstanding deployment documentation.
-- [ ] Obtain CI on the exact published commit and separately approve deployment. No live transfer is authorized.
+- [x] Obtain CI on 3ee5b41 and complete the separately approved app update/read-only acceptance.
+- [ ] Supervise hosted funding UI and review the exact wallet transaction under separate approval. No live transfer is authorized.
 
 ## Completed task: setup status reconciliation
 

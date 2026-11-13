@@ -37,7 +37,7 @@ import {
   sumLines,
   type Transition,
 } from "./payouts";
-import type { AgentHandle, ChainReader, Overview, PaymentStatus, PayoutAnswer, Platform, Res } from "./platform/port";
+import type { AgentHandle, ChainReader, Deposit, Overview, PaymentStatus, PayoutAnswer, Platform, Res } from "./platform/port";
 
 export class UserError extends Error {
   constructor(
@@ -511,12 +511,36 @@ export class Engine {
     };
   }
 
-  async deposit(id: string) {
-    const a = this.readyAgent(id);
-    const res = await this.onboarding.handle(a).deposit();
-    if (!res.ok) throw failError(res, "the deposit request");
-    this.onboarding.setAgent(a.organization, { deposit: JSON.stringify(res.value) });
-    return res.value;
+  async deposit(id: string): Promise<Deposit> {
+    return this.mutex.run(id, async () => {
+      const a = this.readyAgent(id);
+      // deposit allocates a one-time address, not a quote/read. Reuse the original accepted response.
+      if (a.deposit) {
+        const saved = JSON.parse(a.deposit) as Deposit;
+        if (!saved.address || (saved.expiresAt !== null && (!Number.isFinite(Date.parse(saved.expiresAt)) || Date.parse(saved.expiresAt) <= this.d.now().getTime())))
+          throw new UserError("The saved deposit instructions are invalid or expired. No replacement was requested. Reconcile the original deposit with the platform before allocating another address.", 409);
+        return saved;
+      }
+      // Claim atomically before I/O, including across database connections. A crash cannot become a new request.
+      this.d.db.transaction(() => {
+        const prior = this.d.db.query("SELECT kind FROM events WHERE contract_id = ? AND kind IN ('deposit_pending','deposit_ready') ORDER BY rowid DESC LIMIT 1").get(id) as { kind: string } | null;
+        if (prior)
+          throw new UserError("The original deposit-address allocation has an unknown outcome. No new allocation or funding transaction was sent. Reconcile that original request with the platform.", 503);
+        this.event(id, "deposit_pending", "Requested deposit instructions; the original allocation is unresolved. This request sends no funds.");
+      })();
+      let res: Res<Deposit>;
+      try { res = await this.onboarding.handle(a).deposit(); }
+      catch { throw new UserError("The original deposit-address allocation has an unknown outcome. No funding transaction was sent by this request. Reconcile the original allocation before trying again.", 503); }
+      if (!res.ok) throw new UserError("Deposit-address allocation did not complete reliably. No funding transaction was sent by this request. Refresh will not allocate another address; reconcile the original request with the platform.", 503);
+      const deposit = res.value;
+      if (!deposit.address || (deposit.expiresAt !== null && (!Number.isFinite(Date.parse(deposit.expiresAt)) || Date.parse(deposit.expiresAt) <= this.d.now().getTime())))
+        throw new UserError("The platform returned invalid or expired deposit instructions. The original allocation needs reconciliation; no automatic replacement was requested.", 503);
+      this.d.db.transaction(() => {
+        this.onboarding.setAgent(a.organization, { deposit: JSON.stringify(deposit) });
+        this.event(id, "deposit_ready", "Original deposit instructions saved. Refresh reuses them without allocating a new address.");
+      })();
+      return deposit;
+    });
   }
 
   // ================================================================ the agent's run
