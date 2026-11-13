@@ -310,11 +310,20 @@ textarea:focus {
 }
 .standalone-bar {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+.standalone-bar > .row {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
 }
 .env-chip {
   font-size: 12px;

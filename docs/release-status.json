@@ -21,6 +21,7 @@
   },
   "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
   "remaining": [
+    "Qualify corrected exact commit in remote CI; the green 39e521d run masks two browser failures and is not browser acceptance",
     "DAO membership/quorum, agent setup/consents/grants, USDC registration, funding and independently confirmed payment remain unverified and unapproved; scoped wallet login, cancellation, job refusal and both exact job-terms signatures pass",
     "Market-route/shared-authority and historical recovery limitations remain outside the app nonfinancial acceptance",
     "Provider-response-loss G14 continuation, DAO SIGKILL recovery and real historical installation remain unverified",
@@ -30,7 +31,7 @@
   "authorization": "Owner-approved deployment/nonfinancial acceptance completed. No additional deployment/restart, credential rotation, wallet action or live financial action authorized.",
   "deployed_source_commit": "2cad16722a12ad208f042fb161184e0d4ae661ca",
   "deployment_acceptance": "docs/deployment-acceptance.json",
-  "local_followup": "Reviewed local registration UX, payout identity/commitment hardening, and documentation/IaC alignment; not deployed. Live source remains 2cad167. Commit status is recorded in Git.",
+  "local_followup": "Registration UX, payout identity/commitment hardening and documentation/IaC alignment committed in 39e521d; corrective header/CI follow-up local. Runtime remains 2cad167. See Git for the latest local commit and ci_qualification for the outstanding remote gate.",
   "wallet_login_acceptance": {
     "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/wallet-checks-summary.json",
     "accounts": [
@@ -51,5 +52,14 @@
     "status": "Both scoped NEP-413 terms signatures recorded on hosted source 2cad167; no funds moved",
     "payee_registered": false
   },
-  "local_registration": "docs/payee-registration.md; local offline acceptance only, not deployed or authorized for a live storage deposit"
+  "local_registration": "docs/payee-registration.md; local offline acceptance only, not deployed or authorized for a live storage deposit",
+  "ci_qualification": {
+    "pushed_commit": "39e521d6054609d536093f6748e31742958e65c4",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43340276379",
+    "github_conclusion": "success",
+    "browser_acceptance_accepted": false,
+    "reason": "Retained browser/privacy failure artifacts: builder mobile and public Verify overflow. Pipelines masked producer failures.",
+    "correction": "Responsive standalone header and explicit Bash pipeline failure propagation; browser stderr retained. Fresh remote CI on corrected commit is required.",
+    "local_correction_checks": "Complete v3 browser and v2/v3 privacy recipes pass; typecheck, actionlint and pipeline failure-propagation check pass. Local simulated receipts: data/release-evidence/ci-correction-39e521d/review.json"
+  }
 }

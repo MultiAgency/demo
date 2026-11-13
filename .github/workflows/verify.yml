@@ -5,6 +5,10 @@ on:
   push:
   workflow_dispatch:
 
+defaults:
+  run:
+    shell: bash
+
 permissions:
   contents: read
 
@@ -48,9 +52,9 @@ jobs:
           agent-browser install --with-deps
       - name: Fixture browser and privacy checks
         run: |
-          bun --no-env-file run demo:browser | tee "$PAPERWORK_DEMO_ARTIFACTS/browser.log"
-          bun --no-env-file run demo:privacy:browser | tee "$PAPERWORK_DEMO_ARTIFACTS/privacy.log"
-          bun --no-env-file scripts/demo-v2-browser.ts | tee "$PAPERWORK_DEMO_ARTIFACTS/v2-browser.log"
+          bun --no-env-file run demo:browser 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/browser.log"
+          bun --no-env-file run demo:privacy:browser 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/privacy.log"
+          bun --no-env-file scripts/demo-v2-browser.ts 2>&1 | tee "$PAPERWORK_DEMO_ARTIFACTS/v2-browser.log"
       - name: Build local Linux container
         run: docker build --iidfile "$PAPERWORK_DEMO_ARTIFACTS/image.id" -t paperwork-ci:check .
       - name: Network-disabled container smoke test

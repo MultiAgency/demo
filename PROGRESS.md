@@ -49,6 +49,12 @@ Precommit checks: typecheck, all 1,562 offline tests, the simulated job workflow
 
 The reviewed payout changes refuse foreign request/payment identities and retain commitments when a known payment regresses to a refused/missing request record. Dropping blocked judgments requires a fresh matching absence observation. The provider-response-loss G14 gap remains open; see [restart evidence](docs/job-restart.md).
 
+## CI artifact review — November 12, 2026 (America/New_York)
+
+GitHub run `43340276379` on `39e521d` reports success, but its retained artifacts contain failed builder-mobile and public-Verify overflow checks and no final receipts for those two recipes. That run does not qualify browser/privacy acceptance. The standalone header is now allowed to wrap its brand/actions. CI explicitly selects Bash so pipeline failures propagate instead of being hidden by `tee`, and browser stderr is retained in the log artifacts. Local complete-job and v2/v3 privacy reruns now pass with positive receipts, alongside typecheck, actionlint and a pipeline-failure probe. Receipts: `data/release-evidence/ci-correction-39e521d/review.json`. Remote CI must be rerun on the corrected exact commit. The native Linux container build/smoke and other passing steps from the original run remain dated evidence for `39e521d`, not the corrected source.
+
+No deployment or live financial action was performed. The original empty-volume deployment helper is inapplicable to the now-populated volume; any update must preserve the existing signed job and use a separately reviewed backup/update procedure.
+
 ## Next
 
 Keep the reviewed local follow-up separate from live source 2cad167. Prepare the exact setup and registration actions/costs for separate approval; do not redeploy or register an account from a local test pass. Remote CI and the scoped deployment/nonfinancial checks pass. Scoped hosted wallet login, cancellation, refusal and both job-terms signatures pass. DAO setup/quorum, USDC registration, funding and payment remain unapproved; see [current release status](docs/release-status.json).
