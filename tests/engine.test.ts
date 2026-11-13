@@ -262,6 +262,36 @@ describe("state machine rows, end to end", () => {
     expect((await run(ctx)).payouts[0]!.state).toBe("held");
   });
 
+  test("Drop requires a matching absent record for a blocked payout", async () => {
+    const ctx = await activate();
+    ctx.stub.script.requestFails.push({ ok: false, kind: "forbidden", code: "scope" });
+    const result = await run(ctx);
+    const rid = result.payouts[0]!.request_id;
+    expect(attemptOf(ctx, rid).state).toBe("blocked");
+    ctx.stub.script.unavailable = true;
+    await expect(ctx.rt.engine.drop(ctx.id)).rejects.toThrow();
+    expect(attemptOf(ctx, rid).state).toBe("blocked");
+    expect((await ctx.rt.engine.viewContract(ctx.id)).committed_usd).toBe("500");
+    ctx.stub.script.unavailable = false;
+    const originalAgent = ctx.stub.agent.bind(ctx.stub);
+    for (const observation of [
+      { requestId: "foreign-request", state: "not_found" as const, correlationId: null },
+      { requestId: rid, state: "held" as const, correlationId: "known-payment" },
+      { requestId: rid, state: "not_found" as const, correlationId: "known-payment" },
+    ]) {
+      ctx.stub.agent = (organization, agent) => ({ ...originalAgent(organization, agent),
+        payoutStatus: async () => ({ ok: true as const, value: { ...observation, status: null, code: null } }),
+      });
+      await expect(ctx.rt.engine.drop(ctx.id)).rejects.toThrow();
+      expect(attemptOf(ctx, rid).state).toBe("blocked");
+      expect((await ctx.rt.engine.viewContract(ctx.id)).committed_usd).toBe("500");
+    }
+    ctx.stub.agent = originalAgent;
+    await ctx.rt.engine.drop(ctx.id);
+    expect(attemptOf(ctx, rid).state).toBe("dropped");
+    expect(ctx.stub.calls.requestPayout).toBe(1);
+  });
+
   test("Drop is refused while a payout is live", async () => {
     const ctx = await activate();
     await run(ctx);

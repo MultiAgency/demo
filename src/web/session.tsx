@@ -1,3 +1,5 @@
+import { RegistrationWallet } from "./registration";
+import type { RegistrationQuote } from "../shared/registration";
 import { createAuthClient } from "better-auth/react";
 import { siwnClient } from "better-near-auth/client";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +29,7 @@ interface SessionValue {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   signWorkflow: WorkflowSigner;
+  registerUsdc: (quote: RegistrationQuote) => Promise<void>;
   error: string | null;
 }
 
@@ -37,6 +40,7 @@ const Ctx = createContext<SessionValue>({
   signIn: async () => undefined,
   signOut: async () => undefined,
   signWorkflow: async () => { throw new Error("Sign in with NEAR before signing this job."); },
+  registerUsdc: async () => { throw new Error("Sign in before registering."); },
   error: null,
 });
 
@@ -57,6 +61,20 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
     readAccount: async () => (await api<{ session: { accountId: string } | null }>("GET", "/me")).session?.accountId ?? null,
   }), [client, config.auth.network]);
   const signWorkflow = useCallback<WorkflowSigner>((request) => walletSigner.sign(request), [walletSigner]);
+
+  const registrationWallet = useMemo(() => new RegistrationWallet({
+    network: config.auth.network,
+    session: () => ({ ...signingSession.current, version: operation.current }),
+    connect: () => client.near.ensureConnected(),
+    readAccount: async () => (await api<{ session: { accountId: string } | null }>("GET", "/me")).session?.accountId ?? null,
+    wallet: () => {
+      const state = client.near.getState();
+      return { account: state?.accountId ?? null, network: state?.networkId === config.auth.network ? client.near.getNetwork() : "mismatch", connected: client.near.isWalletConnected() };
+    },
+    send: (quote) => client.near.getNearClient(config.auth.network).transaction(quote.account)
+      .functionCall(quote.token, "storage_deposit", { account_id: quote.account, registration_only: true }, { gas: "30 Tgas", attachedDeposit: BigInt(quote.deposit_yocto) }).send(),
+  }), [client, config.auth.network]);
+  const registerUsdc = useCallback((quote: RegistrationQuote) => registrationWallet.register(quote), [registrationWallet]);
 
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
@@ -109,7 +127,7 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
     finally { if (operation.current === current) setLoading(false); }
   }), [client]);
 
-  const value = useMemo(() => ({ account, loading, required: config.auth.required, signIn, signOut, signWorkflow, error }), [account, loading, config, signIn, signOut, signWorkflow, error]);
+  const value = useMemo(() => ({ account, loading, required: config.auth.required, signIn, signOut, signWorkflow, registerUsdc, error }), [account, loading, config, signIn, signOut, signWorkflow, registerUsdc, error]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -1,0 +1,81 @@
+{
+  "observed_at": "2026-11-12T22:13:47.570302+00:00",
+  "scope": "Deployment and anonymous nonfinancial acceptance only",
+  "result": "PASS",
+  "origin": "https://desk.multiagency.ai",
+  "source_commit": "2cad16722a12ad208f042fb161184e0d4ae661ca",
+  "source_archive_sha256": "65cac800ba88cc98039dbe0d063482e905ef052622f7fea9d4dc0068bd55bed5",
+  "deployed_image_digest": "sha256:9f1ee17b509fa4deec2fb801e705e6bbe839bbac1f540957248aa8d85c204195",
+  "deployment_id": "718a9db0-86b1-4e20-b65b-0a48268249b5",
+  "instance_id": "e463b399-a029-481c-8648-bbc86a1e5c4f",
+  "architecture": "linux/amd64",
+  "platform": {
+    "origin": "https://api.dev.multiagency.ai",
+    "source": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
+    "candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+    "deployment_id": "39f7ff74-802e-4f2a-a363-8c7764f2e2de",
+    "image_digest": "sha256:b1f32dc6a45bf2815136107424df28489c74b7ab94301917ed3858ae5eea687e"
+  },
+  "sdk": {
+    "version": "0.5.9",
+    "tarball_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a"
+  },
+  "railway": {
+    "project": "paperwork",
+    "environment": "staging",
+    "service": "server",
+    "note": "One Paperwork environment and hostname; staging is the Railway environment label",
+    "volume_id": "55922468-0e12-4968-82f4-503d07a402e6",
+    "volume_instance_id": "c2c6b4ec-4f2a-4faa-ae34-9832977cfe59",
+    "mount": "/data",
+    "size_mb": 50000,
+    "region": "us-west2",
+    "replicas": 1,
+    "restart_policy": "ON_FAILURE",
+    "restart_max_retries": 3,
+    "effective_builder": "DOCKERFILE",
+    "api_builder_label": "RAILPACK",
+    "config_etag": "83d0de502b04507498f370cd419e55497db3caee0761243e00c8e381743e5268"
+  },
+  "acceptance": {
+    "https_and_dns": "Passed; strict certificate validation, CNAME and ownership TXT",
+    "http": "14 anonymous GET checks pass: health, safe config, session-null, signed-out empty listing, private collection refusal, nonexistent jobs and unavailable simulator GETs, HTML/assets/cache",
+    "browser": "Assigned, Agency gate, Openings, Get started and How it works pass at 1440x900 and 390x844; anonymous checked before every route; no form submission or horizontal overflow",
+    "gateway": "Fresh credentialed read-only discovery GET 200; exact platform deployment matches handoff",
+    "artifacts": "101 deployed source/build-input hashes and hosted HTML/JS/CSS match retained exact-instance manifest; complete frontend and source/image evidence preserved",
+    "ci": "Exact merged source main checks passed; local IaC follow-up typecheck and pin/whitespace checks pass",
+    "guard_tests": "24 offline operational guard tests passed (18 deploy, 6 inspection); these do not test concurrent engine edits"
+  },
+  "credential_expires_at": "2026-11-19T21:07:23.584Z",
+  "evidence": {
+    "original_deployment_record": "/Users/jlwaugh/agencies/dao/demo/data/release-evidence/2cad167-stage-c/stage-c-completion.json",
+    "fresh_nonfinancial_record": "/Users/jlwaugh/agencies/dao/demo/data/release-evidence/2cad167-stage-c/nonfinancial-final-20261112T221347Z/nonfinancial-final-platform-check.json",
+    "fresh_browser_matrix": "/Users/jlwaugh/agencies/dao/demo/data/release-evidence/2cad167-stage-c/nonfinancial-final-20261112T221347Z/nonfinancial-route-walkthrough.json",
+    "fresh_receipt_manifest": "/Users/jlwaugh/agencies/dao/demo/data/release-evidence/2cad167-stage-c/nonfinancial-final-20261112T221347Z/manifest.json",
+    "fresh_receipt_hashes": {
+      "nonfinancial-final-platform-check.json": "4e1e5846d7d8bd8ceb13d45231e2657c9dba00d716adda13b29ce76e91346bec",
+      "nonfinancial-route-walkthrough.json": "979349826b59ce1dbb59ef964c8188ada778f8c2bed241cee8ea8d8f731461c8",
+      "closure-domain-status.json": "494b9f5226b18d0c8de99f43f1df42d98884fed36f219fea4210efe52091c7f4",
+      "hosted-anonymous-smoke.json": "e4e219cac732f145430118a391de912fc9bfdacffe20d3f649303b9366401806",
+      "closure-browser-check.py": "e86b6e1138752cdfb81001b9afa79e4f681752fcc8b302b0136f82c60ca59d10"
+    }
+  },
+  "remaining_limits": [
+    "No wallet sign-in/signatures, DAO membership/quorum/setup, job creation, consents/grants, funding, approvals or payment performed by this session",
+    "Positive hosted named-party/public-verification tests with a real job require separately authorized job creation; no fixture or authentication bypass used",
+    "Hosted provider/payment recovery, DAO SIGKILL and historical installation/rollback remain unverified; Market rollout held",
+    "App credential renewal after November 19 needs separate authorization; no rotation performed",
+    "Concurrent engine/failed-payment test edits are excluded from deployed 2cad167 and from this session review; must be reviewed by their owner before a financial acceptance candidate"
+  ],
+  "local_followup": {
+    "applied_to_cloud": false,
+    "runtime_redeployed": false,
+    "scope": "Documentation and IaC alignment only; user review/commit remains",
+    "excluded_other_session_paths": [
+      "src/server/engine.ts",
+      "tests/engine.test.ts",
+      "tests/failed-payment-observation.test.ts"
+    ]
+  },
+  "operational_authority": "No standing redeploy/restart/credential rotation, wallet or financial authority"
+}

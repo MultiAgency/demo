@@ -1,6 +1,6 @@
 {
-  "as_of": "2026-11-12",
-  "scope": "Current local release status; not deployment authorization",
+  "as_of": "2026-11-13",
+  "scope": "Dated release/deployment status; not standing operational authorization",
   "validated_code_commit": "049387dd1e62899db6e31ebe9cf8919789f360c1",
   "pins": {
     "sdk_version": "0.5.9",
@@ -21,11 +21,35 @@
   },
   "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
   "remaining": [
-    "Authorized push and remote CI on the reviewed candidate; local workflow lint is not a GitHub run",
-    "Platform staging-ready handoff, Market-route/shared-authority and recovery clearance",
-    "Supervised real wallet sign-in/signatures, DAO membership/quorum and independently confirmed payment",
+    "DAO membership/quorum, agent setup/consents/grants, USDC registration, funding and independently confirmed payment remain unverified and unapproved; scoped wallet login, cancellation, job refusal and both exact job-terms signatures pass",
+    "Market-route/shared-authority and historical recovery limitations remain outside the app nonfinancial acceptance",
     "Provider-response-loss G14 continuation, DAO SIGKILL recovery and real historical installation remain unverified",
-    "Optional hosted NEAR/Hermes review is unverified and can remain disabled"
+    "Optional hosted NEAR/Hermes review remains unverified and disabled",
+    "App credential expires 2026-11-19T21:07:23.584Z; renewal requires separate authorization"
   ],
-  "authorization": "No push, merge, deployment, staging restart, credential mutation or live financial action authorized"
+  "authorization": "Owner-approved deployment/nonfinancial acceptance completed. No additional deployment/restart, credential rotation, wallet action or live financial action authorized.",
+  "deployed_source_commit": "2cad16722a12ad208f042fb161184e0d4ae661ca",
+  "deployment_acceptance": "docs/deployment-acceptance.json",
+  "local_followup": "Reviewed local registration UX, payout identity/commitment hardening, and documentation/IaC alignment; not deployed. Live source remains 2cad167. Commit status is recorded in Git.",
+  "wallet_login_acceptance": {
+    "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/wallet-checks-summary.json",
+    "accounts": [
+      "multiagentic.near",
+      "buildr.near"
+    ],
+    "unrelated_account": "hackbot.near",
+    "status": "Hosted identity/reload, cancelled-signature anonymous retention and known-job unrelated-account refusal verified",
+    "job_id": "c_a2002ec56bf1",
+    "job_state": "Both terms signatures recorded; needs_setup; unfunded, no agent, submission or payout"
+  },
+  "wallet_terms_acceptance": {
+    "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/terms-signatures-acceptance.json",
+    "job_id": "c_a2002ec56bf1",
+    "terms_hash": "a2002ec56bf163b7cb0330afdf2ee9257267d6d55d204804d4cc41bc6aebd763",
+    "representative": "multiagentic.near",
+    "builder": "buildr.near",
+    "status": "Both scoped NEP-413 terms signatures recorded on hosted source 2cad167; no funds moved",
+    "payee_registered": false
+  },
+  "local_registration": "docs/payee-registration.md; local offline acceptance only, not deployed or authorized for a live storage deposit"
 }

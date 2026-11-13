@@ -159,6 +159,7 @@ export interface Platform {
   agent(organization: string, agent: string): AgentHandle;
 }
 export interface ChainReader {
+  registrationQuote?(token: string, account: string): Promise<import("../../shared/registration").RegistrationQuote>;
   isFullAccessKey(account: string, publicKey: string): Promise<boolean>;
   isRegistered(token: string, account: string): Promise<boolean | null>; // null = couldn't tell
 }

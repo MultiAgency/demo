@@ -1,3 +1,4 @@
+import { PayeeRegistration } from "../components/PayeeRegistration";
 import { useCallback, useState } from "react";
 import { api, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
@@ -113,9 +114,10 @@ export function ContractorSign({ id, token, config }: { id: string; token: strin
           </div>
         </Disclosure>
 
-        {c.payee_registered === false ? (
-          <Alert tone="warning">{t.payee.address} isn't registered on the USDC contract yet. Register it, or payouts will wait.</Alert>
-        ) : null}
+        {signed && c.stage !== "active" && c.stage !== "ended" && c.stage !== "frozen" ? <Alert tone="info">Terms accepted. Waiting on {t.company} to finish preparing this job. Registration below is separate; it does not complete agency setup.</Alert> : null}
+        {config.demo_controls
+          ? c.payee_registered === false ? <Alert tone="warning">USDC registration is simulated in this demo. No live registration transaction is available here.</Alert> : null
+          : <PayeeRegistration key={id} id={id} account={t.payee.address} builder={t.contractor.near_account} />}
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {!signed ? <SignInGate account={t.contractor.near_account} role="contractor" /> : null}
 

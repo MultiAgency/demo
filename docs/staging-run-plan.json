@@ -1,13 +1,13 @@
 {
-  "status": "LOCAL CODE COMMITTED; CLEANUP REVIEW, AUTHORIZED PUSH, REMOTE CI AND HOSTED APPROVAL REMAIN",
+  "status": "DEPLOYED; SCOPED WALLET LOGIN AND TERMS CHECKS PASS; SETUP AND FINANCIAL RUNS UNAPPROVED",
   "accounts": {
     "wallet_agency_owner": "multiagentic.near",
     "dao_agency_owner": "agentic.sputnik-dao.near",
     "dao_human_representative": "Pending policy/permission/quorum verification",
     "builder_payee": "buildr.near",
-    "refusal_actor": "hackr.near"
+    "refusal_actor": "hackbot.near"
   },
-  "recommended_origin": "Staging service assigned HTTPS Railway domain; actual origin not supplied",
+  "recommended_origin": "https://desk.multiagency.ai \u2014 the single deployed Paperwork environment",
   "proposed_limits_NOT_APPROVED": {
     "wallet_job_usdc": "1",
     "dao_job_usdc": "1",
@@ -39,23 +39,31 @@
     "selectedFinalCommit": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
     "selectedFinalCandidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
     "offline_consumer_repin_authorized": true,
-    "hosted_deployment_ready": false
+    "hosted_deployment_ready": false,
+    "scope_note": "Historical artifact-repin authorization; later scoped user deployment approvals are recorded separately in deployment-acceptance.json"
   },
   "user_confirmed_blockers": [
-    "Market-route proof remains unverified; Market executor rollout held",
-    "Last coordinator handoff reports staging maintenance; obtain fresh staging-ready clearance before any restart",
-    "Configured provider-key/external authority and historical recovery limits remain",
-    "SDK publication is complete; no Paperwork push, deployment, live signatures or funds authorization"
+    "Market rollout remains held",
+    "DAO membership/quorum, setup/consents/grants, USDC registration, funding and independently confirmed payment remain unverified and unapproved; scoped wallet checks and both exact terms signatures pass",
+    "Provider/shared-authority and historical recovery limits remain",
+    "Additional deploy/restart/credential changes require scoped approval; no live financial actions authorized"
   ],
   "pending_inputs": [
-    "Actual staging origin",
-    "Budget/fee ceiling approval",
-    "DAO representative/quorum signers",
-    "Exact deliverable/repository and run dates"
+    "Exact setup/registration/funding actions and separate budget/fee ceiling approvals",
+    "DAO representative/quorum signers and exact DAO-owned job terms"
   ],
-  "live_actions_performed": false,
+  "live_actions_performed": true,
   "offline_consumer_results": "docs/final-consumer-252cba1.json",
   "latest_local_review": "docs/local-release-review.json",
   "latest_v2_acceptance": "docs/v2-acceptance.json",
-  "current_release_status": "docs/release-status.json"
+  "current_release_status": "docs/release-status.json",
+  "deployment_acceptance": "docs/deployment-acceptance.json",
+  "live_action_scope": "Owner-approved resources, credential binding, configuration/DNS and exact app deployment with anonymous nonfinancial checks completed; later separately approved two account logins, cancellation, one unsigned/unfunded draft, hackbot.near GET-only refusal checks and both exact job-terms signatures are complete",
+  "live_financial_actions_performed": false,
+  "existing_wallet_job": {
+    "id": "c_a2002ec56bf1",
+    "terms_hash": "a2002ec56bf163b7cb0330afdf2ee9257267d6d55d204804d4cc41bc6aebd763",
+    "status": "Both terms signed; needs_setup; payee USDC registration missing; no agent or funds",
+    "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/terms-signatures-acceptance.json"
+  }
 }

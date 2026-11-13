@@ -275,6 +275,17 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     return c.json(representative ? view : builderView(view));
   });
 
+  // Quotes and status only: registration is signed and sent by the payee's own wallet.
+  app.get("/contracts/:id/registration", async (c) => {
+    const id = c.req.param("id");
+    asParty(c.get("session"), id);
+    c.header("Cache-Control", "no-store");
+    const view = await engine.viewContract(id);
+    if (!kit.chain.registrationQuote) throw new UserError("Registration quotes are unavailable in this environment.", 503);
+    try { return c.json(await kit.chain.registrationQuote(view.terms.asset, view.terms.payee.address)); }
+    catch (error) { throw new UserError(`Registration check unavailable: ${error instanceof Error ? error.message : "Try again."}`, 503); }
+  });
+
   app.get("/contracts/:id/signing-request", (c) => {
     const role = c.req.query("role") as Role;
     if (role !== "representative" && role !== "contractor") throw new UserError("role must be representative or contractor");

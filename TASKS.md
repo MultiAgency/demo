@@ -1,5 +1,7 @@
 # Tasks
 
+Paperwork is deployed at https://desk.multiagency.ai from `2cad167`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-acceptance.json). Scoped wallet login and both exact job-terms signatures are complete. DAO/setup/registration/payment actions remain separately unapproved.
+
 Current pins, completed acceptance and remaining gates: [release-status.json](docs/release-status.json). Dated implementation checkpoints below are historical evidence.
 
 Work on one task at a time, with a concrete result and an appropriate check. Routine implementation choices within an authorized task do not need another approval round; changes to authority or live operations follow [RULES.md](RULES.md).
@@ -75,7 +77,7 @@ Release review limitation (2026-11-12): retrying an unanswered DAO setup/consent
 
 - [x] Review complete combined diff; fix production frontend asset restart failure and exclude inactive vendor artifacts from image/context.
 - [x] Build/smoke Linux arm64 and amd64 images with networking disabled; preserve full production frontend and image artifacts.
-- [x] Add read-only offline CI and validate with actionlint; local equivalent checks pass. Remote execution awaits an authorized push.
+- [x] Add read-only offline CI and validate with actionlint; local equivalent checks pass. Reviewed-head and merged-main remote CI passed.
 - [x] Prepare explicit reviewed commit file set without staging or committing; exclude four inactive `0018f553` artifacts.
 
-The two remaining local v2 acceptance branches now pass; see docs/v2-acceptance.json. The reviewed code is committed at `049387d`; authorized push, remote CI and hosted operational gates remain separate. This checkpoint is not publication/deployment clearance.
+The two remaining local v2 acceptance branches now pass; see docs/v2-acceptance.json. The reviewed code is committed at `049387d`; push/merge/remote CI and scoped nonfinancial deployment are complete; financial/operational limits remain separate. This checkpoint is not publication/deployment clearance.

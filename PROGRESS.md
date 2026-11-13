@@ -1,6 +1,6 @@
 # Progress
 
-Current local release status: [release-status.json](docs/release-status.json). Validated code is committed at `049387d`; the named offline acceptance and Linux packaging gates pass. Remote CI and hosted clearance remain pending. The dated checkpoints below preserve their original evidence and then-open limitations.
+Current release and deployment status: [release-status.json](docs/release-status.json). Paperwork source `2cad167` is deployed at https://desk.multiagency.ai; scoped nonfinancial acceptance passes. [Exact source, image and acceptance record](docs/deployment-acceptance.json). The dated checkpoints below preserve their original evidence and then-open limitations.
 
 Historical update **2026-11-11** after the offline Hermes/key-setup review. The local milestone covers both Report and invoice (v3) and Pay on merge (v2).
 
@@ -41,9 +41,17 @@ Current commands, source fingerprints and limits are in the [Hermes review check
 
 Evidence links are supplied references, not fetched or quality-verified artifacts. Requested changes apply only while proposals remain wholly unapproved/unpaid. [State-machine audit](docs/implicit-state-machines.md), [architecture](ARCHITECTURE.md) and [recorded platform gaps](docs/platform-gaps.md) contain the supporting detail.
 
+## Local follow-up — November 13, 2026
+
+Builder registration now has a private on-chain quote, explicit wallet review and a fresh status check. Unknown status stays unknown; acceptance and agency preparation are separate. This implementation is local and has not registered an account or been deployed. See [registration flow and limits](docs/payee-registration.md).
+
+Precommit checks: typecheck, all 1,562 offline tests, the simulated job workflow, SDK pin verification, frontend build and whitespace checks pass. Registration desktop/mobile and state-transition checks use offline fixtures. No new container or hosted registration acceptance is claimed.
+
+The reviewed payout changes refuse foreign request/payment identities and retain commitments when a known payment regresses to a refused/missing request record. Dropping blocked judgments requires a fresh matching absence observation. The provider-response-loss G14 gap remains open; see [restart evidence](docs/job-restart.md).
+
 ## Next
 
-Review and commit this documentation/pin-consistency follow-up, then obtain authorization to push the local candidate and run remote CI. Final artifact pinning, named offline browser/restart acceptance and Linux packaging pass. Hosted work waits for platform staging clearance and scoped authorization; see [current release status](docs/release-status.json).
+Keep the reviewed local follow-up separate from live source 2cad167. Prepare the exact setup and registration actions/costs for separate approval; do not redeploy or register an account from a local test pass. Remote CI and the scoped deployment/nonfinancial checks pass. Scoped hosted wallet login, cancellation, refusal and both job-terms signatures pass. DAO setup/quorum, USDC registration, funding and payment remain unapproved; see [current release status](docs/release-status.json).
 
 Existing manual demos remain untouched under the user's local run/freeze confirmation. Production deployments/restarts remain paused; local checks grant no live-operation authority.
 

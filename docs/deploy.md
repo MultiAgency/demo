@@ -5,14 +5,13 @@ repository's `Dockerfile` with the settings in `.railway/railway.ts`. Its target
 
 `paperwork.multiagency.ai` already hosts Documenso. Keep that hostname and service intact; the Paperwork app uses `desk.multiagency.ai` while retaining deployment `multiagency-paperwork` and Railway project `paperwork`.
 
-All of Paperwork lives at `desk.multiagency.ai`: private work, agency offers and approvals, public openings, onboarding and connected Market work. Use `PUBLIC_URL=https://desk.multiagency.ai` for the single service and mounted database. Public openings remain shareable at `/#/openings`; private views retain their named-party authorization. The separate Jobs host plan was dropped. Remove any nonempty `PAPERWORK_JOBS_PUBLIC_URL` from local/service configuration; startup rejects that retired setting. No browser state, accepted terms or pending payment is migrated between origins. See the [Desk walkthrough](jobs-portal.md). Hostname configuration and deployment remain pending authorization.
+All of Paperwork lives at `desk.multiagency.ai`: private work, agency offers and approvals, public openings, onboarding and connected Market work. Use `PUBLIC_URL=https://desk.multiagency.ai` for the single service and mounted database. Public openings remain shareable at `/#/openings`; private views retain their named-party authorization. The separate Jobs host plan was dropped. Remove any nonempty `PAPERWORK_JOBS_PUBLIC_URL` from local/service configuration; startup rejects that retired setting. No browser state, accepted terms or pending payment is migrated between origins. See the [Desk walkthrough](jobs-portal.md). Hostname configuration and the scoped deployment are complete; further live changes require separate authorization.
 
-**Not deployed yet.** Production deploys are paused (workspace `AGENTS.md`), and the market's live hires wait for the
-platform's first staging hire, run by the owner with small amounts. Staging comes first: this service against the
-platform at `api.dev.multiagency.ai`, on its Railway domain or a staging subdomain, not `desk.multiagency.ai`.
-`api.dev.multiagency.ai` runs on mainnet: real agents, owners and funds. When the platform's production host
-(`api.multiagency.ai`) exists, the same service moves there by changing `PLATFORM_URL` and the credential, which is
-issued per host.
+**Deployed:** `https://desk.multiagency.ai`, source `2cad16722a12ad208f042fb161184e0d4ae661ca`, Linux AMD64. This is the one Paperwork environment: Railway project `paperwork`, environment `staging`, service `server`. It connects to `https://api.dev.multiagency.ai`, whose chain/funds are real. There is no separate Paperwork staging hostname. Documenso remains at `paperwork.multiagency.ai`.
+
+The owner separately approved resource provisioning, one seven-day app credential, configuration/DNS changes, and one exact-source deployment with anonymous nonfinancial checks. Those actions are complete; they grant no standing redeploy/restart, credential rotation, wallet-signature or funds authority. [Deployment and acceptance record](deployment-acceptance.json). The credential expires November 19, 2026 at 21:07 UTC; renewal needs separate authorization.
+
+The existing 50,000 MB `server-volume` remains mounted at `/data`; do not replace it. IaC now reflects that size and the verified `ON_FAILURE` / three-retry policy. The API's legacy `RAILPACK` enum coexists with effective `build.builder=DOCKERFILE` and `dockerfilePath=Dockerfile`; do not switch builders to resolve that representation difference. Local IaC alignment was not applied to the live service. Any future full IaC plan must independently verify existing resource IDs, variables and environment before application.
 
 ## The service
 
@@ -46,7 +45,7 @@ Existing job rows retain their original `covenant` signing recipient, including 
 | `REQUIRED_MOUNT` | `/data` |
 | `DB_PATH` | `/data/paperwork.sqlite` |
 | `PUBLIC_URL` | `https://<host>`, the Paperwork entry (production target `https://desk.multiagency.ai`) |
-| `BETTER_AUTH_SECRET` | `openssl rand -base64 32` (secret) |
+| `BETTER_AUTH_SECRET` | Existing stable server-held secret; preserve its value |
 | `SIWN_RECIPIENT` | the NEP-413 recipient sign-in names (default `multiagentic.near`) |
 | `NEAR_RPC_URL` | optional: NEAR RPC for key checks and DAO roles (default `https://rpc.mainnet.fastnear.com`) |
 | `GITHUB`, `GITHUB_TOKEN` | `github`, and a token for the GitHub API's rate limit (secret) |
@@ -80,23 +79,21 @@ in your own terminal, so the token goes nowhere but the variable above (as for T
 
 ```sh
 railway ssh -p <platform project id> -e <platform staging environment id> -s <gateway service id> -- \
-  sh -c 'cd /data/state && /app/node_modules/.bin/tsx /app/src/app-credential.ts issue multiagency-paperwork api.dev.multiagency.ai 90 "MultiAgency Paperwork"'
+  sh -c 'cd /data/state && /app/node_modules/.bin/tsx /app/src/app-credential.ts issue multiagency-paperwork api.dev.multiagency.ai 7 "MultiAgency Paperwork"'
 ```
 
-It lasts 90 days. Before it expires, issue a new one the same way, set the variable, restart, and revoke the old one
-(`app-credential.ts revoke <id>`). A token that was ever shown anywhere else is revoked and reissued.
+The current credential was issued for seven days, expiring November 19, 2026 at 21:07 UTC. Before expiry, the owner must separately authorize any issuance, binding, restart and revocation scope. Preserve the stable auth secret. Never print credential values into logs or receipts.
 
 ## Deploying
 
-Railway builds from the `Dockerfile`. Either connect the service to this repository's `main` on GitHub (each merge
-deploys; the health check holds a broken one back), or upload a clean export of a commit, so nothing untracked in a
-checkout (a local `.env`, a database) goes with it:
+The live service uses manual source delivery and has no GitHub/image source connection. Keep automatic merge deployment disconnected. A future separately approved deployment builds from the reviewed `Dockerfile` and a clean export; do not upload a dirty checkout, local `.env` or database. The following commands are operator reference, not standing authorization:
 
 ```sh
-railway config plan --detailed-exit-code   # exits 2 while .railway/railway.ts has changes not applied: apply them first
-rm -rf /tmp/paperwork-deploy && git worktree prune && git worktree add --detach /tmp/paperwork-deploy <commit>
-railway up /tmp/paperwork-deploy --path-as-root --service server --environment <environment>
-git worktree remove /tmp/paperwork-deploy
+railway config plan --detailed-exit-code   # review drift and resource identities; apply only with separate authorization
+paperwork_export=$(mktemp -d /tmp/paperwork-deploy.XXXXXX)
+git archive <reviewed-commit> | tar -x -C "$paperwork_export"
+railway up "$paperwork_export" --path-as-root --service server --environment <approved-environment>
+# Retain the export for provenance; remove only this exact directory after review.
 ```
 
 The first deploy: set the variables, `railway config apply`, deploy, then `railway domain` for the service. Staging uses
@@ -136,6 +133,6 @@ docker build -t paperwork-local:check .
 bun --no-env-file scripts/check-container.ts paperwork-local:check /tmp/paperwork-container-check-unique
 ```
 
-Use a fresh receipt directory per run. The container check uses `--network none`, fixture credentials and a generated disposable volume. It checks Linux/SDK identity, startup refusals, auth/private/public responses, no demo endpoints, no credential disclosure, real production assets and original synthetic SQLite job identity across a local container restart. It starts no real wallet/provider/payment flow. Image IDs, build input hashes and receipts for arm64/amd64 are in `/tmp/paperwork-local-release/verification.json`. Full Linux amd64 checks here run under Docker Desktop emulation; GitHub's native amd64 execution remains pending an authorized push.
+Use a fresh receipt directory per run. The container check uses `--network none`, fixture credentials and a generated disposable volume. It checks Linux/SDK identity, startup refusals, auth/private/public responses, no demo endpoints, no credential disclosure, real production assets and original synthetic SQLite job identity across a local container restart. It starts no real wallet/provider/payment flow. Image IDs, build input hashes and receipts for arm64/amd64 are in `/tmp/paperwork-local-release/verification.json`. Local Linux amd64 checks used Docker Desktop emulation; merged-main CI and the live AMD64 package now pass. See deployment-acceptance.json for exact evidence.
 
-`.github/workflows/verify.yml` runs locked install, SDK binding, typecheck, tests, simulated job/security/browser/privacy checks and local container build/smoke with read-only repository permission. It has no deploy, registry login, image push or payment step. `actionlint` validates the workflow locally; it has not yet run on GitHub. Frozen-gateway DAO/restart receipts remain separate because that external snapshot is not shipped in this checkout.
+`.github/workflows/verify.yml` runs locked install, SDK binding, typecheck, tests, simulated job/security/browser/privacy checks and local container build/smoke with read-only repository permission. It has no deploy, registry login, image push or payment step. `actionlint` validates the workflow locally; both reviewed-head and merged-main GitHub checks passed. Frozen-gateway DAO/restart receipts remain separate because that external snapshot is not shipped in this checkout.

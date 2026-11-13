@@ -1,3 +1,4 @@
+import { REGISTRATION_GAS, type RegistrationQuote } from "../../shared/registration";
 import type { ChainReader } from "./port";
 
 /** A NEP-141 asset id (`nep141:<contract>`) as its token contract account. */
@@ -36,6 +37,27 @@ export class RpcChain implements ChainReader {
     } catch {
       return false;
     }
+  }
+
+  async registrationQuote(token: string, account: string): Promise<RegistrationQuote> {
+    const call = async (method: string, args: object) => {
+      const { result, error } = await this.query({ request_type: "call_function", account_id: tokenContract(token), method_name: method, args_base64: Buffer.from(JSON.stringify(args)).toString("base64") });
+      if (error || !Array.isArray(result?.result)) throw new Error("Token registration could not be verified. Try checking again.");
+      return JSON.parse(Buffer.from(result.result).toString());
+    };
+    const balance = await call("storage_balance_of", { account_id: account });
+    const registered = balance !== null;
+    if (registered && (typeof balance?.total !== "string" || !/^\d+$/.test(balance.total) || BigInt(balance.total) <= 0n))
+      throw new Error("The token returned an invalid storage balance.");
+    if (registered) return { account, token: tokenContract(token), registered: true, deposit_yocto: "0", gas: REGISTRATION_GAS, gas_estimate_yocto: "0", expires_at: new Date(Date.now() + 60_000).toISOString() };
+    const bounds = await call("storage_balance_bounds", {});
+    if (!registered && (typeof bounds?.min !== "string" || !/^\d+$/.test(bounds.min) || BigInt(bounds.min) <= 0n))
+      throw new Error("The token returned an invalid storage minimum.");
+    const res = await this.send(this.rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: `paperwork-${++this.id}`, method: "gas_price", params: [null] }), signal: AbortSignal.timeout(10_000) });
+    const price = await res.json() as { result?: { gas_price?: string } };
+    const gasPrice = price.result?.gas_price;
+    if (!res.ok || typeof gasPrice !== "string" || !/^\d+$/.test(gasPrice) || BigInt(gasPrice) <= 0n) throw new Error("Gas cost could not be quoted. Try checking again.");
+    return { account, token: tokenContract(token), registered, deposit_yocto: registered ? "0" : bounds.min, gas: REGISTRATION_GAS, gas_estimate_yocto: (BigInt(gasPrice) * BigInt(REGISTRATION_GAS)).toString(), expires_at: new Date(Date.now() + 60_000).toISOString() };
   }
 
   async isRegistered(token: string, account: string): Promise<boolean | null> {

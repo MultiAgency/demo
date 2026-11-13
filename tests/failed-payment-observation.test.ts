@@ -100,6 +100,39 @@ async function expectOriginalCommitment(fixture: FailedPayment) {
   expect([...ctx.stub.payouts.keys()]).toEqual([original.request_id]);
 }
 
+for (const foreign of ["request", "correlation", "same-refusal", "same-not-found"] as const) test(`processing payout retains its commitment on ${foreign}`, async () => {
+  const ctx = await activate("300", JOB_DEMO_TERMS);
+  contexts.push(ctx);
+  const engine = ctx.rt.engine;
+  const submission = await engine.submitJob(ctx.id, {
+    client_request_id: "foreign-live-submission", report: "CSV export and tests are ready.",
+    evidence: [{ deliverable_id: "d1", label: "Tests", url: "https://evidence.invalid/tests" }],
+    invoice: { number: "LIVE-001", amount_usd: "300" },
+  }, JOB_DEMO_TERMS.contractor.near_account);
+  const proposed = await engine.proposeJob(submission.id);
+  const original = proposed.payouts[0]!;
+  await castVote(ctx, original.request_id, "approve");
+  const correlation = engine.attempt(original.request_id).correlation_id!;
+  const reads = observeThrough(ctx);
+  reads.payout = { ok: true, value: {
+    requestId: foreign === "request" ? "foreign-request" : original.request_id,
+    correlationId: foreign === "correlation" ? "foreign-correlation" : correlation,
+    state: foreign === "same-not-found" ? "not_found" : "refused", status: "REFUSED", code: "policy_denied",
+  } };
+  const observed = await engine.getContract(ctx.id);
+  expect(engine.attempt(original.request_id).state).toBe("processing");
+  expect(engine.attempt(original.request_id).correlation_id).toBe(correlation);
+  expect(observed.committed_usd).toBe("300");
+  await expect(engine.retry(ctx.id)).rejects.toThrow();
+  expect(ctx.stub.calls.requestPayout).toBe(1);
+  // A regressed request record may persist; settlement still follows the known payment.
+  if (foreign === "request" || foreign === "correlation") reads.payout = null;
+  ctx.stub.settle(correlation);
+  const settled = await engine.getContract(ctx.id);
+  expect(settled.paid_usd).toBe("300");
+  expect(ctx.stub.transfers).toHaveLength(1);
+});
+
 for (const version of [2, 3] as const) describe(`v${version} failed-payment observations — in-memory fixtures`, () => {
   test("a later recorded refusal cannot erase a known failed transaction or authorize another request", async () => {
     const fixture = await failedPayment(version, { txHash: "fixture-original-failed-transaction" });

@@ -104,6 +104,20 @@ Independent provider observations show **exactly one withdrawal request and one 
 
 The original IDs/database were retained, no replacement request was made, and both app processes and the wrapper-owned SDK stack stopped. The failure is reported as a failed recovery check, not as confirmed settlement. The default app-HTTP response-loss mode passed separately as recorded above.
 
+## G14 reproduction on the current pin — November 12, 2026
+
+Command: `PAPERWORK_RESTART_DROP_WITHDRAW=1 bun run demo:job:restart` (the current environment prefix is `PAPERWORK_`). This rerun reproduces the existing G14 limitation; it does not establish a new defect. The optional recovery check still exits 1 and must not be reported as a successful recovery or settlement.
+
+The isolated run used gateway digest `822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40`, platform source `252cba1d1e6642a5ea9f42ea4927f982423ed8e1`, SDK 0.5.9, Node 24.22.3 and Bun 1.4.2. App source digest: `2a32526008dc636ad7e4283a655ea15beed7a1877b40fe75207c57058b7f983d`; dependency digest: `d51e2b1c9b62313adbe761d9c2ef4733967f398d257d1d5a1a9161ab8db9ab3a`.
+
+Receipt root: `/private/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-restart-launch-N4zDO0`. The application receipt is `jobs/paperwork-job-restart-CgRgW3/receipt.json`; independent provider observations are `platform/.test-artifacts/e2e/run-X8lwGF/stack/environment/observations.json`. These are local temporary artifacts, not published evidence.
+
+The retained request `ad063b7dc50ff8aa-p1-1` stayed `unknown` with null correlation after SIGKILL and restart. Its original submission, invoice and judgment survived. No replacement payment was attempted. Both owned app processes and the isolated stack stopped after the failed check.
+
+Source review explains the boundary: pinned `src/payout-requests.ts:payoutStatus` refreshes provider status only when the journal already contains a correlation ID. Pinned `src/recover.ts` explicitly leaves submission-attempted operations without a correlation unknown because provider lookup and idempotency semantics are unverified. The platform's payout-request tests likewise expect an unknown result after a lost send response. More app polling cannot create the missing authoritative binding.
+
+The platform owner must supply an authenticated, agent-scoped lookup or explicit reconciliation contract that binds the original durable request to its provider operation. Acceptance must cover wrong-agent/wrong-request evidence, absent or unavailable lookup results, restarts and repeated reads, with no additional send. Paperwork can then consume that supported contract and rerun this exact fault case through one explicit approval and one simulated settlement. Do not infer the binding from recipient/amount, add another request identity, edit frozen journals, or weaken the app's committed-budget hold. The default app-HTTP response-loss restart proof passes separately; automatic recovery from provider-response loss remains unverified.
+
 ## Earlier reviewed runner evidence — November 11, 2026
 
 The reviewed runner passed with exit 0 on fresh isolated gateway `run-j5d1ln/stack`, using Bun 1.4.2, SDK 0.5.6 and platform Node 24.22.2. Its independent provider assertion matched **one `SUCCESS`, recipient `maria.demo`, amount `300000000` atomic USDC**, the signed scope total, and the original correlation. It recorded zero provider errors. The lost app response and process crash retained submission `s_60f1d5ee060da1183f765e70`, invoice `i_60f1d5ee060da1183f765e70`, judgment `r_0f5a80f8654eb0aa838fdaf8`, request `6724a37d57e67ab8-p1-1` and correlation `33c755bd-edf8-47eb-b275-b0e90634e819`.

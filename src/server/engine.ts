@@ -599,7 +599,15 @@ export class Engine {
       if (!j) throw new UserError("There is no open judgment to drop.", 409);
       const open = this.attempts(id).filter((a) => a.run_id === j.id && isOpen(a));
       if (open.some((a) => !neverRecorded(a))) throw new UserError("A payout of this judgment is still live. Reject it in the approval instead.", 409);
-      // Blocked before the platform recorded anything: nothing was sent under these ids, so they free their amounts.
+      // A blocked state can follow an uncertain send and a later preflight failure.
+      // Require a fresh, identity-bound absence observation before releasing its commitment.
+      for (const a of open) {
+        const status = await this.handleFor(a)?.payoutStatus(a.request_id);
+        if (a.correlation_id || !status?.ok || status.value.requestId !== a.request_id ||
+          status.value.state !== "not_found" || status.value.correlationId !== null)
+          throw new UserError("The platform has not confirmed this payout was never recorded. Follow its outcome before dropping it.", 409);
+      }
+      // All open attempts were confirmed absent before any commitment is released.
       for (const a of open) this.setAttempt(a.request_id, { state: "dropped", retry_at: null });
       this.closeJudgment(j, "dropped");
       return this.view(id);
@@ -761,6 +769,21 @@ export class Engine {
 
   private async apply(att: AttemptRow, res: Res<PayoutAnswer>) {
     if (!res.ok) return this.transition(att, fromFail(res, this.d.config.statusPollMs));
+    if (res.value.requestId !== att.request_id ||
+      (att.correlation_id !== null && res.value.correlationId !== null && res.value.correlationId !== att.correlation_id)) {
+      this.log(`ALERT ${att.request_id}: ignored payout answer with mismatched request or payment identity`);
+      return;
+    }
+    // A recorded payment cannot become an unsent request. Observe its original correlation;
+    // a regressed request record is neither non-execution proof nor permission to send again.
+    if (att.correlation_id && (res.value.state === "refused" || res.value.state === "not_found")) {
+      const payment = await this.handleFor(att)?.paymentStatus(att.correlation_id);
+      if (payment?.ok && payment.value.status === "SUCCESS")
+        return this.transition(att, { state: "paid", code: null, failKind: null }, payment);
+      if (payment?.ok && (payment.value.status === "FAILED" || payment.value.status === "REFUNDED"))
+        return this.transition(att, { state: "failed", code: payment.value.failureCode, failKind: null, neverExecuted: false }, payment);
+      return;
+    }
     const t = fromAnswer(res.value);
     if (t.reask) return this.send(att.request_id); // never recorded: the same id again
     await this.transition(att, t);
@@ -885,6 +908,7 @@ export class Engine {
         // Revoke stale proof and observe the original payment correlation; late success can still settle it.
         return this.transition(att, { state: "failed", code: att.code, failKind: null, neverExecuted: false });
       }
+      if (changedBinding || (att.correlation_id && (st.value.state === "refused" || st.value.state === "not_found"))) return this.apply(att, st);
       if (st.value.state === "not_found") return this.send(att.request_id);
       const mapped = fromAnswer(st.value).state;
       if (mapped === att.state && (mapped === "held" || mapped === "processing" || mapped === "unknown")) {

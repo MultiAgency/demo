@@ -2,11 +2,11 @@
 
 **The signed terms set the spending limit.**
 
-Paperwork is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Paperwork uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.9 (verified local candidate): an agent for this job, a fixed payee, bounded payments and explicit agency approval.
+Paperwork is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Paperwork uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.5.9 (published artifact, verified against the pinned gateway): an agent for this job, a fixed payee, bounded payments and explicit agency approval.
 
 The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. The **Pay on merge** workflow remains available for v2 jobs; new v3 jobs explicitly sign the report/invoice and payment clauses.
 
-**desk.multiagency.ai** is Paperwork's single entry for private work, agency offers and approvals, public openings and connected [Agent Market](https://market.near.ai) work. Active projects without an opening are excluded. **Get started** connects existing applications, invitations and delivery flows. All routes use one backend, database, sign-in origin and deployment. See the [Desk walkthrough, source map and boundaries](docs/jobs-portal.md). The separate Jobs subdomain plan was dropped; `paperwork.multiagency.ai` remains Documenso. Nothing is deployed by these changes.
+**desk.multiagency.ai** is Paperwork's single entry for private work, agency offers and approvals, public openings and connected [Agent Market](https://market.near.ai) work. Active projects without an opening are excluded. **Get started** connects existing applications, invitations and delivery flows. All routes use one backend, database, sign-in origin and deployment. See the [Desk walkthrough, source map and boundaries](docs/jobs-portal.md). The separate Jobs subdomain plan was dropped; `paperwork.multiagency.ai` remains Documenso. Paperwork is deployed at https://desk.multiagency.ai from `2cad167`; anonymous nonfinancial acceptance passes. Railway calls this single environment `staging`. Scoped hosted wallet login and job-terms acceptance pass; DAO/setup/registration/payment acceptance remains separately unverified; see [deployment acceptance](docs/deployment-acceptance.json).
 
 Desk opens on **Assigned to me**: jobs where the signed-in account is the named builder or agency representative, grouped into **Needs your action**, **Waiting** and **Completed** from stored workflow evidence. **Agency** shows only jobs that account manages as the representative; **Openings** is public at `/#/openings`. No organization-wide membership access is inferred.
 
@@ -200,13 +200,13 @@ docs/                how-it-works, evidence, platform-gaps
 
 ## Configuration
 
-See [.env.example](.env.example), and [docs/deploy.md](docs/deploy.md) for Railway (not deployed yet). The defaults run the stand-in with no keys. `PLATFORM=remote` needs `PLATFORM_URL` and the app credential (`PLATFORM_CREDENTIAL_FILE`). The credential stays in server memory: never in `/api/config`, events, logs or URLs.
+See [.env.example](.env.example), and [docs/deploy.md](docs/deploy.md) for the deployed Railway service and its current scope. The defaults run the stand-in with no keys. `PLATFORM=remote` needs `PLATFORM_URL` and the app credential (`PLATFORM_CREDENTIAL_FILE`). The credential stays in server memory: never in `/api/config`, events, logs or URLs.
 
 Optional AI report assessment has a **30-second** deadline covering the request and response body. `PAPERWORK_ASSESSMENT_TIMEOUT_MS` changes that deadline in milliseconds. A timeout records no proposal or payout request and releases the job for agency review; late model responses cannot create a proposal.
 
 ## Built with
 
-Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.9 (verified local candidate), Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
+Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.5.9 (published artifact, verified against the pinned gateway), Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
 
 Written with AI assistance.
 

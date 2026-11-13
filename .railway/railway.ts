@@ -3,10 +3,11 @@ import { defineRailway, preserve, project, service, volume } from "railway/iac";
 export default defineRailway(() => {
   // The database's volume. Renaming it here doesn't rename it: apply creates a new, empty volume and mounts it at /data,
   // leaving the database (every saved requestId, vote and job) on the old one, detached. Volumes are never deleted by apply.
-  const data = volume("server-volume", { region: "us-west2", sizeMB: 5000 });
+  const data = volume("server-volume", { region: "us-west2", sizeMB: 50000 });
 
   const server = service("server", {
     build: { builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+    deploy: { restartPolicyType: "ON_FAILURE", restartPolicyMaxRetries: 3 },
     healthcheck: "/api/health",
     healthcheckTimeout: 60,
     // One replica: SQLite has one writer, and the timers that follow payouts, hires and jobs run in this process.
@@ -16,6 +17,9 @@ export default defineRailway(() => {
     volumeMounts: { "/data": data },
     // Values are set in Railway (docs/deploy.md), never here.
     env: {
+      NODE_ENV: preserve(),
+      JUDGE: preserve(),
+      AGENT_POLL_MS: preserve(),
       PLATFORM: preserve(),
       PLATFORM_URL: preserve(),
       PLATFORM_DEPLOYMENT: preserve(),
