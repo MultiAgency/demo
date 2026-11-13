@@ -1,16 +1,24 @@
 # Tasks
 
-Paperwork is deployed at https://desk.multiagency.ai from `ef73b58`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-ef73b58.json). Scoped wallet login and both exact job-terms signatures are complete. The owner subsequently supervised registration and wallet-owned setup through policy revision 2; funding and payment remain unapproved. These are user-reported hosted checkpoints, separate from the retained deployment receipt.
+Paperwork is deployed at https://desk.multiagency.ai from `f85f2c3`; scoped nonfinancial acceptance passes. See [deployment acceptance](docs/deployment-update-f85f2c3.json). Scoped wallet login and both exact job-terms signatures are complete. The owner subsequently supervised registration and wallet-owned setup through policy revision 2; funding and payment remain unapproved. These are user-reported hosted checkpoints, separate from the retained deployment receipt.
 
 Current pins, completed acceptance and remaining gates: [release-status.json](docs/release-status.json). Dated implementation checkpoints below are historical evidence.
 
 Work on one task at a time, with a concrete result and an appropriate check. Routine implementation choices within an authorized task do not need another approval round; changes to authority or live operations follow [RULES.md](RULES.md).
 
-## Current task: setup status reconciliation
+## Current task: wallet funding button
+
+- [x] Add an explicit wallet-review button using the pinned SDK's registration + transfer actions and the signed scope amount.
+- [x] Verify identity/network, fresh deposit/policy/authority/zero balance, local duplicate-send protection and exact minimum display.
+- [x] Add focused transaction regressions and desktop/mobile fixture browser coverage to CI.
+- [x] Review and commit the local funding change with outstanding deployment documentation.
+- [ ] Obtain CI on the exact published commit and separately approve deployment. No live transfer is authorized.
+
+## Completed task: setup status reconciliation
 
 - [x] Make ordinary representative refresh observe existing owner actions and DAO votes without preparing, filing or submitting new actions.
 - [x] Use one server snapshot for setup actions; distinguish payout consent from owner/read consent and provide Refresh status throughout setup.
-- [x] Finish final offline browser verification and record the exact local candidate in [setup refresh review](docs/setup-refresh-review.json). No deployment is included.
+- [x] Finish final offline browser verification and record the exact local candidate in [setup refresh review](docs/setup-refresh-review.json). The separately approved app update is complete; see [deployment receipt](docs/deployment-update-f85f2c3.json).
 
 ## Selected priority: payment and recovery
 

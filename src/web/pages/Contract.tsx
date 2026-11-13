@@ -1,6 +1,6 @@
+import { JobFunding } from "../components/JobFunding";
 import { DaoProposal } from "../components/DaoProposal";
 import { useCallback, useEffect, useState } from "react";
-import { fromAtomic } from "../../shared/money";
 import { api, completeStep, links, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
 import { AgencyJobWorkflow } from "../components/JobWorkflow";
@@ -11,7 +11,7 @@ import { ConfirmLink, SignBox } from "../components/SignBox";
 import { Alert, Avatar, Badge, Button, Card, CardHeader, dateText, Mono, PageLoading, Progress, short, Spinner, Stat, Tabs, timeText, type Tone, usd } from "../components/ui";
 import { PHASES, SETUP, STAGE_ORDER, type StepId } from "../guide";
 import { AccountReadGate, useAccountResource } from "../useAccountResource";
-import type { AppConfig, ContractView, Deposit, Judgment, NextStep, TermsSigningRequest, VerifyView } from "../types";
+import type { AppConfig, ContractView, Judgment, NextStep, TermsSigningRequest, VerifyView } from "../types";
 import { STAGES } from "./Home";
 import { useSession } from "../session";
 
@@ -273,7 +273,7 @@ function StepAction({ step, c, config, act, reload }: { step: StepId; c: Contrac
       );
     }
     case "fund":
-      return <DepositCard c={c} config={config} act={act} />;
+      return <JobFunding c={c} config={config} act={act} />;
     default:
       return <NextStepAction c={c} config={config} act={act} reload={reload} />;
   }
@@ -331,56 +331,6 @@ function NextStepAction({ c, config, act, reload }: { c: ContractView; config: A
     case "done":
       return null;
   }
-}
-
-function DepositCard({ c, config, act }: { c: ContractView; config: AppConfig; act: Act }) {
-  const [d, setD] = useState<Deposit | null>(c.platform.deposit);
-  useEffect(() => {
-    if (!d) void api<Deposit>("POST", `/contracts/${c.id}/deposit`).then(setD, () => undefined);
-  }, [c.id, d]);
-  return (
-    <div className="check-action col">
-      {d ? (
-        <div className="deposit">
-          <div className="kv-line">
-            <span>Send</span>
-            <strong>{usd(c.total_usd)} USDC on NEAR, exactly the scope</strong>
-          </div>
-          <div className="kv-line">
-            <span>To</span>
-            <Mono copy={d.address}>{short(d.address, 12, 8)}</Mono>
-          </div>
-          {d.memo ? (
-            <div className="kv-line">
-              <span>Memo</span>
-              <Mono copy={d.memo}>{d.memo}</Mono>
-            </div>
-          ) : null}
-          {d.minAmount ? (
-            <div className="kv-line">
-              <span>Minimum</span>
-              <span>{usd(fromAtomic(BigInt(d.minAmount), 6))}</span>
-            </div>
-          ) : null}
-          {d.expiresAt ? (
-            <div className="kv-line">
-              <span>Address expires</span>
-              <span>{timeText(d.expiresAt)}</span>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <span className="muted small">
-          <Spinner /> Getting a deposit address…
-        </span>
-      )}
-      {config.demo_controls && c.platform.agent_id ? (
-        <Button icon="coins" onClick={() => act(() => api("POST", "/sim/fund", { contract_id: c.id, agent_id: c.platform.agent_id, usd: c.total_usd }))}>
-          Fund {usd(c.total_usd)} (demo)
-        </Button>
-      ) : null}
-    </div>
-  );
 }
 
 /* -------------------------------------------------------------- dashboard */

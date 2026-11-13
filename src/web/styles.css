@@ -2611,3 +2611,8 @@ textarea:focus {
   .job-summary { grid-template-columns: 1fr; gap: 10px; }
   .job-builder .card-header, .job-builder .kv-line { flex-wrap: wrap; }
 }
+
+/* Funding instructions keep complete deposit addresses readable on narrow screens. */
+.job-funding { min-width: 0; overflow-wrap: anywhere; }
+.job-funding .kv-line { min-width: 0; flex-wrap: wrap; }
+.job-funding .mono { display: inline-block; min-width: 0; white-space: normal; overflow-wrap: anywhere; }

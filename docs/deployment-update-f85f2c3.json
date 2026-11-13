@@ -1,0 +1,60 @@
+{
+  "as_of": "2026-11-13T04:39:37.820883+00:00",
+  "result": "PASS",
+  "scope": "Completed one owner-approved Paperwork snapshot/update and read-only acceptance; no standing operational authorization",
+  "source_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
+  "origin": "https://desk.multiagency.ai",
+  "deployment_id": "2d0dce46-9af7-4366-9db1-bbc8be9c67f1",
+  "instance_id": "45ccb2e6-256b-4abb-8b60-7092ba4485f1",
+  "image_digest": "sha256:22f7a3df4b66173684b7dd8001f248963a13c4cc82ffc8534b4343a4d05f465f",
+  "runtime": {
+    "platform": "linux",
+    "arch": "x64",
+    "bun": "1.4.2"
+  },
+  "source_sdk_inputs_verified": 105,
+  "ci_run": "https://github.com/MultiAgency/demo/actions/runs/43361986371",
+  "ci_image_digest": "sha256:929ddfde514f57306d186bc8ec8b7bd083668bc84612559e653823ea85e5baaf",
+  "delivery_boundary": "Railway rebuilt exact reviewed source; deployed image is recorded separately from the CI image.",
+  "checks": [
+    "strict HTTPS health",
+    "auth/config and private job refusals",
+    "minimal public terms verification",
+    "all served frontend files match running manifest"
+  ],
+  "state_preservation": {
+    "all_original_records_and_implicit_row_ids": true,
+    "both_terms_signatures_and_invitation_binding": true,
+    "auth_state": true,
+    "agent_consents_grant_and_policy_revision_2_records": true,
+    "original_volume": "55922468-0e12-4968-82f4-503d07a402e6",
+    "volume_size_mb": 50000,
+    "state_digest": "024ca7d99c9529ff64fd7bc4a7c2c857306f7ad9a180f8f43c91b7693ca06d41",
+    "fresh_protected_sqlite_snapshot_sha256": "e1e02fc053c68538dd08556e8da3dda58cb9e2856cf88042852ff3e05152f8f4",
+    "new_native_backup_created": false
+  },
+  "gateway": {
+    "deployment_id": "36fdd8a8-24ee-4503-956b-03d49ddc557b",
+    "image": "sha256:bd3ed200807e53f58f30d5e86642425152cfc235d912ecc981036ee0f6b736dc",
+    "source": "39eefe11802c062676621290a13d3caa5ccf24e6",
+    "package_manifest_sha256": "3f50539cf51ddfb2d7bde4c4a969ffb4f527c0d0b3b4a883ae7e9742feb0dfe9",
+    "changed_by_this_operation": false
+  },
+  "sdk": {
+    "version": "0.5.9",
+    "tarball_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+    "repinned": false
+  },
+  "read_only_failure_retained": "Initial runtime source/artifact command failed without detailed cause; independent diagnostic matched all 105 files and frontend assets; unchanged acceptance command passed on rerun. No assertions were weakened.",
+  "evidence": "data/release-evidence/update-f85f2c3",
+  "remaining": [
+    "Fresh signed-in hosted walkthrough of the setup UX is not performed by this read-only acceptance.",
+    "Funding and payments remain unapproved and unverified; no wallet actions occurred during update.",
+    "Hosted DAO/quorum and other retained recovery limitations remain open.",
+    "Fresh six-scenario exact-gateway consumer run for f85f2c3 not performed; prior same-package compatibility plus current-source CI retained.",
+    "Fresh logical snapshot remains on original volume; accepted native backup predates setup.",
+    "Credential renewal requires separate authorization before 2026-11-19T21:07:23.584Z."
+  ],
+  "no_write_window_released_at": "2026-11-13T04:39:37.820883+00:00",
+  "authorization_consumed": true
+}

@@ -1,0 +1,37 @@
+{
+  "reviewed_at": "2026-11-13T05:08:09.373181+00:00",
+  "base_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
+  "status": "REVIEWED_CANDIDATE_NOT_DEPLOYED",
+  "source_sha256": {
+    ".github/workflows/verify.yml": "b1eba514d41156363598c668475a9cba7c1896795210ff07b82a0408272a5458",
+    "src/web/pages/Contract.tsx": "04e460422c0c8cdace42c4a5d2e6c072d76bffdf2eda0d3ebd711ca9dff46ba5",
+    "src/web/session.tsx": "145fb113addc4fe6f17df07a9c279d682a53025ca36df11a83457c8ce1c6a462",
+    "src/web/styles.css": "b9f779c677be9337dea789e12c4fb6af064a5890e9cec43e8ce32098792f0fbc",
+    "src/web/components/JobFunding.tsx": "4b9f4bc27dff9187d5c0ea75d8c27c1700f2991be41e667a53973123b1356fef",
+    "src/web/funding.ts": "8af8ffad1f6a09d129058df6e0ed0b233a3b76e3f1573ba696488919f038759d",
+    "tests/funding-wallet.test.ts": "9b7dd3d14fe5965b68ab587cd01fb5cb2019c136b3c8032a6c1aa7f80d6880d3",
+    "scripts/demo-funding-browser.ts": "1d0eaad10973a46b63c2fdf8a6838a1671c605405fd14c11a0c00f10a876dec8"
+  },
+  "checks": {
+    "typecheck": "PASS",
+    "full_offline_suite": "1574 pass, 0 fail, 10574 assertions, 70 files",
+    "frontend_build": "PASS; 3 immutable production assets",
+    "funding_browser": "PASS; localhost fixture identities, 1440x900 and 390x844, no wallet opened, full address/exact minimum/storage cost, persisted unresolved-attempt and wrong-account refusal",
+    "sdk_pin": "PASS; unchanged 0.5.9, SHA256 4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a"
+  },
+  "evidence": "data/release-evidence/funding-button-review",
+  "limitations": [
+    "No deployed Intear wallet send or mainnet funding performed.",
+    "Storage deposit/60 Tgas allowances shown; no current gas-price, storage-minimum or wallet balance-requirement quote is claimed.",
+    "Unresolved marker is retained after any entered wallet send, including cancellation; operator-assisted retry UI is absent.",
+    "Web Locks and local storage coordinate this browser only; cross-browser races/manual transfers are not atomically prevented.",
+    "DAO funding, memo-based deposits and top-ups unsupported by this button."
+  ],
+  "failed_attempts_retained": [
+    "Initial full suite could not bind its loopback TLS port in the sandbox; permitted rerun passed unchanged.",
+    "Initial mobile browser check found address overflow; scoped wrapping fixed it and reruns passed.",
+    "An attempt to reuse an immutable frontend output directory was refused; a fresh output directory built successfully."
+  ],
+  "final_review_at": "2026-11-13T05:10:48.205242+00:00",
+  "final_review": "No blocking issue found; source inputs match passing test/build/browser receipts. Includes outstanding f85f2c3 deployment documentation. No push, deployment or wallet action included."
+}

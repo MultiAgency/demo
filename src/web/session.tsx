@@ -1,3 +1,4 @@
+import { FundingWallet, fundingRequest, fundingTransactionFor, assertFundingVerification, type FundingRequest } from "./funding";
 import { RegistrationWallet } from "./registration";
 import type { RegistrationQuote } from "../shared/registration";
 import { createAuthClient } from "better-auth/react";
@@ -5,7 +6,7 @@ import { siwnClient } from "better-near-auth/client";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { AuthOperationGate, signInAndRefresh } from "./auth-lifecycle";
-import type { AppConfig } from "./types";
+import type { AppConfig, ContractView, Deposit, VerifyView } from "./types";
 import { WorkflowWalletSigner, type WalletSigningSession, type WorkflowSigner } from "./wallet-signing";
 
 /**
@@ -30,6 +31,7 @@ interface SessionValue {
   signOut: () => Promise<void>;
   signWorkflow: WorkflowSigner;
   registerUsdc: (quote: RegistrationQuote) => Promise<void>;
+  fundJob: (request: FundingRequest) => Promise<void>;
   error: string | null;
 }
 
@@ -41,6 +43,7 @@ const Ctx = createContext<SessionValue>({
   signOut: async () => undefined,
   signWorkflow: async () => { throw new Error("Sign in with NEAR before signing this job."); },
   registerUsdc: async () => { throw new Error("Sign in before registering."); },
+  fundJob: async () => { throw new Error("Sign in before funding."); },
   error: null,
 });
 
@@ -75,6 +78,41 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
       .functionCall(quote.token, "storage_deposit", { account_id: quote.account, registration_only: true }, { gas: "30 Tgas", attachedDeposit: BigInt(quote.deposit_yocto) }).send(),
   }), [client, config.auth.network]);
   const registerUsdc = useCallback((quote: RegistrationQuote) => registrationWallet.register(quote), [registrationWallet]);
+
+  const fundingWallet = useMemo(() => new FundingWallet({
+    network: config.auth.network,
+    session: () => ({ ...signingSession.current, version: operation.current }),
+    connect: () => client.near.ensureConnected(),
+    readAccount: async () => (await api<{ session: { accountId: string } | null }>("GET", "/me")).session?.accountId ?? null,
+    wallet: () => {
+      const state = client.near.getState();
+      return { account: state?.accountId ?? null, network: state?.networkId === config.auth.network ? client.near.getNetwork() : "mismatch", connected: client.near.isWalletConnected() };
+    },
+    fresh: async q => {
+      const c = await api<ContractView>("GET", `/contracts/${q.job}`);
+      const deposit = await api<Deposit>("POST", `/contracts/${q.job}/deposit`);
+      const fresh = fundingRequest(c, deposit);
+      const verified = await api<VerifyView>("GET", `/contracts/${q.job}/verify`);
+      assertFundingVerification(fresh, verified);
+      return fresh;
+    },
+    exclusive: async (key, work) => {
+      if (!navigator.locks) throw Error("This browser cannot safely coordinate funding requests across tabs.");
+      return navigator.locks.request(key, { ifAvailable: true }, lock => {
+        if (!lock) throw Error("A funding request is open in another tab.");
+        return work();
+      });
+    },
+    storage: { getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) },
+    send: q => {
+      const tx = fundingTransactionFor(q);
+      let builder = client.near.getNearClient(config.auth.network).transaction(q.sender);
+      for (const action of tx.actions) builder = builder.functionCall(tx.receiverId, action.params.methodName, action.params.args,
+        { gas: "30 Tgas", attachedDeposit: BigInt(action.params.deposit) });
+      return builder.send();
+    },
+  }), [client, config.auth.network]);
+  const fundJob = useCallback((request: FundingRequest) => fundingWallet.fund(request), [fundingWallet]);
 
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
@@ -127,7 +165,7 @@ export function SessionProvider({ config, children }: { config: AppConfig; child
     finally { if (operation.current === current) setLoading(false); }
   }), [client]);
 
-  const value = useMemo(() => ({ account, loading, required: config.auth.required, signIn, signOut, signWorkflow, registerUsdc, error }), [account, loading, config, signIn, signOut, signWorkflow, registerUsdc, error]);
+  const value = useMemo(() => ({ account, loading, required: config.auth.required, signIn, signOut, signWorkflow, registerUsdc, fundJob, error }), [account, loading, config, signIn, signOut, signWorkflow, registerUsdc, fundJob, error]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

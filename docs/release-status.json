@@ -1,7 +1,7 @@
 {
-  "as_of": "2026-11-12T21:36:19.126949-05:00",
+  "as_of": "2026-11-13T00:10:48.206293-05:00",
   "scope": "Dated release/deployment status; not standing operational authorization",
-  "validated_code_commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
+  "validated_code_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
   "pins": {
     "sdk_version": "0.5.9",
     "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
@@ -23,17 +23,17 @@
   },
   "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
   "remaining": [
-    "Read-only signed-in registration UI/quote walkthrough remains unverified; previous builder browser closed. No registration transaction is authorized.",
-    "DAO membership/quorum, agent setup/consents/grants, USDC registration, funding and independently confirmed payment remain unverified and unapproved; scoped wallet login, cancellation, job refusal and both exact job-terms signatures pass",
-    "Market-route/shared-authority and historical recovery limitations remain outside the app nonfinancial acceptance",
-    "Provider-response-loss G14 continuation, DAO SIGKILL recovery and real historical installation remain unverified",
-    "Optional hosted NEAR/Hermes review remains unverified and disabled",
-    "App credential expires 2026-11-19T21:07:23.584Z; renewal requires separate authorization"
+    "Fresh signed-in hosted walkthrough of the setup UX is not performed by this read-only acceptance.",
+    "Funding and payments remain unapproved and unverified; no wallet actions occurred during update.",
+    "Hosted DAO/quorum and other retained recovery limitations remain open.",
+    "Fresh six-scenario exact-gateway consumer run for f85f2c3 not performed; prior same-package compatibility plus current-source CI retained.",
+    "Fresh logical snapshot remains on original volume; accepted native backup predates setup.",
+    "Credential renewal requires separate authorization before 2026-11-19T21:07:23.584Z."
   ],
-  "authorization": "Owner-approved deployment/nonfinancial acceptance completed. No additional deployment/restart, credential rotation, wallet action or live financial action authorized.",
-  "deployed_source_commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
-  "deployment_acceptance": "docs/deployment-update-ef73b58.json",
-  "local_followup": "Reviewed code is deployed. Cleanup is documentation/evidence/scratch only; no additional application deployment is required for these status updates.",
+  "authorization": "One protected SQLite snapshot and app-only update completed; no-write window released. No additional deployment, restart, credential change, wallet action, funding or payment is authorized.",
+  "deployed_source_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
+  "deployment_acceptance": "docs/deployment-update-f85f2c3.json",
+  "local_followup": "Reviewed wallet-funding implementation and deployment documentation are in this local candidate. The funding button is not deployed; published-head CI and separately authorized deployment remain pending. Live service remains f85f2c3. No funding or payment authorization exists.",
   "wallet_login_acceptance": {
     "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/wallet-checks-summary.json",
     "accounts": [
@@ -55,26 +55,22 @@
     "payee_registered": false
   },
   "ci_qualification": {
-    "pushed_commit": "ef73b585a5cf885d702a6c75d44c46c3c87f013d",
-    "run": "https://github.com/MultiAgency/demo/actions/runs/43341675512",
+    "pushed_commit": "f85f2c35123cfb5f038a742b8035dcd29e80468f",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43361986371",
     "github_conclusion": "success",
-    "browser_acceptance_accepted": true,
     "positive_receipts_verified": true,
     "native_linux_container_smoke": "passed",
-    "receipt": "data/release-evidence/ci-ef73b58/verified-ci.json"
+    "receipt": "data/release-evidence/update-f85f2c3/preparation-review.json"
   },
   "initial_deployment_acceptance": "docs/deployment-acceptance.json",
   "deployed_gateway": {
-    "deployment_id": "62cb5775-8ea6-4d24-9351-942a893c4517",
+    "deployment_id": "36fdd8a8-24ee-4503-956b-03d49ddc557b",
+    "image": "sha256:bd3ed200807e53f58f30d5e86642425152cfc235d912ecc981036ee0f6b736dc",
     "source": "39eefe11802c062676621290a13d3caa5ccf24e6",
-    "image": "sha256:1f7b65aecf3d2b57516b94b72af80fff5b198eb65e13c34e86ddac2acec73b1e",
-    "setup_admission_closed": true,
-    "maintenance_override_claimed": false,
     "package_manifest_sha256": "3f50539cf51ddfb2d7bde4c4a969ffb4f527c0d0b3b4a883ae7e9742feb0dfe9",
-    "retained_baseline_snapshot_pin_unchanged": true,
-    "compatibility_evidence": "Six isolated retained-SDK consumer scenarios passed; simulated provider/chain only"
+    "changed_by_this_operation": false
   },
-  "registration_flow": "Deployed in ef73b58; offline quote/guards/UI verified. Fresh hosted signed-in quote and live transaction remain unverified.",
+  "registration_flow": "Registration UI deployed; prior finalized RPC observation in the supervised session confirmed buildr.near registered at block 224303963. No registration action performed during this update.",
   "historical_rejected_ci": {
     "pushed_commit": "39e521d6054609d536093f6748e31742958e65c4",
     "run": "https://github.com/MultiAgency/demo/actions/runs/43340276379",
@@ -83,5 +79,7 @@
     "reason": "Retained browser/privacy failure artifacts: builder mobile and public Verify overflow. Pipelines masked producer failures.",
     "correction": "Responsive standalone header and explicit Bash pipeline failure propagation; browser stderr retained. Fresh remote CI on corrected commit is required.",
     "local_correction_checks": "Complete v3 browser and v2/v3 privacy recipes pass; typecheck, actionlint and pipeline failure-propagation check pass. Local simulated receipts: data/release-evidence/ci-correction-39e521d/review.json"
-  }
+  },
+  "hosted_setup_checkpoint": "On-instance app records confirm completed wallet-owned setup through revision 2 for c_a2002ec56bf1, with no submission or payout rows. This is not independent provider/mainnet or DAO quorum acceptance.",
+  "funding_button": "docs/job-funding.md"
 }
