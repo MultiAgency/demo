@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
+import { Market } from "../src/server/market";
 import { verifySignature } from "../src/server/market/worker";
 import { answer, marketWith } from "./support/market-stub";
 
@@ -20,6 +21,52 @@ describe("hires: one requestId per approval, followed and never replaced", () =>
     const hires = stub.calls.filter((c) => c[0] === "hire" || c[0] === "status").map((c) => c[1]);
     expect(new Set(hires)).toEqual(new Set([q.request_id]));
   });
+
+  for (const funding of ["funding", "funding_review"] as const) {
+    for (const entry of ["hire response", "status after lost response", "DAO relay"] as const) {
+      test(`${funding} from ${entry} retains the approved hire and observes without replacement or premature settlement`, async () => {
+        const { m, db, stub, agency } = marketWith({ signer: entry === "DAO relay" ? "dao" : "wallet" });
+        try {
+          const q = await m.hires.quote(agency.id, "writer", "Keep this exact approved brief.");
+          if (entry === "hire response") stub.hireAnswers.push(answer(q.request_id, funding));
+          else if (entry === "status after lost response") stub.hireAnswers.push({ ok: false, kind: "unknown" });
+          const approved = await m.hires.approve(q.request_id, "approver.near");
+          const retained = {
+            request_id: q.request_id, agency_id: agency.id, handle: q.handle, brief: q.brief,
+            terms: q.terms, approved_by: "approver.near", dao_vote_id: approved.dao_vote_id,
+          };
+          const pendingState = entry === "hire response" ? "hiring" : "unknown";
+          if (entry === "DAO relay") stub.daoHireStates.push({ ok: true, value: { state: "done", hireState: funding } });
+          stub.statusAnswers.push(answer(q.request_id, funding));
+          const pending = await m.hires.follow(q.request_id);
+          expect(pending).toMatchObject({ ...retained, state: pendingState });
+          expect(m.hires.view(pending)).toMatchObject({ request_id: q.request_id, state: pendingState, deliverable: null });
+          await expect(m.hires.approve(q.request_id, "approver.near")).rejects.toThrow();
+
+          // Reconstruct the app's Market service on the retained database, without the first instance's memory.
+          // This is a persistence regression, not a process-restart integration claim.
+          const reloaded = new Market(m.d);
+          for (let poll = 0; poll < 2; poll++) {
+            stub.statusAnswers.push(answer(q.request_id, funding));
+            await reloaded.hires.followAll(agency.id);
+            expect(reloaded.hires.row(q.request_id)).toMatchObject({ ...retained, state: pendingState });
+            expect(reloaded.hires.view(reloaded.hires.row(q.request_id)).state).not.toBe("paid");
+          }
+          const sends = entry === "DAO relay" ? [["daoHire.file", q.request_id]] : [["hire", q.request_id]];
+          const submissions = () => stub.calls.filter(c => c[0] === "hire" || c[0] === "daoHire.file" || c[0] === "daoHire.recover");
+          expect(submissions()).toEqual(sends);
+          expect(stub.calls.filter(c => c[0] === "status")).toEqual(Array.from({ length: 3 }, () => ["status", q.request_id]));
+          expect(db.query("SELECT request_id FROM market_hires").all()).toEqual([{ request_id: q.request_id }]);
+
+          // Only explicit paid evidence may finish this same hire; funding alone never implies settlement.
+          stub.statusAnswers.push(answer(q.request_id, "paid", { taskState: "TASK_STATE_COMPLETED", deliverable: "the article" }));
+          const paid = await reloaded.hires.follow(q.request_id);
+          expect(paid).toMatchObject({ ...retained, state: "paid", task_id: "task-1", deliverable: "the article" });
+          expect(submissions()).toEqual(sends);
+        } finally { db.close(); }
+      });
+    }
+  }
 
   test("a hire the platform never recorded (not_found after a lost answer) is asked again under the same requestId", async () => {
     const { m, stub, agency } = marketWith();
