@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,12 +10,10 @@ import { activate, castVote, START, type Ctx } from "./support/harness";
 
 const runtimes = new Set<Runtime>();
 const directories: string[] = [];
-const dbOf = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
 
 async function close(rt: Runtime) {
   if (!runtimes.delete(rt)) return;
-  await (await rt.auth.$context).checkSchema?.();
-  dbOf(rt).close();
+  await rt.close();
 }
 
 afterEach(async () => {
@@ -38,7 +35,7 @@ function representativeApp(rt: Runtime) {
 function ledger(rt: Runtime) {
   return Object.fromEntries([
     "contracts", "judgments", "payout_attempts", "payout_lines", "owner_steps", "job_submissions", "job_invoices", "events",
-  ].map((table) => [table, dbOf(rt).query(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+  ].map((table) => [table, rt.db.query(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
 }
 
 async function requestedJob(version: 2 | 3, options: { path?: string; loseReply?: boolean } = {}) {
@@ -110,10 +107,10 @@ async function observeFailure(ctx: Ctx, requestId: string, evidence: FailureEvid
   await ctx.rt.engine.getContract(ctx.id);
   if (evidence.storedEmptyField) {
     // A historical malformed stored hash is contradictory information, not an absent nullable field.
-    dbOf(ctx.rt).query(`UPDATE payout_attempts SET ${evidence.storedEmptyField} = '' WHERE request_id = ?`).run(requestId);
+    ctx.rt.db.query(`UPDATE payout_attempts SET ${evidence.storedEmptyField} = '' WHERE request_id = ?`).run(requestId);
   }
   if (evidence.storedRefundedAmount !== undefined) {
-    dbOf(ctx.rt).query("UPDATE payout_attempts SET refunded_amount = ? WHERE request_id = ?").run(evidence.storedRefundedAmount, requestId);
+    ctx.rt.db.query("UPDATE payout_attempts SET refunded_amount = ? WHERE request_id = ?").run(evidence.storedRefundedAmount, requestId);
   }
 }
 
@@ -182,7 +179,7 @@ for (const version of [2, 3] as const) {
           expect(resolved.payouts).toHaveLength(1);
           expect(resolved.committed_usd).toBe("0");
           expect(resolved.open_judgment).toBeNull();
-          expect(dbOf(ctx.rt).query("SELECT outcome FROM judgments WHERE id = ?").get(judgmentId)).toEqual({ outcome: "rejected" });
+          expect(ctx.rt.db.query("SELECT outcome FROM judgments WHERE id = ?").get(judgmentId)).toEqual({ outcome: "rejected" });
           expect(ctx.stub.calls.requestPayout).toBe(1);
         }
       });

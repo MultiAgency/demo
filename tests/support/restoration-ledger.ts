@@ -11,11 +11,9 @@ import { scopeTotal, USDC_NEAR } from "../../src/shared/terms";
 import { activate, castVote, START } from "./harness";
 
 export const RESTORATION_NOW = new Date(START + 1000);
-export const restorationDb = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
-
 export async function closeRestorationRuntime(rt: Runtime) {
   await (await rt.auth.$context).checkSchema?.();
-  restorationDb(rt).close(true);
+  rt.db.close(true);
 }
 
 /** Read bytes into memory so inspecting a fixture cannot create SQLite sidecars. */

@@ -1,20 +1,16 @@
 {
-  "runDigest": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
-  "sourceHead": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
+  "runDigest": "78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea",
+  "sourceHead": "ff4a17ffa6a0f6055692f9147e147ab01b03a58d",
   "overlayDiffSha256": null,
-  "dependencyTree": "400d16463092b8b5b68c14b3225cb0fe7c3dec3e438dd391c2cb121b814ab0b3",
+  "dependencyTree": "9519b0c0d6220d5ee235a1d360e788c9740e66d4f8d4fd1ebedd55dc96793e43",
   "frontend": {
-    "source": "cac41749fdc276387da1ea0b521dd3b3d3f596dcb002508a77d3ee7630556ed5",
-    "build": "253cdcb89fbf79a76b2a6eaa8b05a38f7847b1d427064bf91e86553460a7a5b7"
+    "source": "2d23602dc4ceec4c4ab03db072dde665cefdbded9a624edf7e4f3f388378818e",
+    "build": "7985437cd73e7ca1ee66f228b46c4e9fb7083fff631d9572c3f031b4c9e6911b"
   },
   "node": "v24.22.3",
-  "frozenAt": "2026-11-12T17:32:39.231Z",
-  "sdkTarballSha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
-  "sdkTarball": "multiagency-sdk-0.5.9-252cba1.tgz",
-  "manifestSha256": "5f68a466a7e91345b81286fbe5ca45b9956eb1c715e26ae99ca6aa6d693acabb",
-  "snapshot": "/private/tmp/pr86-final-release-20261112/.test-artifacts/stack-snapshots/822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
-  "gatewayPackageManifestSha256": "8043058f5e55bf176597d70d3b83ebfebbef33eff436bb5739a602176d19b17a",
-  "gatewaySourceSha256": "e72bebf6e1a42b57c048f16b8d021d3efe3d2706b2d996acf8859bbac75cd074",
-  "handoffSha256": "67d6a3fdd5b2858803485e29c4c6c29693b14bb47760f39c144992a5fb87c634",
-  "scope": "Final combined candidate for offline consumer revalidation only; no hosted/deployment clearance"
+  "frozenAt": "2026-11-14T13:16:47.270Z",
+  "sdkTarball": "multiagency-sdk-0.6.0-78902f13.tgz",
+  "sdkTarballSha256": "b7c45afaa4a3605eae9bcd9c174e3d1b0fbfb55b8285b2405828a9024f6a9f0c",
+  "snapshot": "/private/tmp/sdk060-consolidated-20261114/platform",
+  "gatewayPackageManifestSha256": "05580d0356c7fef1b6c4e73ed5c3d665a53883261cb6d008b52cb0a0f1572837"
 }

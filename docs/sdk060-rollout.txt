@@ -1,0 +1,43 @@
+Paperwork integration rollout handoff — BLOCKED; not a deployment authorization
+
+Source manifest SHA-256: 916ee27a1fb4bb4e54e874e007d381f608a09ba0d421849d7f1adac7a2420846
+Qualified local Linux amd64 image: sha256:5e5c2dd37caece019810e07ae8ff56b2dc704e77e8f977da6197a99ba4b31c4e
+Platform source: ff4a17ffa6a0f6055692f9147e147ab01b03a58d
+Candidate: 78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea
+SDK SHA-256: b7c45afaa4a3605eae9bcd9c174e3d1b0fbfb55b8285b2405828a9024f6a9f0c
+Private evidence: .release-candidates/sdk060-integration-916ee27a/acceptance.json
+Previous frozen source 7de75db7 and its images/receipts remain unchanged.
+
+Required before promotion: platform owner resolves authenticated immutable deliverable-version history (currently 404); rerun unchanged worker recipe without bypass or fabricated baseline. A platform change produces a new pair requiring new pins/qualification. Review integrated browser/real-SDK/rework/restart coverage: earlier frozen consumer evidence does not transfer to this app source. Review Treasury and Paperwork handoffs together. Commit/merge review does not authorize rollout.
+
+Owner commands below are FUTURE steps and must stop at the readiness assertion today. No snapshot, deployment, restart, setting change, signature, payment or hire has been performed by integration.
+
+1. In a fresh owner terminal (maintain write quiescence separately before snapshot):
+set -euo pipefail
+cd /Users/jlwaugh/agencies/dao/demo/.release-candidates/sdk060-integration-916ee27a
+shasum -a 256 -c SHA256SUMS
+cd source
+shasum -a 256 -c ../source-manifest.sha256
+cd ..
+python3 assert-rollout-ready.py
+
+2. After qualification is complete and separate rollout authorization, record current exact deployment/image/settings. Retain original volume, credentials, worker agency and Market identity. Do not add buyer setup/consent/grants/funding for worker delivery.
+railway deployment list -p ce2d99b3-d041-4001-906b-d2ed616ca41b -s 269f0f4a-234d-42eb-b886-3d5feec13501 -e 4a31566a-ec00-4922-ac0c-d0ae0f9d3ea9 --limit 3 --json
+
+3. Immediately before rollout, create protected snapshot on the original host volume, integrity-check it and repeat snapshot/live legacy rollback gates. No state is exported. Stop on any failure; retain printed snapshot path, receipt and private protected rows. Startup binding guard follows runtime initialization and does not replace pre-migration binding checks.
+python3 snapshot.py
+
+4. Exact owner-run SOURCE deployment command, permitted only after preceding gates:
+railway up /Users/jlwaugh/agencies/dao/demo/.release-candidates/sdk060-integration-916ee27a/source --path-as-root -p ce2d99b3-d041-4001-906b-d2ed616ca41b -s 269f0f4a-234d-42eb-b886-3d5feec13501 -e 4a31566a-ec00-4922-ac0c-d0ae0f9d3ea9 --ci --message 'Paperwork integrated exact SDK060 source 916ee27a linux-amd64'
+Railway rebuilds this source. Record emitted deployment ID and ACTUAL imageDigest separately from the local image above. Retain build provenance; do not label the rebuilt image as byte-identical merely because source matches.
+
+5. Repeat explicit deployment list until that exact deployment ID is SUCCESS; never substitute another concurrent deployment. Verify deployed source hashes, SDK tarball/provenance and all installed SDK file hashes, linux/x64, health and original worker agency binding:
+python3 verify-runtime.py
+Verify original signed job hash and green verification, private routes, original assignments/submission attempts/baselines and unknown outcomes against on-host protected rows. Confirm original token still maps to Market agent b6b5c16e-89f8-4597-915f-575391358f67 without printing or rotating it. Preserve newer database state on rollback; never restore an older snapshot over later activity.
+
+6. While signed into the correct Desk agency, run scheduled-polls.js in its browser console. It performs GET reads only at 65-second intervals; require three distinct successful last_poll timestamps, no warnings and age <=90 seconds. Save timestamp observations with exact deployment ID. Do not POST a forced poll or create a hire. Webhook optional when scheduled polling is reliable. Quiet logs alone do not establish success.
+railway logs -p ce2d99b3-d041-4001-906b-d2ed616ca41b -s 269f0f4a-234d-42eb-b886-3d5feec13501 -e 4a31566a-ec00-4922-ac0c-d0ae0f9d3ea9 --lines 100 --json
+
+7. Stop if any check fails. Preserve unknown outcomes, original request IDs and committed budgets. No generic replacement/replay. Rollback prefers exact prior compatible image with current database preserved; prior eac99283 does not establish compatibility with every post-rollout platform change. Any restore needs separate recovery review. #81 remains separately deferred and is not #74 closure.
+
+No paid hire. Platform owns fresh quote binding, authority, retained-fund allocation and dispatch. A previous unpaid 0.10 USDC quote is not a reservation. Before any separately authorized paid task, owner must reconfirm current correct-agency Desk readiness and deliver acknowledgement within 600 seconds. Poll presence and HTTP 402 do not prove readiness. No start declaration without verified contract and separate review.

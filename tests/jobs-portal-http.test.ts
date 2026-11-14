@@ -61,8 +61,7 @@ async function fixture(send: Send, signer: "wallet" | "dao" = "wallet", explicit
   const app = () => buildApp({ ...rt, auth });
   return { rt, m, agency, market, platform, worker, app, sessionReads: () => sessionReads,
     async close() {
-      await (await rt.auth.$context).checkSchema?.();
-      m.d.db.close();
+      await rt.close();
     } };
 }
 

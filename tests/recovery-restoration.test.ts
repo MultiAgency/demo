@@ -11,7 +11,7 @@ import { restoreCommitment, RestorationError } from "../src/server/recovery/rest
 import { isCommitted, isOpen, isPaid } from "../src/server/payouts";
 import { START } from "./support/harness";
 import {
-  addRestorationConflictConstraint, changeRestorationEvidence, closeRestorationRuntime, RESTORATION_NOW, restorationDb, restorationEvidence,
+  addRestorationConflictConstraint, changeRestorationEvidence, closeRestorationRuntime, RESTORATION_NOW, restorationEvidence,
   restorationLedger, restorationRows, seedUnrelatedRestorationJob, type RestorationFixture,
 } from "./support/restoration-ledger";
 

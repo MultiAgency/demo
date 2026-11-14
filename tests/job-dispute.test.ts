@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,10 +12,8 @@ import { JOB_DEMO_TERMS } from "../src/shared/demo";
 import { AgencyJobWorkflow } from "../src/web/components/JobWorkflow";
 import { activate, castVote, START } from "./support/harness";
 
-const dbOf = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
 async function close(rt: Runtime) {
-  await (await rt.auth.$context).checkSchema?.();
-  dbOf(rt).close();
+  await rt.close();
 }
 function asAccount(rt: Runtime, account: string | null) {
   const auth = { handler: async () => new Response("fixture"), api: { getSession: async () => account ? { user: { id: account } } : null }, nearAccountFor: (id: string) => id } as unknown as Auth;
@@ -76,7 +73,7 @@ describe("disputed review closure — simulated platform and fixture sessions", 
   test("the SQLite monetary slot remains held by a failed disputed payout", async () => {
     const { ctx, c, payout } = await failedJob();
     await c.resolve(payout.request_id, "disputed");
-    const db = dbOf(ctx.rt);
+    const db = ctx.rt.db;
     expect(() => db.query(`INSERT INTO payout_attempts
       (request_id, contract_id, seq, attempt, recipient, amount_atomic, state, created_at, updated_at)
       VALUES ('must-not-replace-dispute', ?, 999, 1, 'maria.demo', '300000000', 'pending', '2026-11-20', '2026-11-20')`).run(ctx.id)).toThrow(/UNIQUE/);
@@ -96,7 +93,7 @@ describe("disputed review closure — simulated platform and fixture sessions", 
 
   test("dispute closure rolls back atomically if the linked submission write fails", async () => {
     const { ctx, c, payout } = await failedJob();
-    const db = dbOf(ctx.rt);
+    const db = ctx.rt.db;
     db.exec("CREATE TRIGGER fixture_dispute_fault BEFORE UPDATE OF state ON job_submissions WHEN NEW.state = 'disputed' BEGIN SELECT RAISE(ABORT, 'fixture dispute write failed'); END");
     await expect(c.resolve(payout.request_id, "disputed")).rejects.toThrow("fixture dispute write failed");
     expect(c.attempt(payout.request_id).resolution).toBeNull();
@@ -117,12 +114,12 @@ describe("disputed review closure — simulated platform and fixture sessions", 
       await c.resolve(payout.request_id, "disputed");
       // Reproduce the pre-dispute schema index before reopening; the additive upgrade must preserve all records and
       // enforce the monetary hold even though the old partial index omitted failed rows with a non-null resolution.
-      dbOf(current).exec("DROP INDEX one_open_payout; CREATE UNIQUE INDEX one_open_payout ON payout_attempts(contract_id) WHERE kind = 'payout' AND (state IN ('pending','blocked','waiting','unknown','held','processing') OR (state = 'failed' AND resolution IS NULL))");
+      current.db.exec("DROP INDEX one_open_payout; CREATE UNIQUE INDEX one_open_payout ON payout_attempts(contract_id) WHERE kind = 'payout' AND (state IN ('pending','blocked','waiting','unknown','held','processing') OR (state = 'failed' AND resolution IS NULL))");
       await close(current);
       current = null;
       const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules", DB_PATH: path }), { clockStart: START, kit: ctx.rt.kit });
       current = rt;
-      expect(() => dbOf(rt).query(`INSERT INTO payout_attempts
+      expect(() => rt.db.query(`INSERT INTO payout_attempts
         (request_id, contract_id, seq, attempt, recipient, amount_atomic, state, created_at, updated_at)
         VALUES ('must-not-replace-after-reopen', ?, 999, 1, 'maria.demo', '300000000', 'pending', '2026-11-20', '2026-11-20')`).run(ctx.id)).toThrow(/UNIQUE/);
       expect(rt.engine.followUpIds()).toContain(ctx.id);

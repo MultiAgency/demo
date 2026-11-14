@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { buildApp, type Runtime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import type { ReviewFetch } from "../src/server/review/hermes";
@@ -98,7 +97,7 @@ async function events(response: Response) {
   return text.split("\n").filter((line) => line.startsWith("data:")).map((line) => JSON.parse(line.slice(5)));
 }
 function databaseSnapshot(rt: Runtime) {
-  const db = (rt.engine as unknown as { d: { db: Database } }).d.db;
+  const db = rt.db;
   return Object.fromEntries(TABLES.map((table) => [table, db.query(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
 }
 

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import type { PaymentStatus, PayoutAnswer, Res } from "../src/server/platform/port";
 import { DEMO_TERMS, JOB_DEMO_TERMS } from "../src/shared/demo";
 import { activate, castVote, type Ctx } from "./support/harness";
@@ -7,8 +6,7 @@ import { activate, castVote, type Ctx } from "./support/harness";
 const contexts: Ctx[] = [];
 afterEach(async () => {
   for (const ctx of contexts.splice(0)) {
-    await (await ctx.rt.auth.$context).checkSchema?.();
-    (ctx.rt.engine as unknown as { d: { db: Database } }).d.db.close();
+    await ctx.rt.close();
   }
 });
 
@@ -277,7 +275,7 @@ for (const version of [2, 3] as const) describe(`v${version} failed-payment obse
 });
 
 for (const version of [2, 3] as const) describe(`v${version} proof needs a successful FAILED read, when stored and again when budget is released`, () => {
-  const dbOf = (ctx: Ctx) => (ctx.rt.engine as unknown as { d: { db: Database } }).d.db;
+  const dbOf = (ctx: Ctx) => ctx.rt.db;
 
   test("a stored proof flag without a successful read frees nothing while the payment read is unavailable", async () => {
     const fixture = await failedPayment(version);

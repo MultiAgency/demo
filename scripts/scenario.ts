@@ -133,7 +133,7 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
     let p2 = live(c);
     check(!!p2 && p2.seq === 2 && p2.amount_usd === "150" && p2.state === "held", `the rest of the same judgment, $${p2?.amount_usd} for ${lines(p2)}, is requested as seq 2 and held`);
     if (p2) c = await approveAndSettle(id, p2.request_id);
-    check(c.paid_usd === "650" && c.open_judgment === null && (c.judgment as any)?.outcome === "approved", `paid $${c.paid_usd}; judgment approved`);
+    check(c.paid_usd === "650" && c.open_judgment === null && c.judgment?.outcome === "approved", `paid $${c.paid_usd}; judgment approved`);
 
     // 6. A merge finishes d2
     let merged = (await api("POST", "/sim/merge", { contract_id: id })).merged;
@@ -159,10 +159,10 @@ export async function runScenario(d: ScenarioDriver, opts: { log?: (line: string
         log("The platform has not proven non-execution (G13): close review as disputed, retain the money hold");
         c = await api("POST", `/payouts/${p1.request_id}/resolve`, { outcome: "disputed" });
         disputed = true;
-        check(payout(c, p1.request_id)?.state === "disputed" && (c.judgment as any)?.outcome === "disputed", "review is explicitly disputed, not a confirmed rejection or payment");
+        check(payout(c, p1.request_id)?.state === "disputed" && c.judgment?.outcome === "disputed", "review is explicitly disputed, not a confirmed rejection or payment");
         check(c.paid_usd === "750" && c.committed_usd === "1000", "$750 confirmed paid; the unproven $250 remains committed under its original request");
       } else {
-        check(rejected?.state === "rejected" && (c.judgment as any)?.outcome === "rejected", "rejection has positive non-execution proof; judgment rejected");
+        check(rejected?.state === "rejected" && c.judgment?.outcome === "rejected", "rejection has positive non-execution proof; judgment rejected");
       }
     }
     run = await api("POST", `/contracts/${id}/run`);

@@ -60,6 +60,8 @@ Before opening the wallet, the client re-reads the reconciliation and verificati
 
 The wallet layer retains the original job/account Web Lock and browser funding-marker key. It does not bypass or delete a marker from the old funding flow. After successful preparation, it writes that marker before sending the exact reconciled amount using the existing SDK funding transaction. Cancellation, storage failure or a lost reply can leave a claimed attempt even if no transfer occurred; preserve it and use authoritative reconciliation, not another click. This first recovery path permits one claimed attempt per job. Resolving an existing browser marker or authorizing another attempt requires a separately specified, evidence-bound recovery procedure; it is not implemented as a reset. Once recovery attempts exist, backend rollback to code that ignores the new table requires compatibility review.
 
+The platform reads this needs are specified in [the funding reconciliation request](platform-funding-reconciliation-request.md).
+
 ### Resolving a recovery attempt
 
 A claimed attempt keeps blocking deposit instructions and any other recovery until positive evidence resolves it. **Check recovery outcome** (`POST /api/contracts/:id/funding-recovery/observe`, representative only) resolves it as:

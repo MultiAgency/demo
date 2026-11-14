@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { buildApp, createRuntime, type Runtime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import { MultiAgencyOpenings } from "../src/server/jobs/openings";
@@ -22,8 +21,7 @@ async function fixture(send: Send) {
     PUBLIC_URL: DESK }), { kit: platform.kit(), boardApi: null,
     openings: new MultiAgencyOpenings(send as typeof fetch, () => new Date(NOW)) });
   return { rt, platform, async close() {
-    await (await rt.auth.$context).checkSchema?.();
-    (rt.engine as unknown as { d: { db: Database } }).d.db.close();
+    await rt.close();
   } };
 }
 const request = (rt: Runtime, host: string, query = "", extra: Record<string, string> = {}) =>

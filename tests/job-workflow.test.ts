@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Database } from "bun:sqlite";
 import { buildApp, createRuntime, type Runtime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import { loadConfig } from "../src/server/config";
@@ -33,8 +32,7 @@ function appAs(rt: Runtime, account: string | null) {
 
 async function closeRuntime(rt: Runtime) {
   // Better-Auth launches schema validation asynchronously during construction. Await it before closing SQLite.
-  await (await rt.auth.$context).checkSchema?.();
-  (rt.engine as unknown as { d: { db: Database } }).d.db.close();
+  await rt.close();
 }
 
 function onlyPayout(c: Awaited<ReturnType<Runtime["engine"]["viewContract"]>>) {
@@ -587,7 +585,7 @@ describe("one builder job — simulated platform", () => {
       const s = await c.submitJob(ctx.id, submission(`timeout-${phase}-original`, `INV-TIMEOUT-${phase}`), builder);
       const original = c.jobSubmissions(ctx.id)[0]!;
       const before = await c.viewContract(ctx.id);
-      const db = (c as unknown as { d: { db: Database } }).d.db;
+      const db = ctx.rt.db;
       const originalFetch = globalThis.fetch;
       let releaseResponse!: (response: Response) => void;
       let releaseBody!: (body: unknown) => void;

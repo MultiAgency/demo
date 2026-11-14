@@ -10,7 +10,7 @@ import { assertFundingVerification, FundingWallet, fundingKey, fundingRecoveryRe
 import { activate, agentId, type Ctx } from "./support/harness";
 
 const depsOf = (ctx: Ctx) => (ctx.rt.engine as unknown as { d: Deps }).d;
-async function close(ctx: Ctx) { await (await ctx.rt.auth.$context).checkSchema?.(); depsOf(ctx).db.close(); }
+async function close(ctx: Ctx) { await ctx.rt.close(); }
 function clearedRecovery(binding: FundingRecoveryBinding, now: number): FundingReconciliation {
   return { ...binding, schema_version: 1, reconciliation_id: "recovery-original-1", asset: USDC_NEAR, chain: "near", network: "mainnet",
     observed_at: new Date(now).toISOString(), expires_at: new Date(now + 120_000).toISOString(),

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,10 +8,8 @@ import { JOB_DEMO_TERMS } from "../src/shared/demo";
 import { SdkPlatform } from "../src/server/platform/client";
 import { activate, play, setup, signTerms, START, type Ctx } from "./support/harness";
 
-const dbOf = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
 async function close(rt: Runtime) {
-  await (await rt.auth.$context).checkSchema?.();
-  dbOf(rt).close();
+  await rt.close();
 }
 async function held(ctx: Ctx) {
   const c = ctx.rt.engine;
@@ -281,7 +278,7 @@ describe("owner signing identity — local fixtures, no hosted wallet", () => {
       const { payout } = await held(ctx);
       const vote = await rt.engine.vote(payout.request_id, "approve");
       // Model a process loss between external acceptance and the app's result write; no OS crash is claimed.
-      dbOf(rt).exec(`CREATE TEMP TRIGGER fail_submit_result BEFORE UPDATE OF state ON owner_steps
+      rt.db.exec(`CREATE TEMP TRIGGER fail_submit_result BEFORE UPDATE OF state ON owner_steps
         WHEN NEW.state = 'submitted' BEGIN SELECT RAISE(ABORT, 'fixture crash after provider acceptance'); END`);
       await expect(rt.engine.submitOwnerStep(vote.correlation_id, ctx.stub.sign(vote.sign!))).rejects.toThrow("fixture crash");
       expect(rt.engine.onboarding.step(vote.correlation_id).state).toBe("unknown");

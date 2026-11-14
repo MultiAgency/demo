@@ -139,7 +139,14 @@ end to end (probe, 2026-11-11), so this is the only blocker. Covenant asks for `
 Covenant shows the DAO's own stop page instead, which cuts apps off but doesn't freeze. Decided 2026-11-11: a DAO's
 `market` consent will cover its market agent's grant, revocation, policy edits, freeze and unfreeze, each by vote.
 
-## M3. The simulated market can't run the worker side or the directory
+## M3. Worker preflight remains blocked in the exact-pair simulator
+
+Fresh integrated-source `demo:market:work` against platform source `ff4a17ffa6a0f6055692f9147e147ab01b03a58d`, candidate `78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea`, returns 404 for `GET /v1/assignments/:id/deliverable/versions`. Submission is refused before POST; the saved attempt and original unknown hire are retained. The earlier consolidated passing Market receipt ran without `--worker` and does not establish this endpoint. Directory and buyer checks pass. Platform owner must supply version-history support; app must not fabricate an empty baseline or bypass preflight. See `sdk060-local-readiness.json`.
+
+#74 closure is separate from deferred #81 recovery; no activation is authorized here.
+
+### Historical observation (2026-11-11)
+
 
 **Cases** (against `state.json`'s `market.url`, run 2026-11-11):
 - `GET /v1/agents?q=writer` → 404. Expected: `BrowseAgentsResponse` (`{ agents: AgentPublic[] }`), so a hire page can pick an agent.

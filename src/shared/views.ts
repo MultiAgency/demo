@@ -4,6 +4,7 @@ import type { Consent, Deposit, OwnerAction, Overview } from "../server/platform
 import type { Clause } from "./clauses";
 import type { Deliverable, Terms } from "./terms";
 import type { JobSubmissionView } from "./jobs";
+import type { Judgment } from "./judgment";
 
 
 export type AttemptState = "pending" | "blocked" | "waiting" | "unknown" | "refused" | "held" | "processing" | "paid" | "rejected" | "failed" | "resolved" | "disputed" | "dropped";
@@ -109,12 +110,15 @@ export interface ContractView {
   committed_usd: string;
   owed_usd: string;
   scope: ScopeRow[];
-  judgment: unknown;
+  judgment: JudgmentView | null;
   open_judgment: { id: string; outcome: JudgmentOutcome; owed_usd: string; paid_usd: string } | null;
   payouts: PayoutView[];
   submissions: JobSubmissionView[];
   events: EventView[];
 }
+
+/** The job's latest assessment with its record identity and outcome. */
+export type JudgmentView = Judgment & { id: string; at: string; outcome: JudgmentOutcome };
 
 /** What Verify expects the platform to report, compiled from the signed terms. */
 export interface Expectations {

@@ -89,4 +89,4 @@ try {
     await Bun.write(path, JSON.stringify(result, null, 2));
   }
   console.log(JSON.stringify(result, null, 2));
-} finally { db.exec("PRAGMA query_only = OFF"); await (await ctx.rt.auth.$context).checkSchema?.(); db.close(); }
+} finally { db.exec("PRAGMA query_only = OFF"); await ctx.rt.close(); }

@@ -15,14 +15,18 @@ export function errorCode(status: number): string {
     ?? (status >= 500 ? "internal" : "invalid_request");
 }
 
-/**
- * A request body that is not JSON is the caller's mistake (400), not a server failure. Untyped like Hono's own
- * `c.req.json()`; each route validates it with its schema.
- */
-export async function jsonBody(c: { req: { json(): Promise<any> } }): Promise<any> {
+/** A request body that is not JSON is the caller's mistake (400), not a server failure. Each route validates it with its schema. */
+export async function jsonBody(c: { req: { json(): Promise<unknown> } }): Promise<unknown> {
   try {
     return await c.req.json();
   } catch {
     throw new UserError("The request body must be valid JSON.", 400);
   }
+}
+
+/** For a route that reads fields before its schema applies: the body as an object, its values still untrusted. */
+export async function objectBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown>> {
+  const body = await jsonBody(c);
+  if (typeof body !== "object" || body === null || Array.isArray(body)) throw new UserError("The request body must be a JSON object.", 400);
+  return body as Record<string, unknown>;
 }

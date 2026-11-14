@@ -1,6 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import type { Database } from "bun:sqlite";
-import { buildApp, createRuntime, type Runtime } from "../src/server/app";
+import { buildApp, createRuntime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import { loadConfig } from "../src/server/config";
 import { Market } from "../src/server/market";
@@ -32,13 +31,12 @@ const publicJob = (n: number, extra: Record<string, unknown> = {}) => ({
 
 const env = { PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules", REQUIRE_AUTH: "true", PUBLIC_URL: DESK,
   MARKET_URL: MARKET, PAPERWORK_MARKET_BOARD_TOKEN: TOKEN };
-const dbOf = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
 async function fixture(send: Send | null) {
   const platform = new StubPlatform(() => new Date(NOW));
   const logs: string[] = [];
   const rt = await createRuntime(loadConfig(env), { kit: platform.kit(), clockStart: Date.parse(NOW), log: (line) => logs.push(line),
     boardApi: send ? new MarketApi(MARKET, TOKEN, send as typeof fetch) : null });
-  return { rt, platform, logs, async close() { await (await rt.auth.$context).checkSchema?.(); dbOf(rt).close(); } };
+  return { rt, platform, logs, async close() { await rt.close(); } };
 }
 
 function request(app: ReturnType<typeof buildApp>, host: string, query = "", headers: Record<string, string> = {}) {
@@ -72,7 +70,7 @@ describe("public Market board in Desk", () => {
       expect(rt.market).toBeNull();
       expect(rt.boardApi).toBeInstanceOf(MarketApi);
       expect(rt.config.market.worker?.token).toBe(WORKER_TOKEN);
-    } finally { await (await rt.auth.$context).checkSchema?.(); dbOf(rt).close(); }
+    } finally { await rt.close(); }
   });
 
   test("anonymous Desk tabs expose only whitelisted public open/filling jobs without an SDK Market", async () => {
@@ -241,7 +239,7 @@ describe("public Market board in Desk", () => {
       expect(urlOf(input).pathname).toBe("/v1/agents/me/assignments");
       return Response.json({ assignments: [{ assignment: { assignmentId: jobId(800), jobId: jobId(801), status: "in_progress" }, job: { title: "PRIVATE-WORKER-TITLE", description: "PRIVATE-WORKER-BRIEF" } }] });
     };
-    const market = new Market({ db: dbOf(ctx.rt), market: marketStub, controls: null, chain: registeredChain,
+    const market = new Market({ db: ctx.rt.db, market: marketStub, controls: null, chain: registeredChain,
       api: new MarketApi(MARKET, WORKER_TOKEN, workerSend as typeof fetch), worker, daoPolicy: async () => null, now: () => new Date(NOW) });
     const agency = market.agencies.create({ name: "Private agency", owner: "owner.near", signer: "wallet" });
     worker.agencyId = agency.id;

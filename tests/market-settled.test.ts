@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { buildApp, createRuntime, type Runtime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import { loadConfig } from "../src/server/config";
@@ -38,13 +37,13 @@ async function fixture(status = "in_progress") {
   const m = market(status);
   const stub = new StubPlatform(() => new Date(START));
   const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules" }), { clockStart: START, kit: stub.kit(), boardApi: m.api });
-  closers.push(async () => (rt.engine as unknown as { d: { db: Database } }).d.db.close());
+  closers.push(() => rt.close());
   const { id, contractorToken } = rt.engine.createContract(settled);
   const ctx: Ctx = { rt, stub, id, token: contractorToken, logs: [] };
   await signTerms(ctx);
   return { ...ctx, m };
 }
-const payoutRows = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db.query("SELECT COUNT(*) AS n FROM payout_attempts").get() as { n: number };
+const payoutRows = (rt: Runtime) => rt.db.query("SELECT COUNT(*) AS n FROM payout_attempts").get() as { n: number };
 const builder = (JOB_DEMO_TERMS.contractor as { near_account: string }).near_account;
 
 test("Market-settled terms carry no NEAR payee or asset and require the signed Market job", () => {
@@ -75,7 +74,7 @@ test("the agent assesses without proposing payment; changes, then Market complet
   const first = await engine.submitJob(ctx.id, submission(1), builder);
   const assessed = await engine.proposeJob(first.id);
   expect(assessed.submissions[0]).toMatchObject({ id: first.id, state: "proposed", proposed_usd: "0" });
-  expect((assessed.judgment as { outcome?: string } | null)?.outcome).toBe("nothing");
+  expect(assessed.judgment?.outcome).toBe("nothing");
   expect(assessed.open_judgment).toBeNull();
   await engine.followUpAll();
   expect(payoutRows(ctx.rt).n).toBe(0);

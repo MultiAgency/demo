@@ -22,7 +22,7 @@ export async function startServer(rt: Runtime, port: number, hostname?: string) 
 export function startTimers(rt: Runtime): () => void {
   const timers: ReturnType<typeof setInterval>[] = [];
   timers.push(setInterval(() => void rt.engine.followUpAll(), rt.config.statusPollMs));
-  if (rt.market) timers.push(setInterval(() => void rt.market!.tick(), rt.config.statusPollMs));
+  if (rt.market) timers.push(setInterval(() => void rt.market!.tick((msg) => console.error(msg)).catch(() => console.error("market: hire follow-up failed; worker polling runs independently")), rt.config.statusPollMs));
   if (rt.config.pollMs > 0) {
     timers.push(
       setInterval(async () => {
@@ -44,6 +44,7 @@ export function startTimers(rt: Runtime): () => void {
 if (import.meta.main) {
   const config = loadConfig();
   const rt = await createRuntime(config, { manualFakeSettlement: config.platform === "fake" });
+  rt.market?.requireWorkerAgency();
   const server = await startServer(rt, config.port);
   const banner =
     rt.kit.platform.mode === "fake"

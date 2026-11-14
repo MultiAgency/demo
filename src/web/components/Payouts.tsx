@@ -71,7 +71,7 @@ export function PayoutsTab({ c, config, act }: { c: ContractView; config: AppCon
       ) : (
         <ul className="payouts">
           {list.map((p) => (
-            <PayoutItem key={p.request_id} p={p} c={c} config={config} act={act} />
+            <PayoutItem key={p.request_id} p={p} config={config} act={act} />
           ))}
         </ul>
       )}
@@ -79,7 +79,7 @@ export function PayoutsTab({ c, config, act }: { c: ContractView; config: AppCon
   );
 }
 
-function PayoutItem({ p, c, config, act }: { p: PayoutView; c: ContractView; config: AppConfig; act: Act }) {
+function PayoutItem({ p, config, act }: { p: PayoutView; config: AppConfig; act: Act }) {
   const [open, setOpen] = useState(false);
   const st = ATTEMPT[p.state];
   return (

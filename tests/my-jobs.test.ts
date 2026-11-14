@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
-import { buildApp, type Runtime } from "../src/server/app";
+import { buildApp } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import { Engine } from "../src/server/engine";
 import { RulesJudge } from "../src/server/judge";
@@ -11,8 +10,7 @@ const DESK = "https://desk.paperwork.test";
 const OLD_JOBS = "https://jobs.paperwork.test";
 const agency = "acme.demo";
 const builder = "maria.demo";
-const dbOf = (rt: Runtime) => (rt.engine as unknown as { d: { db: Database } }).d.db;
-async function close(ctx: Ctx) { await (await ctx.rt.auth.$context).checkSchema?.(); dbOf(ctx.rt).close(); }
+async function close(ctx: Ctx) { await ctx.rt.close(); }
 
 function otherRoles(ctx: Ctx) {
   const c = ctx.rt.engine;
@@ -73,7 +71,7 @@ test("discovering an unsigned job preserves the invitation requirement and repor
 
 test("local discovery makes no SDK read, nonce preparation or write while preserving held and ended job identities", async () => {
   const ctx = await activate("300", JOB_DEMO_TERMS);
-  const db = dbOf(ctx.rt);
+  const db = ctx.rt.db;
   try {
     const submission = await ctx.rt.engine.submitJob(ctx.id, { client_request_id: "private-original-submission", report: "PRIVATE-REPORT: CSV export and tests are complete.",
       evidence: [{ deliverable_id: "d1", label: "Private evidence", url: "https://private.invalid/evidence" }], invoice: { number: "PRIVATE-INVOICE", amount_usd: "300" } }, builder);

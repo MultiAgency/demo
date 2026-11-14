@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { buildApp, type Runtime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
@@ -15,7 +14,7 @@ for (const version of [2, 3]) {
   test(`v${version}: private reads and own-role signing refuse before platform work`, async () => {
     const ctx = await setup(version === 3 ? JOB_DEMO_TERMS : {});
     await signTerms(ctx); // Existing signed records use the same boundary; no migration or invitation replacement.
-    const db = (ctx.rt.engine as unknown as { d: { db: Database } }).d.db;
+    const db = ctx.rt.db;
     const before = db.query("SELECT hash, rep_sig, contractor_sig, contractor_link_hash FROM contracts WHERE id = ?").get(ctx.id);
     let reads = 0;
     ctx.rt.engine.viewContract = async () => { reads++; throw Error("unexpected read"); };

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { buildApp, type Runtime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import { JOB_DEMO_TERMS } from "../src/shared/demo";
@@ -28,7 +27,7 @@ async function heldJob(key: string) {
   const proposed = await c.proposeJob(submission.id);
   const payout = proposed.payouts[0]!;
   const judgmentId = proposed.submissions[0]!.judgment_id!;
-  const db = (c as unknown as { d: { db: Database } }).d.db;
+  const db = ctx.rt.db;
   const outcome = () => (db.query("SELECT outcome FROM judgments WHERE id = ?").get(judgmentId) as { outcome: string }).outcome;
   return { ctx, c, submission, payout, judgmentId, db, outcome };
 }

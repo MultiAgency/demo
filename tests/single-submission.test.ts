@@ -1,14 +1,12 @@
 import { expect, spyOn, test } from "bun:test";
 import { buildApp } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
-import type { Deps } from "../src/server/engine";
 import { AgentClient } from "../src/agent/client";
 import { JOB_DEMO_TERMS } from "../src/shared/demo";
 import { activate } from "./support/harness";
 
 test("single-submission reads enforce named parties and job binding without enumerating report history", async () => {
   const ctx = await activate("300", JOB_DEMO_TERMS);
-  const { d } = ctx.rt.engine as unknown as { d: Deps };
   let account: string | null = "maria.demo";
   const origin = "https://paperwork.test";
   const auth = { handler: async () => new Response("fixture"), api: { getSession: async () => account ? { user: { id: account } } : null }, nearAccountFor: (id: string) => id } as unknown as Auth;
@@ -22,7 +20,7 @@ test("single-submission reads enforce named parties and job binding without enum
     const other = ctx.rt.engine.createContract({ ...JOB_DEMO_TERMS, company: "Another owned job" });
     const enumerate = spyOn(ctx.rt.engine, "jobSubmissions").mockImplementation(() => { throw Error("Must not enumerate reports"); });
     try {
-      d.db.exec("PRAGMA query_only = ON");
+      ctx.rt.db.exec("PRAGMA query_only = ON");
       for (const actor of ["maria.demo", "acme.demo"]) {
         account = actor;
         const result = await app.request(`${origin}/api/contracts/${ctx.id}/submissions/${s.id}`);
@@ -37,6 +35,6 @@ test("single-submission reads enforce named parties and job binding without enum
         await expect(client.follow(prepared)).rejects.toMatchObject({ status: actor ? 403 : 401 });
       }
       expect(enumerate).not.toHaveBeenCalled();
-    } finally { d.db.exec("PRAGMA query_only = OFF"); enumerate.mockRestore(); }
-  } finally { await (await ctx.rt.auth.$context).checkSchema?.(); d.db.close(); }
+    } finally { ctx.rt.db.exec("PRAGMA query_only = OFF"); enumerate.mockRestore(); }
+  } finally { await ctx.rt.close(); }
 });

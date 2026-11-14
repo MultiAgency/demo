@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { type Judgment, judgmentSchema } from "../shared/judgment";
 import { fromAtomic } from "../shared/money";
 import { isMarketSettled, type PlatformTerms, type Terms, USDC_DECIMALS } from "../shared/terms";
 import type { EventView } from "../shared/views";
@@ -100,6 +101,18 @@ export class Ledger {
   }
 
   // ---------------------------------------------------------------- judgments and submissions
+
+  /**
+   * A stored assessment (`judgments.json`, `job_submissions.assessment`). Its completion becomes money, so a record
+   * that does not read back as written stops the step instead of being trusted or repaired.
+   */
+  assessment(json: string): Judgment {
+    let value: unknown;
+    try { value = JSON.parse(json); } catch { value = undefined; }
+    const parsed = judgmentSchema.safeParse(value);
+    if (!parsed.success) throw new Error("A stored assessment is unreadable. Preserve this database; nothing was changed.");
+    return parsed.data;
+  }
 
   openJudgment(id: string): JudgmentRow | null {
     return this.db.query("SELECT * FROM judgments WHERE contract_id = ? AND outcome = 'pending'").get(id) as JudgmentRow | null;

@@ -100,4 +100,4 @@ try {
   writeFileSync(join(artifacts, "receipt.json"), JSON.stringify({ passed: true, simulated: true, wallet_opened: false, mutation_calls: mutationCalls,
     checks: ["keyboard disclosure", "exact credit/remainder/fee/amount", "explicit acknowledgement", "desktop light and phone dark reflow", "axe WCAG", "persisted marker", "unresolved and expired evidence", "account switch"], captures: driver.captures }, null, 2));
   console.log(`PASS offline funding recovery UI: ${join(artifacts, "receipt.json")}`);
-} finally { await driver.close(); server.stop(true); await (await ctx.rt.auth.$context).checkSchema?.(); deps.db.close(); }
+} finally { await driver.close(); server.stop(true); await ctx.rt.close(); }

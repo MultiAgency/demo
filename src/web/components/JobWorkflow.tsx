@@ -91,9 +91,7 @@ function PaymentOutcome({ p }: { p: PayoutView }) {
 
 /** The agent recommends; the agency accepts on the Market, then Paperwork reads the Market's completed status. */
 function MarketAcceptance({ c, s, act }: { c: ContractView; s: JobSubmissionView; act: Act }) {
-  // ContractView.judgment is untyped; read only the assessment fields this card needs.
-  const latest = c.judgment as { id?: string; decision?: string; summary?: string; deliverables?: { id: string; completion: number }[] } | null;
-  const j = latest && latest.id === s.judgment_id ? latest : null;
+  const j = c.judgment?.id === s.judgment_id ? c.judgment : null;
   const complete = !!j && j.decision === "pay" && c.terms.scope.every((d) => j.deliverables?.find((x) => x.id === d.id)?.completion === 1);
   return <div className="stack">
     <Alert tone={complete ? "success" : "warning"}>

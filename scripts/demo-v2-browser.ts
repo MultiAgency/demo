@@ -55,12 +55,6 @@ async function activateControl(actor: Actor, selector: string) {
     await command(actor, "press", "Enter");
   } else await command(actor, "click", selector);
 }
-async function click(actor: Actor, selector: string) {
-  // agent-browser 0.26 clicks offscreen coordinates without scrolling. Explicitly reveal every target.
-  await command(actor, "scrollintoview", selector);
-  await activateControl(actor, selector);
-  await pause();
-}
 async function button(actor: Actor, text: string) {
   await pageWait(actor, `[...document.querySelectorAll('button')].some(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled)`, text);
   await command(actor, "scrollintoview", await reference(actor, "button", text));
@@ -82,10 +76,6 @@ async function actionOrDone(actor: Actor, pattern: string, done: () => boolean |
     } catch (error) { if (await done()) return; throw error; }
   }
   throw new Error(`Timed out waiting for ${label} or its completed state`);
-}
-async function fill(actor: Actor, label: string, value: string) {
-  await command(actor, "scrollintoview", await reference(actor, "textbox", label, true));
-  await command(actor, "fill", await reference(actor, "textbox", label, true), value);
 }
 async function capture(actor: Actor, name: string) {
   const path = join(dir, `${name}.png`);
@@ -149,7 +139,7 @@ try {
   await state(v => v.stage === "active" && v.platform.balance_usd === "1000", "exact simulated funding");
   await button("agency", "Check merges");
   const initial = await state(v => v.payouts.some(p => p.state === "held"), "first judged payout");
-  const judgment = initial.judgment as { prs: { key: string; eligible: boolean; deliverable: string | null; reason: string }[] };
+  const judgment = initial.judgment!;
   const self = judgment.prs.find(p => p.key.endsWith("#105"));
   check(self && !self.eligible, "Self-merged PR counted");
   const notScope = judgment.prs.find(p => p.key.endsWith("#103"));

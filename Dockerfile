@@ -3,7 +3,7 @@
 FROM oven/bun:1.4.2-slim
 WORKDIR /app
 COPY package.json bun.lock ./
-COPY vendor/multiagency-sdk/multiagency-sdk-0.5.9-252cba1.tgz ./vendor/multiagency-sdk/
+COPY vendor/multiagency-sdk/multiagency-sdk-0.6.0-78902f13.tgz ./vendor/multiagency-sdk/
 RUN bun install --frozen-lockfile --production
 COPY tsconfig.json ./
 COPY src ./src

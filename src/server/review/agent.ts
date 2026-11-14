@@ -96,7 +96,7 @@ export class EphemeralReviewRunner extends AgentRunner {
     return JSON.stringify([ownerId ?? "", threadId]);
   }
 
-  isThreadAccessible(_threadId: string, scope: LocalThreadEndpointScope): boolean {
+  override isThreadAccessible(_threadId: string, scope: LocalThreadEndpointScope): boolean {
     // Thread ids live inside an owner namespace. A foreign id therefore names no data here.
     return !!scope.ownerId;
   }
