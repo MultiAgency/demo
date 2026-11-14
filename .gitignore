@@ -11,3 +11,6 @@ web-dist/
 
 # Local browser diagnostics can contain private session details.
 .playwright-mcp/
+
+# Frozen local image archives and private qualification evidence.
+.release-candidates/

@@ -156,7 +156,7 @@ Nothing was deployed, and no credential was issued.
 
 The image now builds an immutable frontend once with `scripts/build-web.ts`. `PAPERWORK_WEB_DIST=/app/web-dist` selects manifest-verified static routes; assets are available immediately after startup, even before the HTML route is requested. Previously, runtime HTML bundling failed the asset-before-HTML restart check. Local development keeps Bun's HTML bundler when this variable is absent. Preserve the complete built frontend directory/manifest and previous release images/assets; do not delete old hashed assets during a future rollout. The local restart proof does not qualify cross-version backend rollback or automatic old-asset hosting across different images.
 
-The Docker build context is allowlisted, and the image copies only the active `multiagency-sdk-0.5.9-252cba1.tgz`. Inactive vendor artifacts and local state never enter the image. The SDK's verified vendored pin remains unchanged after npm publication.
+The Docker build context is allowlisted, and the image copies only the active `multiagency-sdk-0.6.0-abf514ef.tgz`. Inactive vendor artifacts and local state never enter the image. The SDK's candidate-specific vendored archive and provenance are verified independently of npm publication.
 
 Local checks (no hosted access):
 
@@ -171,3 +171,9 @@ bun --no-env-file scripts/check-container.ts paperwork-local:check /tmp/paperwor
 Use a fresh receipt directory per run. The container check uses `--network none`, fixture credentials and a generated disposable volume. It checks Linux/SDK identity, startup refusals, auth/private/public responses, no demo endpoints, no credential disclosure, real production assets and original synthetic SQLite job identity across a local container restart. It starts no real wallet/provider/payment flow. Image IDs, build input hashes and receipts for arm64/amd64 are in `/tmp/paperwork-local-release/verification.json`. Local Linux amd64 checks used Docker Desktop emulation; merged-main CI and the live AMD64 package now pass. See deployment-acceptance.json for exact evidence.
 
 `.github/workflows/verify.yml` runs locked install, SDK binding, typecheck, tests, simulated job/security/browser/privacy checks and local container build/smoke with read-only repository permission. It has no deploy, registry login, image push or payment step. `actionlint` validates the workflow locally; both reviewed-head and merged-main GitHub checks passed. Frozen-gateway DAO/restart receipts remain separate because that external snapshot is not shipped in this checkout.
+
+## Exact-pair worker integration
+
+The configured worker agency must exist before startup; buyer setup, consent, grants and funding are unnecessary for receiving or delivering work. The startup guard runs after runtime initialization, so preflight the binding before migrations. Polling runs independently of buyer hire follow-up and logs changed failures and recovery. Delivery remains person-driven; poll presence or HTTP 402 does not establish readiness. The owner must be signed into the correct Desk agency and deliver within 600 seconds after hire. Webhooks are optional when scheduled polling is verified.
+
+The integrated main source includes assessment/type hardening absent from frozen rollout candidate `7de75db7`; its source and image identities differ. Do not substitute it for the frozen candidate without a separate qualification/rollout review. The real-process worker simulator preflight remains blocked as recorded in `sdk060-local-readiness.json`; no hosted or paid acceptance is claimed. Platform owns quote/authority/allocation/dispatch. #81 remains separately deferred.

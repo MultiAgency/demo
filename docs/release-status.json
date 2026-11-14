@@ -1,15 +1,15 @@
 {
   "as_of": "2026-11-13T21:38:20.733416+00:00",
-  "scope": "Current frozen deployment and read-only acceptance; financial acceptance remains blocked",
+  "scope": "Integrated exact-pair source; NOT promoted due to worker simulator preflight failure. Hosted fields below are historical only.",
   "validated_code_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
   "pins": {
-    "sdk_version": "0.5.9",
-    "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
-    "platform_source": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
-    "gateway_candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
-    "scope": "Retained SDK and baseline gateway artifact pins; current compatible runtime is recorded separately in deployed_gateway."
+    "sdk_version": "0.6.0",
+    "sdk_sha256": "b7c45afaa4a3605eae9bcd9c174e3d1b0fbfb55b8285b2405828a9024f6a9f0c",
+    "platform_source": "ff4a17ffa6a0f6055692f9147e147ab01b03a58d",
+    "gateway_candidate": "78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea",
+    "scope": "Active local SDK acceptance pins; hosted deployment fields remain historical and do not establish a 0.6.0 deployment."
   },
-  "sdk_publication": "Coordinator verified public npm archive byte-identical to retained tested artifact; no repin required",
+  "sdk_publication": "Retained candidate-specific SDK 0.6.0 archive; no publication action performed by this update.",
   "local_evidence": {
     "v2": "docs/v2-acceptance.json",
     "packaging": "docs/local-release-review.json",
@@ -105,5 +105,14 @@
     "limitation": "Normal-browser tab was not accessible for UI, reload or end-to-end account-switch inspection."
   },
   "provider_reconciliation_followup": "docs/provider-reconciliation-summary.json",
-  "deployed_release_candidate": "eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108"
+  "deployed_release_candidate": "eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108",
+  "local_sdk_acceptance": "docs/sdk060-local-readiness.json",
+  "integrated_release": {
+    "status": "INTEGRATION_PREPARED_NOT_PROMOTED",
+    "source_manifest_sha256": "916ee27a1fb4bb4e54e874e007d381f608a09ba0d421849d7f1adac7a2420846",
+    "local_image": "sha256:5e5c2dd37caece019810e07ae8ff56b2dc704e77e8f977da6197a99ba4b31c4e",
+    "receipt": "docs/sdk060-local-readiness.json",
+    "rollout_runbook": "docs/sdk060-rollout.txt",
+    "previous_candidate_retained": "7de75db767837b37a7dadf134078e10fce406f3c06131f94d001d0793f3ea463"
+  }
 }

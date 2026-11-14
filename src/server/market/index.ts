@@ -27,6 +27,7 @@ export class Market {
   readonly agencies: Agencies;
   readonly hires: Hires;
   readonly worker: Worker;
+  private pollError: string | null = null;
   constructor(readonly d: MarketDeps) {
     migrateMarket(d.db);
     this.agencies = new Agencies({ db: d.db, market: d.market, chain: d.chain, now: d.now });
@@ -66,9 +67,27 @@ export class Market {
     };
   }
 
+  /**
+   * Startup refusal: a worker bound to no agency would keep reading the market as the listed agent, which the market
+   * counts as presence and answers callers with a price, while nobody could see or deliver the work.
+   */
+  requireWorkerAgency() {
+    const id = this.d.worker?.agencyId;
+    if (id !== undefined && !this.agencies.list().some((a) => a.id === id))
+      throw new Error("MARKET_WORKER_AGENCY names no agency in this database. Create the agency in Paperwork first, then set its id.");
+  }
+
   /** The server's timer: live hires and DAO votes, and the worker's backstop poll. */
-  async tick() {
-    await this.hires.followAll();
-    if (this.worker.configured) await this.worker.poll().catch(() => {});
+  async tick(log: (msg: string) => void = () => {}) {
+    // Start worker observation independently of slow buyer-side status reads.
+    await Promise.all([this.hires.followAll(), this.pollWorker(log)]);
+  }
+
+  private async pollWorker(log: (msg: string) => void) {
+    if (!this.worker.configured) return;
+    const error = await this.worker.poll().then(() => null, (err: unknown) => (err instanceof Error ? err.message : String(err)));
+    // Only changes are logged: the first failure, each different failure, and the recovery.
+    if (error !== this.pollError) log(error === null ? "market worker: assignment poll recovered" : `market worker: assignment poll failed: ${error}`);
+    this.pollError = error;
   }
 }

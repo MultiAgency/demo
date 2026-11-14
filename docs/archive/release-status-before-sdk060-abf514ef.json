@@ -1,0 +1,109 @@
+{
+  "as_of": "2026-11-13T21:38:20.733416+00:00",
+  "scope": "Current frozen deployment and read-only acceptance; financial acceptance remains blocked",
+  "validated_code_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
+  "pins": {
+    "sdk_version": "0.5.9",
+    "sdk_sha256": "4ae53dce669664bcf90e0c5939e0ac617db0ab24c101e3792fc659ac4494475a",
+    "platform_source": "252cba1d1e6642a5ea9f42ea4927f982423ed8e1",
+    "gateway_candidate": "822346ac5b50313d493c951971695abbbab5cc1d5a48ca8868bc73421a609a40",
+    "scope": "Retained SDK and baseline gateway artifact pins; current compatible runtime is recorded separately in deployed_gateway."
+  },
+  "sdk_publication": "Coordinator verified public npm archive byte-identical to retained tested artifact; no repin required",
+  "local_evidence": {
+    "v2": "docs/v2-acceptance.json",
+    "packaging": "docs/local-release-review.json",
+    "final_consumer_checkpoint": "docs/final-consumer-252cba1.json",
+    "tests": 1562,
+    "assertions": 10473,
+    "typecheck": "passed",
+    "workflow_lint": "passed",
+    "linux_container_smoke": "Native Linux AMD64 ef73b58 CI passed; earlier arm64/emulation receipts remain historical.",
+    "latest_consumer": "data/release-evidence/consumer39eefe-sdk059/consumer-verification.json"
+  },
+  "evidence_boundary": "Prior receipts are immutable dated checkpoints. Later v2 and packaging receipts supersede their then-open local gaps. All payment acceptance is simulated.",
+  "remaining": [
+    "Provider owner must investigate internal request records: binding is unrecoverable from the inspected gateway audit/journals. Provider-side recoverability and payout-route readiness remain unknown.",
+    "Empty provider arrays do not prove non-receipt; prior FAILED route_unavailable and original unknown outcome remain unresolved.",
+    "Host-side source/hash acceptance does not exercise a live deposit allocation or Intear funding transaction.",
+    "Retained exact-gateway consumer runs predate this app fix; current-source CI/funding/recovery regressions are simulated.",
+    "Protected logical snapshot remains on the original volume; native backup is historical.",
+    "Credential renewal before 2026-11-19T21:07:23.584Z needs separate authorization."
+  ],
+  "authorization": "User go-for-it scope executed: one protected snapshot and one frozen app update; authentication and read-only checks. No allocation, reset, funding or payout performed; provider hold remains.",
+  "deployed_source_commit": null,
+  "deployment_acceptance": "docs/deployment-update-eac99283.json",
+  "local_followup": "Readiness candidate 0791b0e2 deployed as c5808392: typed agent contracts, batch discovery and direct submission reads, accessibility/recovery and bundled UI changes. 116 runtime inputs and all original rows across 25 tables verified. Later workspace edits are not implicitly part of this frozen deployment.",
+  "wallet_login_acceptance": {
+    "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/wallet-checks-summary.json",
+    "accounts": [
+      "multiagentic.near",
+      "buildr.near"
+    ],
+    "unrelated_account": "hackbot.near",
+    "status": "Hosted identity/reload, cancelled-signature anonymous retention and known-job unrelated-account refusal verified",
+    "job_id": "c_a2002ec56bf1",
+    "job_state": "Both terms signatures recorded; needs_setup; unfunded, no agent, submission or payout"
+  },
+  "wallet_terms_acceptance": {
+    "receipt": "data/release-evidence/wallet-missing-checks-20261112T231622Z/terms-signatures-acceptance.json",
+    "job_id": "c_a2002ec56bf1",
+    "terms_hash": "a2002ec56bf163b7cb0330afdf2ee9257267d6d55d204804d4cc41bc6aebd763",
+    "representative": "multiagentic.near",
+    "builder": "buildr.near",
+    "status": "Both scoped NEP-413 terms signatures recorded on hosted source 2cad167; no funds moved",
+    "payee_registered": false
+  },
+  "ci_qualification": {
+    "pushed_commit": "33c48991b1c7ff5add40487dd5f16d8d41264ee4",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43429512218",
+    "github_conclusion": "success",
+    "positive_receipts_verified": true,
+    "native_linux_container_smoke": "passed",
+    "receipt": "data/release-evidence/update-33c4899/verified-ci.json"
+  },
+  "initial_deployment_acceptance": "docs/deployment-acceptance.json",
+  "deployed_gateway": {
+    "deployment_id": "36fdd8a8-24ee-4503-956b-03d49ddc557b",
+    "image": "sha256:bd3ed200807e53f58f30d5e86642425152cfc235d912ecc981036ee0f6b736dc",
+    "source": "39eefe11802c062676621290a13d3caa5ccf24e6",
+    "package_manifest_sha256": "3f50539cf51ddfb2d7bde4c4a969ffb4f527c0d0b3b4a883ae7e9742feb0dfe9",
+    "changed_by_this_operation": false
+  },
+  "registration_flow": "Registration UI deployed; prior finalized RPC observation in the supervised session confirmed buildr.near registered at block 224303963. No registration action performed during this update.",
+  "historical_rejected_ci": {
+    "pushed_commit": "39e521d6054609d536093f6748e31742958e65c4",
+    "run": "https://github.com/MultiAgency/demo/actions/runs/43340276379",
+    "github_conclusion": "success",
+    "browser_acceptance_accepted": false,
+    "reason": "Retained browser/privacy failure artifacts: builder mobile and public Verify overflow. Pipelines masked producer failures.",
+    "correction": "Responsive standalone header and explicit Bash pipeline failure propagation; browser stderr retained. Fresh remote CI on corrected commit is required.",
+    "local_correction_checks": "Complete v3 browser and v2/v3 privacy recipes pass; typecheck, actionlint and pipeline failure-propagation check pass. Local simulated receipts: data/release-evidence/ci-correction-39e521d/review.json"
+  },
+  "hosted_setup_checkpoint": "On-instance app records confirm completed wallet-owned setup through revision 2 for c_a2002ec56bf1, with no submission or payout rows. This is not independent provider/mainnet or DAO quorum acceptance.",
+  "funding_button": "Deployed; do not open or submit a funding transaction while destination and route clearance remain unverified.",
+  "funding_hold": "Historical 0.01 USDC credit is supported by the retained receipt. Thirteen gateway deposit audit entries retain no identifying request/key/correlation/outcome, and inspected journals have no match. Exact original allocation binding now requires provider-owned records or supported recovery. No new allocation, replay, marker reset, address reuse or funds movement is cleared.",
+  "deployed_candidate_manifest_sha256": "0791b0e2ebbd3194c1581487b2237e3157da838c5d179157f384cecc30547ad8",
+  "current_hosted_readiness": {
+    "builder_sign_in": "passed via clean Intear Web flow as buildr.near",
+    "builder_session_survives_update_and_reload": true,
+    "capabilities": "200, schema_version 1",
+    "actions": "200, one named job",
+    "snapshot": "200, original c_a2002ec56bf1, 1 USD scope, accepted, no payouts",
+    "builder_agency_signing_request": "403 account_mismatch",
+    "builder_agency_onboarding_prepare": "403 account_mismatch; no owner action prepared",
+    "direct_missing_submission": "404 not_found",
+    "logout": "Private job content cleared; actions, snapshot and direct submission return 401",
+    "agency_switch": "Earlier automated Intear flow stalled; user completed normal-browser sign-in. Fresh active multiagentic.near server session confirmed. Normal-browser UI/reload and switching remain uninspected."
+  },
+  "agency_login_followup": {
+    "verified_at": "2026-11-13T20:12:31.311088+00:00",
+    "account": "multiagentic.near",
+    "active_session": true,
+    "session_created_at": "2026-11-13T20:09:45.190Z",
+    "evidence": "Read-only server query of session creation/expiry metadata; no token read or exported. User reports normal-browser sign-in completed.",
+    "limitation": "Normal-browser tab was not accessible for UI, reload or end-to-end account-switch inspection."
+  },
+  "provider_reconciliation_followup": "docs/provider-reconciliation-summary.json",
+  "deployed_release_candidate": "eac9928309baf09b161787bd76cb1e1110ecfbcee9f8b889144c16740d35e108"
+}

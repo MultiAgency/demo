@@ -11,6 +11,7 @@ const name = `paperwork-smoke-${randomUUID()}`;
 const volume = `${name}-data`;
 const credential = "tap_container_smoke_fixture_only";
 const secret = "container-smoke-auth-secret-fixture-only-123456789";
+const sdkVersion = JSON.parse(readFileSync(new URL("../node_modules/@multiagency/sdk/package.json", import.meta.url), "utf8")).version;
 const pin = JSON.parse(readFileSync(new URL("../vendor/multiagency-sdk/gateway-pin.json", import.meta.url), "utf8"));
 const env: Record<string, string> = {
   PLATFORM: "remote", PLATFORM_URL: "https://platform.invalid", PLATFORM_DEPLOYMENT: "multiagency-paperwork",
@@ -50,7 +51,7 @@ try {
   const sdkCheck = await docker(["run", "--rm", "--network", "none", "--entrypoint", "bun", image, "--no-env-file", "-e",
     `import{readFileSync,readdirSync}from'node:fs';import{createHash}from'node:crypto';const files=readdirSync('vendor/multiagency-sdk');const sdk=JSON.parse(readFileSync('node_modules/@multiagency/sdk/package.json','utf8'));const p=JSON.parse(readFileSync('node_modules/@multiagency/sdk/provenance.json','utf8'));const tar=JSON.parse(readFileSync('package.json','utf8')).dependencies['@multiagency/sdk'];console.log(JSON.stringify({files,version:sdk.version,source:p.sourceHead,sha256:createHash('sha256').update(readFileSync(tar)).digest('hex')}));`]);
   const sdk = JSON.parse(sdkCheck.stdout);
-  check(sdk.version === "0.5.9" && sdk.source === pin.sourceHead && sdk.sha256 === pin.sdkTarballSha256, "Image SDK does not match validated pins");
+  check(sdk.version === sdkVersion && sdk.source === pin.sourceHead && sdk.sha256 === pin.sdkTarballSha256, "Image SDK does not match validated pins");
   check(sdk.files.length === 1 && sdk.files[0] === pin.sdkTarball, "Image contains inactive SDK artifacts");
   checks.push("Linux image contains exact SDK and no inactive vendor artifacts");
   for (const [label, values, expected] of [

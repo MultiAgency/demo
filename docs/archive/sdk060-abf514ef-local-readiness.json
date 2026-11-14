@@ -1,0 +1,72 @@
+{
+  "as_of": "2026-11-14",
+  "scope": "Local SDK 0.6.0 integration only; no hosted operations or financial qualification",
+  "result": "NOT_FULLY_ACCEPTED: real-process worker submission preflight blocked",
+  "pairing": {
+    "platform_source": "6df35b29d27c1944ddb75ae9b58d6bb3d6621cb1",
+    "candidate": "abf514efd78753041a2afa07ea11d1dd7915cb05daa30cc4e9be67d9bdd5a0ee",
+    "sdk_sha256": "7a87f3226089ad3bfb9f7280179de01d6039169351374d75b0c9e12acd925eaf"
+  },
+  "toolchain": {
+    "bun": "1.4.2",
+    "node": "24.22.3",
+    "typescript": "7.0.2"
+  },
+  "checks": {
+    "installed_sdk_payload": {
+      "pass": true,
+      "verified_files": 101
+    },
+    "typecheck": "passed",
+    "offline_tests": {
+      "passed": 1681,
+      "failed": 0,
+      "log": "/private/tmp/paperwork-sdk060-main-tests.log"
+    },
+    "sdk_hiring": {
+      "exit": 0,
+      "run": "run-QViXwt",
+      "log": "/private/tmp/paperwork-sdk060-current-r_pj_yb5/paperwork-sdk-market.log"
+    },
+    "worker": {
+      "exit": 1,
+      "run": "run-3V72G5",
+      "receipt": "/private/tmp/paperwork-sdk060-current-r_pj_yb5/worker-blocked-receipt.json",
+      "error": "404 from authenticated GET /v1/assignments/:id/deliverable/versions",
+      "submission_posts": 0,
+      "hire_state": "unknown",
+      "retained_original_attempt": true
+    },
+    "restart": {
+      "exit": 0,
+      "receipt": "/private/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-restart-launch-JJTtBv/launcher-receipt.json"
+    },
+    "container": {
+      "passed": true,
+      "receipt": "/private/tmp/paperwork-sdk060-current-r_pj_yb5/container-final/receipt.json",
+      "network": "none"
+    },
+    "market_settled_browser": {
+      "exit": 0,
+      "receipt": "/private/tmp/paperwork-sdk060-current-r_pj_yb5/fixture-market-settled-receipt.json",
+      "scope": "fixture Market and fake platform runtime; not real Market settlement qualification"
+    },
+    "combined_browser": {
+      "exit": 0,
+      "receipt": "/private/var/folders/v_/45s63t697hg3gbvvpvzwyjd40000gn/T/paperwork-full-launch-9VmMHK/launcher-receipt.json",
+      "scope": "current source + SDK 0.6.0: builder setup/sign/submission/approval/settlement and separate Market hire; simulated only"
+    }
+  },
+  "qualification74": {
+    "url": "https://github.com/MultiAgency/platform/issues/74",
+    "review": "All five current scoped staging checklist items checked. Issue is open. Closure and activation are owner/platform decisions; #81 recovery is explicitly not a prerequisite for that scoped checklist."
+  },
+  "providerRecovery81": "Successful original-key recovery remains deferred. Previous safe halt is unchanged and not reclassified as a recovery pass.",
+  "boundaries": [
+    "No platform candidate source edits",
+    "No publication or deployment",
+    "No hosted restart, credential changes, live signatures, marker resets or funds movement",
+    "Market worker earnings withdrawal is not verified by the submission recipe",
+    "Historical SDK 0.5.9 files verified unchanged"
+  ]
+}

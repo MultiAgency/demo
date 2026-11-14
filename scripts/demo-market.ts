@@ -9,10 +9,16 @@
  *   pnpm test:e2e:stack --app multiagency-paperwork --market --dao-treasury --no-browser   # and a DAO agency
  *
  * Each run creates new agencies. Needs platform 0.5.7 or later: M1 and M2 are fixed there
- * (docs/platform-gaps.md). The one check marked "gap" (M3) passes while that gap holds, so a fix shows as a failure.
+ * (docs/platform-gaps.md). Directory checks require the SDK 0.6.0 simulator contract.
  * Exits non-zero on any failure.
  */
-import { createRuntime } from "../src/server/app";
+import { readFileSync, realpathSync, mkdtempSync, writeFileSync } from "node:fs";
+import { dirname, resolve, join } from "node:path";
+import { tmpdir } from "node:os";
+import { z } from "zod";
+import { Market } from "../src/server/market";
+import { MarketApi } from "../src/server/market/api";
+import { buildApp, createRuntime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import type { AgencyNext, AgencyView, HireView } from "../src/shared/market";
 
@@ -130,8 +136,36 @@ const unlisted = await call("POST", `/market/agencies/${wallet}/quote`, { handle
 check(unlisted.status === 400 && String((unlisted.json as { error?: string }).error).includes("agent_not_found"), `a quote for an unlisted handle is refused agent_not_found (${unlisted.status}), not "send again" (M1, fixed: MultiAgency/platform#66)`);
 
 console.log("5. The public directory");
+// Directory SLA is delivery time; the simulator adds 600 seconds to the x402 authorization window.
+const upstreamResponse = await fetch(`${rt.market.d.api.base}/v1/agents?q=writer&limit=20`);
+const upstream = await upstreamResponse.json() as { agents: { agent_id: string; handle: string }[] };
+console.log(`    upstream directory: ${JSON.stringify(upstream)}`);
 const listing = await call("GET", "/market/directory?q=writer");
-check(listing.status === 502, `gap M3: the stack's market serves no directory (${listing.status}); the page takes a handle instead`);
+console.log(`    directory response: ${JSON.stringify(listing)}`);
+const rows = Array.isArray(listing.json) ? listing.json : [];
+const writer = rows.find((a: any) => a.handle === "writer");
+check(upstreamResponse.status === 200 && Array.isArray(upstream.agents) && upstream.agents.length === 1 &&
+  listing.status === 200 && rows.length === 1 && !!writer && writer.agent_id === upstream.agents[0]!.agent_id && upstream.agents[0]!.handle === "writer",
+  "directory search returns exactly the listed writer through Paperwork's public API");
+check(!!writer && typeof writer.agent_id === "string" && writer.agent_id.length > 0 &&
+  typeof writer.name === "string" && writer.name.length > 0 &&
+  (writer.description === null || typeof writer.description === "string") &&
+  writer.sla_seconds === 600 && Number.isInteger(writer.delivered_jobs) && writer.delivered_jobs >= 0 &&
+  (writer.success_rate === null || (typeof writer.success_rate === "number" && Number.isFinite(writer.success_rate))),
+  "directory preserves writer identity and typed metadata, with the simulator delivery SLA");
+const absent = await call("GET", "/market/directory?q=not-listed");
+check(absent.status === 200 && Array.isArray(absent.json) && absent.json.length === 0,
+  "directory search excludes an unlisted handle");
+if (writer) {
+  const detail = await call("GET", `/market/directory/${encodeURIComponent(writer.agent_id)}`);
+  console.log(`    directory detail: ${JSON.stringify(detail)}`);
+  const plans = Array.isArray(detail.json.plans) ? detail.json.plans : [];
+  check(detail.status === 200 && plans.length === 1 && plans[0].model === "per_call" &&
+    plans[0].is_default === true && Number(plans[0].price_amount) === Number(quoted.amount_usd) &&
+    plans[0].sla_seconds === writer.sla_seconds && quoted.terms.maxTimeoutSeconds === writer.sla_seconds + 600 &&
+    detail.json.reputation?.jobs_counted === 0 && detail.json.reputation?.overall === null,
+    "listed agent detail preserves default pricing, SLA and unscored reputation; the signed quote remains payment authority");
+}
 
 console.log("6. The owner freezes the market agent; nothing is approved until it's unfrozen");
 const froze = await play(wallet, "freeze");
@@ -163,6 +197,70 @@ if (cfg.market.dao) {
   const daoThawed = await play(dao, "unfreeze");
   check(daoThawed.next.kind === "done" && (await ok<AgencyView>("GET", `/market/agencies/${dao}`)).frozen === false, `unfrozen, ${daoThawed.how}: the policy in force applies again`);
 } else console.log("7. (no DAO on this stack: start it with --dao-treasury for the DAO agency)");
+
+// Optional real-process worker integration against the same simulator, using only its private fixture token.
+if (process.argv.includes("--worker")) {
+  console.log("8. A separate agency does the buyer's job through Paperwork's worker HTTP routes");
+  const state = z.object({ market: z.object({ url: z.url(), workerCredentialsFile: z.string() }) })
+    .parse(JSON.parse(readFileSync(resolve(dir, "state.json"), "utf8")));
+  const stackRoot = realpathSync(dir);
+  const credentialsPath = realpathSync(state.market.workerCredentialsFile);
+  if (!rt.kit.controls || !rt.market.d.controls || dirname(credentialsPath) !== stackRoot ||
+      !["127.0.0.1", "localhost", "[::1]"].includes(new URL(state.market.url).hostname))
+    throw new Error("Worker integration requires an owned loopback simulator and its local fixture credentials.");
+  const credentials = z.object({ worker: z.object({ token: z.string().startsWith("aat_"), webhookSecret: z.string() }) })
+    .parse(JSON.parse(readFileSync(credentialsPath, "utf8"))).worker;
+  const workerAgency = (await ok<{ id: string }>("POST", "/market/agencies", { name: "Listed worker agency", owner: stackState.ownerAccount, signer: "wallet" })).id;
+  check(rt.market.agencies.row(workerAgency).stage === "needs_setup" && workerAgency !== wallet, "worker has a distinct legitimate agency without buyer setup, consent, grant or funding");
+  const platformPayoutsBefore = rt.db.query("SELECT request_id FROM payout_attempts ORDER BY request_id").all();
+  const workerHire = await hire(wallet, "worker", "Prepare the SDK integration report.");
+  const requestId = workerHire.request_id;
+  const assignmentId = rt.market.hires.row(requestId).task_id;
+  if (!assignmentId) throw new Error("The simulator returned no worker assignment identity.");
+  check(workerHire.state !== "paid", "buyer remains unpaid while the worker has not submitted");
+  let submissionPosts = 0;
+  const observeFetch: typeof fetch = Object.assign((async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (init?.method === "POST" && url.pathname.endsWith("/submit")) submissionPosts++;
+    return fetch(input, init);
+  }) as typeof fetch, { preconnect: fetch.preconnect });
+  rt.market = new Market({ ...rt.market.d, api: new MarketApi(state.market.url, credentials.token, observeFetch),
+    worker: { agencyId: workerAgency, token: credentials.token, secret: credentials.webhookSecret } });
+  rt.app = buildApp(rt);
+  await ok("POST", "/market/worker/poll");
+  const assignment = rt.market.worker.row(assignmentId);
+  check(assignment.status === "in_progress" && assignment.agency_id === workerAgency && assignment.submit_state === "none",
+    "Paperwork imports the token-scoped assignment under the distinct worker agency");
+  const markdown = "# Integration report\nDelivered through Paperwork's worker API.";
+  await ok("POST", `/market/worker/jobs/${encodeURIComponent(assignmentId)}/submit`, { markdown });
+  const saved = rt.market.worker.row(assignmentId);
+  if (saved.submit_state !== "submitted") {
+    const blocked = { simulated: true, result: "BLOCKED", request_id: requestId, assignment_id: assignmentId,
+      submit_attempt_id: saved.submit_attempt_id, submit_state: saved.submit_state, error: saved.submit_error,
+      submission_posts: submissionPosts, hire_state: rt.market.hires.row(requestId).state };
+    const artifacts = mkdtempSync(join(process.env.PAPERWORK_DEMO_ARTIFACTS ?? tmpdir(), "paperwork-market-work-"));
+    writeFileSync(join(artifacts, "receipt.json"), JSON.stringify(blocked, null, 2) + "\n");
+    console.log(`    blocked worker receipt: ${join(artifacts, "receipt.json")} ${JSON.stringify(blocked)}`);
+    check(submissionPosts === 0 && rt.market.hires.row(requestId).state !== "paid",
+      "failed preflight sends no submission and does not claim settlement");
+    throw new Error("Worker submission remains blocked; preserve the original attempt. The candidate must support deliverable-version preflight; no fallback POST or replacement is allowed.");
+  }
+  check(saved.submit_state === "submitted" && saved.deliverable === markdown && !!saved.submit_attempt_id,
+    "the original worker submission body and attempt are durably recorded");
+  await ok("POST", "/market/worker/poll");
+  check(rt.market.worker.row(assignmentId).status === "accepted", "Market acceptance is observed from the actual simulator API");
+  const paid = await followUntil(requestId, h => h.state === "paid");
+  check(paid.request_id === requestId && paid.state === "paid" && paid.deliverable === markdown,
+    "the buyer observes settlement and the worker deliverable under the original hire identity");
+  check((await call("POST", `/market/worker/jobs/${encodeURIComponent(assignmentId)}/submit`, { markdown })).status === 409 &&
+    rt.market.worker.row(assignmentId).submit_attempt_id === saved.submit_attempt_id,
+    "a duplicate worker submission is refused without replacing the original attempt");
+  check(submissionPosts === 1 && JSON.stringify(rt.db.query("SELECT request_id FROM payout_attempts ORDER BY request_id").all()) === JSON.stringify(platformPayoutsBefore),
+    "worker completion requests no platform payout; the buyer's x402 Market payment is separate");
+  console.log(`    worker receipt: ${JSON.stringify({ buyer_agency: wallet, worker_agency: workerAgency,
+    request_id: requestId, assignment_id: assignmentId, submission_attempt_id: saved.submit_attempt_id,
+    assignment_status: rt.market.worker.row(assignmentId).status, hire_state: paid.state, platform_payouts_added: 0 })}`);
+}
 
 console.log(failures.length ? `\n✗ ${failures.length} check(s) failed:\n  - ${failures.join("\n  - ")}` : "\n✓ every check passed");
 process.exit(failures.length ? 1 : 0);
