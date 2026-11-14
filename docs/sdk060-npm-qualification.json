@@ -1,0 +1,50 @@
+{
+  "as_of": "2026-11-14T16:55:00Z",
+  "decision": "LOCAL QUALIFIED: pin @multiagency/sdk to npm 0.6.0 (exact). Uncommitted working-tree change on base 9842ce9; owner review, commit and remote CI remain. Not deployed and not required for runtime equivalence: production already runs these SDK bytes.",
+  "base_commit": "9842ce90b5ac5f3dbb62ee9e9a67d2c516f71c1f",
+  "published_sdk": {
+    "package": "@multiagency/sdk@0.6.0",
+    "tarball": "https://registry.npmjs.org/@multiagency/sdk/-/sdk-0.6.0.tgz",
+    "sha256": "aa3d4325bde4f74604280c577fac99b50acea805d27214a89899a77e1132af9a",
+    "sha1": "33399ef701c05930c6acb84e655a7da3e1b69a66",
+    "integrity": "sha512-J7+pL9b/7JDHx4kWH5DhleiZy+Hd4yYCGb+dNheRdthF2h/qLH4wiYHlus9t+f9slWiNJNaB+UzeJQrrmBbUkA==",
+    "files": 101,
+    "dist_tags_observed": { "latest": "0.6.0", "next": "0.6.0-rc.0", "registry_modified": "2026-11-14T16:24:53.075Z" },
+    "publisher": "npm user multiagency; no registry provenance attestation present",
+    "identity": "Byte-identical (cmp) to the retained, qualified and deployed vendor/multiagency-sdk/multiagency-sdk-0.6.0-c1a3ae61.tgz. Embedded provenance: sourceHead f4729f4a7244a4e415d03678535328960b695d71, dirtyPaths [], snapshot.runDigest c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509 (provenance SHA-256 b54a4a7a7e0d1ebdcf3ef9447f3356ec37fad211d6c3fac650a1e41f18bca699)."
+  },
+  "rc0_review": {
+    "package": "@multiagency/sdk@0.6.0-rc.0, SHA-256 52374f8113a54aa063df56e6f438eb604cc313095cc20a021e0a46e4c4893ab6",
+    "decision": "Not adopted. Superseded by 0.6.0, which is the clean candidate build.",
+    "differences_from_c1a3ae61": "11 of 101 files. dist/contract/orpc-client.js and dist/testing/index.js differ only in bundler path comments ('../../../node_modules/.pnpm/…' to 'node_modules/.pnpm/…'); zero non-comment lines changed. package.json, dist/contract/package-version.{js,d.ts} and five skills' library_version change 0.6.0 to 0.6.0-rc.0. provenance.json differs in version, sourceHead, dirty state, snapshot and builtAt.",
+    "provenance": "Built from platform 1a14a7d849893bc267e4c2e3bfa5af296fae2ec4 with six dirty paths (src/contract/package-version.ts and five SKILL.md files) and no snapshot binding. Every other recorded source digest equals c1a3ae61's. The dirty build cannot satisfy the clean source/snapshot binding check-sdk-pin enforces.",
+    "runtime_effect_if_adopted": "contractPackage.version would read 0.6.0-rc.0; Paperwork only reports it (recovery reader sdk_version, demo-job banner)."
+  },
+  "changes": {
+    "package.json": "@multiagency/sdk: ./vendor/…-c1a3ae61.tgz → 0.6.0",
+    "bun.lock": "Resolution to the registry @multiagency/sdk@0.6.0; integrity unchanged",
+    "Dockerfile, .dockerignore": "Stop copying and allowlisting the vendored archive; image installs from the frozen lockfile",
+    "vendor/multiagency-sdk/gateway-pin.json": "Adds sdkVersion, sdkIntegrity, sdkRegistryTarball; existing fields unchanged",
+    "scripts/sdk-pin.ts (new)": "Shared offline verifier: exact package.json version, bun.lock entry integrity, retained archive SHA-256 and sha512 equal to the pin, installed version, installed provenance equal to the retained sidecar, clean source/snapshot binding",
+    "scripts/check-sdk-pin.ts, demo-privacy-browser.ts, demo-job-restart-local.ts, check-container.ts": "Use the shared verifier; container check asserts declared/installed version, provenance, lock integrity and no vendor directory in the image",
+    "retained": "Vendored c1a3ae61 archive, provenance and checksum remain as the qualified artifact the pin is checked against; older vendored archives unchanged"
+  },
+  "qualification": {
+    "toolchain": "Bun 1.4.2, Docker 28.4.0 (arm64 host; linux/amd64 via emulation)",
+    "export_manifest_sha256": "753b597b14ae5f5702197f0f70e391e3fce6ecb6a51077d1d65979134be08b79 (335 files: tracked plus modified and new, untracked-ignored excluded). Taken before the documentation edits (README, PROGRESS, deploy.md, release-status.json, sdk060-rollout.txt and these receipts); code, lockfile and Dockerfile are unchanged since. check-sdk-pin, typecheck and the 1,688 tests were rerun after those edits and pass.",
+    "check_sdk_pin": "PASS, with CI's PAPERWORK_PLATFORM_* and PAPERWORK_SDK_SHA256 values",
+    "guard_refusals": "PASS: 0.6.0-rc.0 or vendor-path dependency, altered lock integrity, rc.0 installed package, rc.0 provenance, tampered retained archive and mismatched candidate env each refused",
+    "installed_sdk_audit": "101/101 installed files equal the npm 0.6.0 archive; no extra files",
+    "typecheck": "PASS",
+    "offline_tests": { "pass": 1688, "fail": 0, "expect_calls": 11652, "files": 85 },
+    "ci_journeys": "PASS: profile:reads, demo:job, demo:e2e, demo:browser --keyboard, demo:privacy:browser, demo-v2-browser --keyboard, demo-funding-browser, demo-funding-recovery-browser, test:responsive, test:accessibility",
+    "restart_launcher_preflight": "PASS against frozen platform c1a3ae61 snapshot (no server or job started)",
+    "linux_amd64_image": "sha256:c959be49f759f0d12130878ca8d1a15f04926852c0a1be91d994251ddf060a3a (local tag paperwork-local:npm060-amd64; not archived)",
+    "container_check": "PASS network-none: registry SDK identity, no vendor directory, startup refusals, auth/privacy, no demo routes, volume restart identity",
+    "image_sdk_audit": "101/101 files in the image equal the npm 0.6.0 archive",
+    "frontend_assets": "./chunk-1452ywc3.css 3e0096e2…, ./chunk-kzwmd35m.js 3812e499…: identical to the assets verified on production deployment 8baf1126",
+    "not_run": "Remote CI on a commit containing this change; demo:full and real-process worker/market stack runs (SDK bytes unchanged from their c1a3ae61 qualification)"
+  },
+  "evidence_directory": ".release-candidates/sdk060-npm-0.6.0/ (ignored; SHA256SUMS inside)",
+  "historical": "Earlier candidates, receipts and sdk060-local-readiness.json remain unchanged; this does not relabel them."
+}

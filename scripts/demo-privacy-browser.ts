@@ -8,15 +8,13 @@ import type { Auth } from "../src/server/auth";
 import { startServer } from "../src/server/index";
 import { JOB_DEMO_TERMS } from "../src/shared/demo";
 import { setup, signTerms } from "../tests/support/harness";
+import { verifiedSdkPin } from "./sdk-pin";
 
 const dir = mkdtempSync(join(process.env.PAPERWORK_DEMO_ARTIFACTS ?? tmpdir(), "paperwork-privacy-browser-"));
 const session = `paperwork-privacy-${process.pid}`;
 const digest = (file: URL) => createHash("sha256").update(readFileSync(file)).digest("hex");
-const sdkArtifact = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).dependencies["@multiagency/sdk"] as string;
-if (!sdkArtifact.startsWith("./vendor/multiagency-sdk/") || sdkArtifact.includes("..")) throw Error("Expected a repository-local SDK artifact");
-const pins = () => ({ sdk_sha256: digest(new URL(`../${sdkArtifact}`, import.meta.url)), gateway: JSON.parse(readFileSync(new URL("../vendor/multiagency-sdk/gateway-pin.json", import.meta.url), "utf8")), lockfile_sha256: digest(new URL("../bun.lock", import.meta.url)), browser_script_sha256: digest(new URL(import.meta.url)) });
+const pins = () => ({ sdk: verifiedSdkPin(), lockfile_sha256: digest(new URL("../bun.lock", import.meta.url)), browser_script_sha256: digest(new URL(import.meta.url)) });
 const initialPins = pins();
-if (initialPins.sdk_sha256 !== initialPins.gateway.sdkTarballSha256) throw Error("SDK/gateway pin mismatch");
 const ctx = await setup();
 const db = ctx.rt.db;
 const jobs: { id: string; version: number; existing: boolean; token: string }[] = [];

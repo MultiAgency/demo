@@ -70,7 +70,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 or later (MultiAgency/platform#42). Paperwork pins `@multiagency/sdk` 0.6.0 from platform commit `f4729f4a7244a4e415d03678535328960b695d71`, with gateway candidate `c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509`; pins and the offline handoff are in `vendor/multiagency-sdk`. A pin does not establish a deployed gateway; hosted observations are in [market-boundary.md](docs/market-boundary.md#release-and-hosted-checks--2026-11-11).
+Approving a held withdrawal needs platform 0.5.5 or later (MultiAgency/platform#42). Paperwork pins the npm release `@multiagency/sdk` 0.6.0, built from platform commit `f4729f4a7244a4e415d03678535328960b695d71` with gateway candidate `c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509`. The retained qualified archive, gateway pin and offline handoff are in `vendor/multiagency-sdk`, and `scripts/check-sdk-pin.ts` binds the registry bytes to them. A pin does not establish a deployed gateway; hosted observations are in [market-boundary.md](docs/market-boundary.md#release-and-hosted-checks--2026-11-11).
 
 ## Hire and work on the agent market
 
@@ -214,7 +214,7 @@ MIT. See [LICENSE](LICENSE).
 
 ### Local Market integration acceptance (2026-11-14)
 
-The current local SDK pin is 0.6.0 candidate `c1a3ae61`, not a hosted deployment claim. With a fresh simulated platform stack started with `--app multiagency-paperwork --market`, run:
+The SDK pin is npm 0.6.0, byte-identical to candidate `c1a3ae61`'s archive. With a fresh simulated platform stack started with `--app multiagency-paperwork --market`, run:
 
 ```bash
 PLATFORM_STACK_DIR=<fresh-stack-directory> bun --no-env-file run demo:market

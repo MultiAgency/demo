@@ -1,3 +1,5 @@
+STATUS 2026-11-14: Rollout COMPLETE as deployment 8baf1126-1896-4740-ad46-0241349219b2, image sha256:23c7771d244d9e44c2ec6b023aa246954db804bd082853f74524639f7b6296dd. Snapshot sdk060-2026-11-14T16-08-43.037Z with gates [0,0,0]. Read-only acceptance passed: runtime identity, preserved records, public verification, refusals and host poll traces. The signed-in scheduled-polls.js read remains, and writes stay paused. Receipt: docs/deployment-update-8baf1126.json. The text below is the executed runbook, kept as recorded; verify-runtime.ts needs '/' after the port to fetch assets.
+
 Paperwork replacement-pair LOCAL rollout candidate — not deployment authorization
 
 App source manifest: 05455f2ab87fe6859532bac2b00cc85a7fe959bb716559c8144337de91103a38

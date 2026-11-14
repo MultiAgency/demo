@@ -3,17 +3,13 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { verifiedSdkPin } from "./sdk-pin";
 
 const root = resolve(import.meta.dir, "..");
-const gatewayPin = JSON.parse(readFileSync(join(root, "vendor/multiagency-sdk/gateway-pin.json"), "utf8")) as {
-  runDigest: string; sourceHead: string; dependencyTree: string; snapshot: string; sdkTarballSha256: string;
-};
+const { pin: gatewayPin } = verifiedSdkPin();
 const pinnedDigest = gatewayPin.runDigest;
 const pinnedSource = gatewayPin.sourceHead;
 const pinnedDependencies = gatewayPin.dependencyTree;
-const sdkArtifact = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies: Record<string, string> }).dependencies["@multiagency/sdk"]!;
-if (!sdkArtifact.startsWith("./vendor/multiagency-sdk/") || sdkArtifact.includes("..")) throw new Error("Expected a repository-local SDK artifact");
-if (sha(readFileSync(join(root, sdkArtifact))) !== gatewayPin.sdkTarballSha256) throw new Error("SDK and gateway pins do not match");
 const mergeWorkflow = process.argv.includes("--v2");
 const preflight = process.argv.includes("--preflight");
 const bootstrapOnly = process.argv.includes("--bootstrap-only");

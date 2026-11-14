@@ -1,0 +1,81 @@
+{
+  "as_of": "2026-11-14T16:45:00Z",
+  "result": "ROLLOUT COMPLETE; read-only hosted acceptance passed except the signed-in worker read. Writes remain paused; no paid or Market activation readiness is claimed.",
+  "authorization": "User-authorized single state-preserving update after confirming \"No active runs; writes can remain paused.\" Grants no standing redeploy, restart, credential, signature, hire, grant, funding or payment authority. A later request to roll out again from 9842ce9 was answered by the user with no redeploy; re-verify only.",
+  "origin": "https://desk.multiagency.ai",
+  "railway": {
+    "project": "ce2d99b3-d041-4001-906b-d2ed616ca41b",
+    "environment": "4a31566a-ec00-4922-ac0c-d0ae0f9d3ea9 (production)",
+    "service": "269f0f4a-234d-42eb-b886-3d5feec13501",
+    "deployment": "8baf1126-1896-4740-ad46-0241349219b2",
+    "status": "SUCCESS",
+    "created_at": "2026-11-14T16:09:04.439Z",
+    "message": "Paperwork replacement SDK060 c1a3ae61 app05455f2a linux-amd64",
+    "builder": "DOCKERFILE from source upload (railway up), one replica, /data mounted, ON_FAILURE x3, healthcheck /api/health",
+    "previous_deployment": "d64e3f44-aa1b-4502-9125-4eafebd5f58c (now REMOVED; image sha256:47aeeeef1c4d042c1a4b8a61c1809234df73ceab7427082897420c5be43e4aad)"
+  },
+  "source": {
+    "frozen_source": ".release-candidates/preservation-review-20261114/source (manifest 05455f2ab87fe6859532bac2b00cc85a7fe959bb716559c8144337de91103a38)",
+    "qualified_pr_head": "0756ca55a3ea431f9ad5410efb41c810bcf1e69e",
+    "merge": "9842ce90b5ac5f3dbb62ee9e9a67d2c516f71c1f (PR 14)",
+    "tree_match": "Frozen source matches PR head and merge trees (51d02469850229ba846d0123e5f8508d1bb97038); PR and merged-head CI passed",
+    "sdk": "vendor/multiagency-sdk/multiagency-sdk-0.6.0-c1a3ae61.tgz, SHA-256 aa3d4325bde4f74604280c577fac99b50acea805d27214a89899a77e1132af9a. Byte-identical to the later npm publication @multiagency/sdk@0.6.0 (sha1 33399ef701c05930c6acb84e655a7da3e1b69a66)."
+  },
+  "image_digest": "sha256:23c7771d244d9e44c2ec6b023aa246954db804bd082853f74524639f7b6296dd (Railway rebuild; differs from the locally qualified image sha256:066d0c4e037a9838db07ea98302b4eac2daba0a08893de019c9f08f1e81162fc, which was not uploaded)",
+  "preservation": {
+    "protected_snapshot": "/data/protected-snapshots/sdk060-2026-11-14T16-08-43.037Z (on the production volume only; not exported)",
+    "snapshot_sha256": "1868988f64f05d8c2f8563bbd1e8d140b88459c09d6c6647288bf6cc752bda75",
+    "integrity": "ok",
+    "volume": "original /data, unchanged; credentials and auth secret unchanged"
+  },
+  "rollback_gate_before_deploy": { "snapshot": [0, 0, 0], "live": [0, 0, 0], "queries": "docs/deploy.md#rollback-after-the-2026-11-13-changes" },
+  "hosted_checks": {
+    "runtime_identity": {
+      "result": "PASS (initial run after deploy, rerun 2026-11-14T16:44:54Z)",
+      "detail": "119 source files and 101 installed SDK files match, linux/x64, frontend assets ./chunk-1452ywc3.css and ./chunk-kzwmd35m.js match, worker binding 2f97c93227eb/multiagentic.near, /api/health 200",
+      "script": "Frozen verify-runtime.ts concatenates 'http://127.0.0.1:8080' with './chunk-…' and fails on asset fetch. A corrected copy adding '/' after the port (SHA-256 14a5e1649eefc123a58f7168ecdb59238972660402ce55db0540df4055697be0) passed. Frozen evidence unmodified. A 16:41Z rerun failed at SSH connect (timeout) before executing and is not counted."
+    },
+    "preserved_records": {
+      "result": "PASS",
+      "at": ["2026-11-14T16:27:45.972Z", "2026-11-14T16:41:26.731Z"],
+      "method": "Read-only on-host comparison of the protected snapshot's protected-records.json with the live database; output counts and column names only",
+      "contracts": "1 of 1 unchanged",
+      "payout_attempts": "0 in snapshot and live; no unknown or other payout outcomes",
+      "market_assignments": "2 of 2 present by assignment id; only updated_at advanced (each scheduled poll's upsert rewrites it); every identity, status, deliverable and submission field unchanged",
+      "market_deliveries, market_hires, funding_recovery_attempts": "0 in snapshot and live",
+      "public_verification": "1 contract, overall green, terms_hash equals stored hash (both runs; second run after the gateway moved to c5c6e6bd)"
+    },
+    "private_route_refusals": {
+      "result": "PASS",
+      "signed_out_external": "/api/jobs/mine, /api/jobs/mine/actions, /api/market/worker, /api/market/agencies 401; /api/contracts returns []; /api/me session null; /api/sim/* and /api/market/sim/* 404",
+      "signed_out_by_real_id_on_host": "/api/contracts/:id, /verify, /submissions, /registration, /funding-recovery 401; /signing-request 400 without role, 401 with role=representative or contractor"
+    },
+    "scheduled_polls": {
+      "result": "Host trace PASS; signed-in last_poll read NOT RUN",
+      "host_trace": [
+        { "observed_at": "2026-11-14T16:31:39.938Z", "newest_updated_at": "2026-11-14T16:30:53.653Z" },
+        { "observed_at": "2026-11-14T16:32:44.966Z", "newest_updated_at": "2026-11-14T16:31:53.639Z" },
+        { "observed_at": "2026-11-14T16:33:49.989Z", "newest_updated_at": "2026-11-14T16:32:53.657Z" },
+        { "observed_at": "2026-11-14T16:42:33.325Z", "newest_updated_at": "2026-11-14T16:41:53.777Z" },
+        { "observed_at": "2026-11-14T16:43:38.353Z", "newest_updated_at": "2026-11-14T16:42:53.786Z" },
+        { "observed_at": "2026-11-14T16:44:43.378Z", "newest_updated_at": "2026-11-14T16:43:53.801Z" }
+      ],
+      "interpretation": "Distinct, roughly 60 s apart, each under 90 s old: the timer's Market read and upserts are completing. This is persisted-state evidence, not the runbook's in-memory last_poll.error check.",
+      "runbook_check": "scheduled-polls.js needs a browser signed into the worker agency; the automation browser had no session (/api/market/worker 401). Requires an owner NEAR sign-in.",
+      "logs": "Bounded logs from container start (16:09:52Z) to 16:30:37Z: startup lines, one Better Auth client-IP rate-limit warning from the automation browser, SSH sessions; no worker poll failure lines"
+    },
+    "gateway_association": {
+      "result": "Railway metadata observed; not byte-audited by this session",
+      "paperwork_config": "/api/config: platform remote, host api.dev.multiagency.ai, auth required, demo_controls false, market worker true",
+      "gateway": "api.dev.multiagency.ai staging deployment c5c6e6bd-91c0-408b-9976-41e396e4f990 SUCCESS 2026-11-14T16:33:20.969Z, image sha256:6122c5a1bd5771561394f2db94eaaaebd780ad0b345a5da7f68af653876979ef, message 'SDK 0.6.0 c1a3ae61 platform package, staging'; previous 2fd7d108 (manifest revision 730e910) REMOVED. /health 200.",
+      "note": "Between 16:09Z and 16:33Z Paperwork's 0.6.0 client ran against the older 2fd7d108 gateway. Package identity and smoke on c5c6e6bd are platform-owned evidence."
+    }
+  },
+  "not_verified": [
+    "Signed-in /api/market/worker last_poll (three distinct successful reads) per scheduled-polls.js",
+    "Independent byte audit of the c5c6e6bd gateway package",
+    "Correct-agency Desk delivery readiness within 600 seconds; any Market hire, grant, funding or signature (Market activation is out of scope and needs its own owner approval)"
+  ],
+  "financial_actions": "None. No forced poll, hire, grant, funding, signature, allocation, submission replay or payment.",
+  "rollback_after_deploy": "Forward-only for backend state once newer records exist; never restore the snapshot over newer activity. UI/image rollback keeps the database. Any restore needs a separate recovery review."
+}

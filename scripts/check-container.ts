@@ -1,7 +1,8 @@
 /** Isolated Linux packaging smoke test. No network, real credentials or payment actions. */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { verifiedSdkPin } from "./sdk-pin";
 
 const image = process.argv[2];
 if (!image) throw new Error("Usage: bun --no-env-file scripts/check-container.ts <local-image> [artifact-directory]");
@@ -11,8 +12,7 @@ const name = `paperwork-smoke-${randomUUID()}`;
 const volume = `${name}-data`;
 const credential = "tap_container_smoke_fixture_only";
 const secret = "container-smoke-auth-secret-fixture-only-123456789";
-const sdkVersion = JSON.parse(readFileSync(new URL("../node_modules/@multiagency/sdk/package.json", import.meta.url), "utf8")).version;
-const pin = JSON.parse(readFileSync(new URL("../vendor/multiagency-sdk/gateway-pin.json", import.meta.url), "utf8"));
+const { pin, provenanceSha256 } = verifiedSdkPin();
 const env: Record<string, string> = {
   PLATFORM: "remote", PLATFORM_URL: "https://platform.invalid", PLATFORM_DEPLOYMENT: "multiagency-paperwork",
   PLATFORM_CREDENTIAL: credential, BETTER_AUTH_SECRET: secret, PUBLIC_URL: "https://paperwork.invalid",
@@ -49,11 +49,11 @@ try {
   check(inspect.Os === "linux", "Expected a Linux image");
   writeFileSync(join(artifacts, "image.json"), JSON.stringify({ id: inspect.Id, os: inspect.Os, architecture: inspect.Architecture }, null, 2));
   const sdkCheck = await docker(["run", "--rm", "--network", "none", "--entrypoint", "bun", image, "--no-env-file", "-e",
-    `import{readFileSync,readdirSync}from'node:fs';import{createHash}from'node:crypto';const files=readdirSync('vendor/multiagency-sdk');const sdk=JSON.parse(readFileSync('node_modules/@multiagency/sdk/package.json','utf8'));const p=JSON.parse(readFileSync('node_modules/@multiagency/sdk/provenance.json','utf8'));const tar=JSON.parse(readFileSync('package.json','utf8')).dependencies['@multiagency/sdk'];console.log(JSON.stringify({files,version:sdk.version,source:p.sourceHead,sha256:createHash('sha256').update(readFileSync(tar)).digest('hex')}));`]);
+    `import{existsSync,readFileSync}from'node:fs';import{createHash}from'node:crypto';const sdk=JSON.parse(readFileSync('node_modules/@multiagency/sdk/package.json','utf8'));const prov=readFileSync('node_modules/@multiagency/sdk/provenance.json');const lock=readFileSync('bun.lock','utf8');console.log(JSON.stringify({vendor:existsSync('vendor'),declared:JSON.parse(readFileSync('package.json','utf8')).dependencies['@multiagency/sdk'],version:sdk.version,source:JSON.parse(prov).sourceHead,provenance:createHash('sha256').update(prov).digest('hex'),lockIntegrity:lock.includes(${JSON.stringify(pin.sdkIntegrity)})}));`]);
   const sdk = JSON.parse(sdkCheck.stdout);
-  check(sdk.version === sdkVersion && sdk.source === pin.sourceHead && sdk.sha256 === pin.sdkTarballSha256, "Image SDK does not match validated pins");
-  check(sdk.files.length === 1 && sdk.files[0] === pin.sdkTarball, "Image contains inactive SDK artifacts");
-  checks.push("Linux image contains exact SDK and no inactive vendor artifacts");
+  check(sdk.declared === pin.sdkVersion && sdk.version === pin.sdkVersion && sdk.source === pin.sourceHead && sdk.provenance === provenanceSha256 && sdk.lockIntegrity, "Image SDK does not match validated pins");
+  check(!sdk.vendor, "Image contains vendored SDK artifacts");
+  checks.push("Linux image installs the exact pinned registry SDK and contains no vendored artifacts");
   for (const [label, values, expected] of [
     ["missing platform", {}, "Set PLATFORM"],
     ["missing volume declaration", { ...env, RAILWAY_VOLUME_MOUNT_PATH: "" }, "No volume is mounted"],

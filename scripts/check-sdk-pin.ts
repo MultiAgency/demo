@@ -1,29 +1,18 @@
-/** Check the installed SDK against the retained, byte-verified release artifact without registry access. */
-import { createHash } from "node:crypto";
+/** Check the npm-pinned SDK against the qualified SDK/gateway pair without registry access. */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { verifiedSdkPin } from "./sdk-pin";
 const root = resolve(import.meta.dir, "..");
-const read = (path: string) => readFileSync(resolve(root, path));
-const pin = JSON.parse(read("vendor/multiagency-sdk/gateway-pin.json").toString());
-const artifact = JSON.parse(read("package.json").toString()).dependencies["@multiagency/sdk"] as string;
-if (!artifact.startsWith("./vendor/multiagency-sdk/") || artifact.includes("..")) throw new Error("Expected the retained repository-local SDK artifact");
-const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-if (sha(read(artifact)) !== pin.sdkTarballSha256) throw new Error("SDK archive differs from gateway pin");
-const sidecar = read(artifact.replace(/\.tgz$/, ".provenance.json"));
-const installed = read("node_modules/@multiagency/sdk/provenance.json");
-if (!sidecar.equals(installed)) throw new Error("Installed SDK provenance differs from verified artifact");
-const provenance = JSON.parse(installed.toString());
-if (provenance.sourceHead !== pin.sourceHead || provenance.snapshot.runDigest !== pin.runDigest || provenance.dirtyPaths.length !== 0)
-  throw new Error("SDK/gateway source bindings differ");
-// Keep active release guidance bound to the actual retained artifact, including in CI.
-const release = JSON.parse(read("docs/release-status.json").toString());
-if (release.pins.sdk_version !== JSON.parse(read("node_modules/@multiagency/sdk/package.json").toString()).version)
-  throw new Error("Release status SDK version differs from installed SDK");
+const { pin, provenanceSha256 } = verifiedSdkPin();
+// Keep active release guidance bound to the actual pinned artifact, including in CI.
+const release = JSON.parse(readFileSync(resolve(root, "docs/release-status.json"), "utf8"));
+if (release.pins.sdk_version !== pin.sdkVersion)
+  throw new Error("Release status SDK version differs from the pinned SDK");
 if (release.pins.sdk_sha256 !== pin.sdkTarballSha256 || release.pins.platform_source !== pin.sourceHead || release.pins.gateway_candidate !== pin.runDigest)
   throw new Error("Release status differs from active SDK/gateway pins");
 for (const [name, actual] of [["PAPERWORK_PLATFORM_SOURCE", pin.sourceHead],
   ["PAPERWORK_PLATFORM_CANDIDATE", pin.runDigest], ["PAPERWORK_SDK_SHA256", pin.sdkTarballSha256]] as const) {
   const expected = process.env[name];
-  if (expected && expected !== actual) throw new Error(`${name} differs from the retained SDK/platform pair`);
+  if (expected && expected !== actual) throw new Error(`${name} differs from the pinned SDK/platform pair`);
 }
-console.log(JSON.stringify({ sdk_sha256: pin.sdkTarballSha256, source: pin.sourceHead, gateway: pin.runDigest, provenance_sha256: sha(installed) }, null, 2));
+console.log(JSON.stringify({ sdk_version: pin.sdkVersion, sdk_integrity: pin.sdkIntegrity, sdk_sha256: pin.sdkTarballSha256, source: pin.sourceHead, gateway: pin.runDigest, provenance_sha256: provenanceSha256 }, null, 2));
