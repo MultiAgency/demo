@@ -1,0 +1,52 @@
+{
+  "as_of": "2026-11-14",
+  "status": "INTEGRATION_PREPARED_NOT_PROMOTED",
+  "fullAcceptance": false,
+  "allRequiredChecksPassed": false,
+  "baseCommit": "f54ada0df84054a78a449d74cd89240cfddacfc6",
+  "sourceManifestSha256": "916ee27a1fb4bb4e54e874e007d381f608a09ba0d421849d7f1adac7a2420846",
+  "image": "sha256:5e5c2dd37caece019810e07ae8ff56b2dc704e77e8f977da6197a99ba4b31c4e",
+  "architecture": "linux/amd64",
+  "platformSource": "ff4a17ffa6a0f6055692f9147e147ab01b03a58d",
+  "candidate": "78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea",
+  "sdkSha256": "b7c45afaa4a3605eae9bcd9c174e3d1b0fbfb55b8285b2405828a9024f6a9f0c",
+  "installedSdkFilesByteVerified": 101,
+  "rerun": {
+    "offlineTests": 1686,
+    "offlineFailures": 0,
+    "typecheck": "pass",
+    "sdkPin": "pass",
+    "buyerMarket": "pass",
+    "workerMarket": "blocked: version-history HTTP 404; zero submission POST; attempt retained",
+    "amd64Container": "pass"
+  },
+  "earlierEvidence": {
+    "exactSdkArchiveAndProvenance": "Still applicable: identical bytes, rechecked in final installed image",
+    "previousFrozenRuntimeChecks": "Historical only for earlier source; no transfer to integrated app",
+    "previousHostedEac99283": "Historical deployment association only; integrated source not deployed",
+    "fullBrowserRealSdkReworkRestart": "Combined integrated real-SDK/browser, fixture rework, privacy and Market-settled browser were rerun and passed during preflight investigation; separate real-SDK process-restart qualification remains a gate for a replacement pair."
+  },
+  "rolloutGate": "Do not replace previous frozen candidate: worker integration must pass first; then review outstanding workflow/hosted checks",
+  "previousFrozenSourceUnchanged": "7de75db767837b37a7dadf134078e10fce406f3c06131f94d001d0793f3ea463",
+  "noPaidHire": true,
+  "issue81": "separately deferred",
+  "evidenceDirectory": ".release-candidates/sdk060-integration-916ee27a/ (ignored; private receipts and logs)",
+  "receiptSha256": "43332dc241e2141374057062975127ee81126286669844fb05391d03a94b8b9f",
+  "runbook": "docs/sdk060-rollout.txt",
+  "historicalAbf514ef": "docs/archive/sdk060-abf514ef-local-readiness.json; payloads preserved in ignored working-edits archive; never active inputs",
+  "preflightInvestigation": {
+    "finding": "UNRESOLVED_PLATFORM_SIMULATOR_COVERAGE",
+    "report": "docs/market-worker-preflight.txt",
+    "receiptSha256": "50015cb40dea810f82edce27e46b5e1f21cee5d73ad94121fd94a879a801c368",
+    "runtimeSourceUnchanged": true,
+    "offlineTests": 1688,
+    "browserChecks": [
+      "combined real-SDK builder/Market",
+      "fixture revision/keyboard",
+      "privacy matrix",
+      "Market-settled jobs"
+    ],
+    "platformHandoff": "https://github.com/MultiAgency/platform/issues/94#issuecomment-6878959025",
+    "simulatorContractCheck": "fails expected 200, observed 404; no runtime correction or new pair yet"
+  }
+}

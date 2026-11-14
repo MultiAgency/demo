@@ -1,4 +1,4 @@
-Market worker preflight investigation — 2026-11-14; INTEGRATION REMAINS UNPROMOTED
+Historical Market worker preflight investigation — 2026-11-14; original failure preserved
 
 Reproduced request (fresh, isolated fixture; original retained attempt not replayed):
   GET /v1/assignments/:assignment_id/deliverable/versions
@@ -38,3 +38,5 @@ The integrated runtime source remains 916ee27a1fb4bb4e54e874e007d381f608a09ba0d4
 Original retained receipt and submitted attempt/report remain preserved. No paid request or live Market call was made. #81 remains separately deferred; no replacement or replay, no budget release and no conflation with #74. Hosted rollout and Desk readiness gates remain open.
 
 Fresh results: 1,688 offline tests and typecheck pass. Combined integrated real-SDK/browser, fixture revision/keyboard, privacy matrix and Market-settled browser all pass. Worker traced workflow and standalone simulator contract check still fail on the missing route; neither is counted as a pass. New receipt SHA-256: 50015cb40dea810f82edce27e46b5e1f21cee5d73ad94121fd94a879a801c368.
+
+Replacement resolution: source f4729f4a7244a4e415d03678535328960b695d71 / candidate c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509 supplies the missing simulator routes. Fresh contract, one-submit worker including lost-response version/raw recovery, SDK workflow/rework/restart, browser and amd64 checks pass. Current local candidate identities and hosted gates are in sdk060-local-readiness.json; the older statements above refer to the preserved 78902f13 investigation, not replacement qualification.

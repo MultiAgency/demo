@@ -223,3 +223,10 @@ console.log(JSON.stringify({
   history: `/api/contracts/${id}/submissions`,
 }, null, 2));
 console.log("\nPASS · one job, one explicit approval, one confirmed simulated payment.");
+
+if (process.argv.includes("--assert-rejection-proof")) {
+  check(withChanges && !restart, "Rejection-proof check needs the rework fixture without process restart");
+  const attempts = rt.db.query("SELECT request_id,state,never_executed,amount_atomic FROM payout_attempts ORDER BY rowid").all() as { never_executed: number | null }[];
+  check(attempts.some(row => row.never_executed === 1), "SDK rejection proof must reach the original app SQLite record");
+  console.log("SDK_REJECTION_PROOF " + JSON.stringify(attempts));
+}

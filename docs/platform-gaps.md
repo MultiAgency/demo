@@ -139,11 +139,13 @@ end to end (probe, 2026-11-11), so this is the only blocker. Covenant asks for `
 Covenant shows the DAO's own stop page instead, which cuts apps off but doesn't freeze. Decided 2026-11-11: a DAO's
 `market` consent will cover its market agent's grant, revocation, policy edits, freeze and unfreeze, each by vote.
 
-## M3. Worker preflight remains blocked in the exact-pair simulator
+## M3. Historical worker preflight gap; replacement c1a3ae61 locally qualified
+
+Replacement source `f4729f4…` / candidate `c1a3ae61…` implements the missing authenticated routes. Fresh Paperwork contract, one-submit normal/lost-response worker, raw/history, workflow/browser/restart and amd64 checks pass. See `sdk060-local-readiness.json`. This does not establish hosted or full 0.6.0 acceptance.
 
 Exact method, sanitized response, pinned-provider comparison and fresh regression/browser results: [preflight investigation](market-worker-preflight.txt).
 
-Fresh integrated-source `demo:market:work` against platform source `ff4a17ffa6a0f6055692f9147e147ab01b03a58d`, candidate `78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea`, returns 404 for `GET /v1/assignments/:id/deliverable/versions`. Submission is refused before POST; the saved attempt and original unknown hire are retained. The earlier consolidated passing Market receipt ran without `--worker` and does not establish this endpoint. Directory and buyer checks pass. Platform owner must supply version-history support; app must not fabricate an empty baseline or bypass preflight. See `sdk060-local-readiness.json`.
+Historical `78902f13` integrated-source `demo:market:work` against platform source `ff4a17ffa6a0f6055692f9147e147ab01b03a58d`, candidate `78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea`, returns 404 for `GET /v1/assignments/:id/deliverable/versions`. Submission is refused before POST; the saved attempt and original unknown hire are retained. The earlier consolidated passing Market receipt ran without `--worker` and does not establish this endpoint. Directory and buyer checks pass. Platform owner must supply version-history support; app must not fabricate an empty baseline or bypass preflight. See `sdk060-local-readiness.json`.
 
 #74 closure is separate from deferred #81 recovery; no activation is authorized here.
 
