@@ -47,7 +47,7 @@ This route, without the optional step, is the one in the demo video, recorded on
 
 This application uses the shared [MultiAgency Platform](https://github.com/MultiAgency/platform) and `@multiagency/sdk` for app consent, owner/DAO signatures, guarded execution, durable request identity and local simulation. Treasury and Paperwork are separate applications with one shared founder. These primitives are shared work, not independently invented by both teams.
 
-The other project is **Treasury**: https://github.com/MultiAgency/treasury.
+The other project is **Agentic Treasury**: https://github.com/MultiAgency/treasury.
 
 Paperwork's own contribution in this repository: the job terms model and canonical hash, two-party NEP-413 signing, compiling terms into a per-job agent policy and checking the live policy before every payout, the report/invoice/revision workflow, compensation assessment, held-payout approval and settlement tracking with lost-reply recovery, public Verify, Desk (assigned work, agency view, public openings), the Agent Market worker and hire flows, and the web app.
 
