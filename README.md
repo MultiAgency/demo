@@ -1,8 +1,8 @@
-# MultiAgency Paperwork
+# Paperwork
 
 **The signed terms set the spending limit.**
 
-Paperwork is MultiAgency's payroll app for signed builder jobs. A company and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Paperwork uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.6.0 (retained candidate-specific artifact, verified against the pinned gateway): an agent for this job, a fixed payee, bounded payments and explicit agency approval.
+Paperwork turns a signed job into a payment agent that can only pay what was agreed. Any agency, company, team or client paying a builder for scoped work can use it. MultiAgency uses it for its own builder jobs at desk.multiagency.ai. The payer and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Paperwork uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.6.0 (npm, verified offline against the pinned gateway candidate): an agent for this job, a fixed payee, bounded payments and explicit agency approval.
 
 The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. The **Pay on merge** workflow remains available for v2 jobs; new v3 jobs explicitly sign the report/invoice and payment clauses.
 
@@ -12,7 +12,62 @@ The **Report and invoice** workflow adds immutable submission revisions, evidenc
 
 Paperwork's server holds only its app credential. In production it never holds an owner or provider key; the keyless demo and the local stack use a demo signer.
 
-**Status:** current deployment, pins and open gates are in [PROGRESS.md](PROGRESS.md) and [release-status.json](docs/release-status.json); environments are in [deploy.md](docs/deploy.md#environments). Tracks: Real-World Money, AI Security & Defense.
+**Status:** current deployment, pins and open gates are in [PROGRESS.md](PROGRESS.md) and [release-status.json](docs/release-status.json); environments are in [deploy.md](docs/deploy.md#environments). Tracks: Real-World Money, AI Security & Defense, Agent Economy, Autonomous Business, Social Money.
+
+## NEAR HACKATHON: for judges
+
+**Problem.** Anyone who pays builders for scoped work (an agency, a company, a team or a client) wants software, including AI, to prepare those payments. It must never give that software open-ended spending power. The builder wants to know the money is really committed to the agreed terms.
+
+**What Paperwork does.** The agency and the builder sign one job's terms (scope, budget, payee, acceptance criteria, deadline, payment terms) with their NEAR wallets. Paperwork turns those signed terms into the spending policy of a dedicated payment agent: USDC only, the signed payee only, at most the signed per-payment cap, and every payout held until the agency approves it. The builder files a report and invoice. An agent proposes compensation within the signed limits. The agency approves or requests changes, and only the platform's settlement result counts as paid. Anyone with the link can see whether the live policy still matches the signed terms.
+
+**How NEAR fits.**
+- **NEP-413:** both parties sign the terms hash, and every owner step (agent setup, consents, grant, policy, payout approval) is signed the same way. Paperwork checks each signature against a full-access key on NEAR mainnet RPC.
+- **Sign in with NEAR** through Better-Auth and better-near-auth.
+- **USDC on NEAR** is paid out by a per-job NEAR Intents agent on the MultiAgency platform. The provider enforces the payee, asset, cap and owner-approval policy.
+- **NEAR AI Cloud** (optional) drives the report assessment and the Review assistant; without a key, a rule-based judge runs.
+- **NEAR AI Agent Market:** an agency's listed agent receives and delivers hires, and Sputnik DAO agencies vote on hire terms.
+
+### Try it (about 5 minutes, no keys, everything simulated)
+
+`bun install && bun run demo`, then open http://localhost:3000. The sidebar says **Platform stand-in · No real funds · demo wallet**: signatures, provider, chain and settlement are simulated.
+
+| Do | See |
+| --- | --- |
+| Open `http://localhost:3000/#/new`, remove deliverables d2 and d3 to keep the $300 one, **Create draft** | A draft job with its terms hash and a live preview of the policy it will become |
+| **Sign as acme.demo**, open **Builder invitation**, **Sign as maria.demo (demo wallet)**, then return to the job | Both NEP-413 signatures over the same terms hash |
+| **Sign remaining setup steps**, then **Fund $300.00 (demo)** | Checklist 8 of 8: Organization, agent, access, payout grant, policy in force; agent balance $300.00 |
+| In the builder view, write a report, add an HTTPS evidence link, **Submit report and invoice** | The agency sees the agent's assessment and $300.00 proposed compensation; nothing is paid yet |
+| Optional: **Request changes** as the agency, then submit a revision as the builder | Revision 1 is kept as *Changes requested*; revision 2 is a new immutable submission |
+| **Security test** → **Run all** | Redirect to `attacker.demo` *Refused by the platform* (`payee_not_agreed`); $1 over the cap refused (`per_transaction_exceeded`); the prompt-injection payout *Held for approval*: "NOT STOPPED by policy: the approval is the second layer". **Reject** it |
+| Back on **Submission & review**, **Approve $300.00** | Payout *Settling*: approval recorded, paid still $0.00 |
+| **Settle approved payouts** (demo bar) | *Payment complete*: *Confirmed settlement*, $300.00 to maria.demo, a `FAKE-…` transaction |
+| **Copy verify link** and open it | Public checks only: terms hash, both signatures, live policy against the signed terms |
+
+Rehearsed by hand on 2026-11-14 (one job, one confirmed simulated payment). The same journey with requested changes runs automated with `bun run demo:browser` (needs `agent-browser`); `bun run demo:e2e` runs the flow and the attacks headless in about 10 seconds. `bun test`: 1,688 pass.
+
+**Hosted (real NEAR, read-only for judges):** MultiAgency's own deployment. https://desk.multiagency.ai/#/c/c_a2002ec56bf1/verify shows public verification of a real job signed on mainnet by `multiagentic.near` and `buildr.near`. The checks are relayed live from the platform on `api.dev.multiagency.ai` running SDK 0.6.0. Funding and payment on the hosted app stay paused pending provider reconciliation, so the payment steps are shown with the simulated platform.
+
+### Shared infrastructure (disclosure)
+
+This application uses the shared [MultiAgency Platform](https://github.com/MultiAgency/platform) and `@multiagency/sdk` for app consent, owner/DAO signatures, guarded execution, durable request identity and local simulation. Treasury and Paperwork are separate applications with one shared founder. These primitives are shared work, not independently invented by both teams.
+
+The other project is **Treasury**: https://github.com/MultiAgency/treasury.
+
+Paperwork's own contribution in this repository: the job terms model and canonical hash, two-party NEP-413 signing, compiling terms into a per-job agent policy and checking the live policy before every payout, the report/invoice/revision workflow, compensation assessment, held-payout approval and settlement tracking with lost-reply recovery, public Verify, Desk (assigned work, agency view, public openings), the Agent Market worker and hire flows, and the web app.
+
+### Libraries and baseline
+
+- Own pre-hackathon baseline (Q-005): the MultiAgency Platform before 2026-10-19 (last commit before the window: [`af6c03b`](https://github.com/MultiAgency/platform/commit/af6c03bbdf9070399da534b91dba4a5c26b21aec), 2026-10-16T17:40:34Z; first window commit `830de85`, 2026-10-19T17:02Z). Platform work after that date, including SDK 0.6.0, is shared infrastructure (see above), not a Paperwork submission.
+- Third-party: Bun, TypeScript, Hono, zod, React, `bun:sqlite`, Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, CopilotKit/AG-UI, `@nearai/inference-sdk`. The full list is in [package.json](package.json).
+- Written with AI assistance.
+
+### Hackathon-window diff (Q-003)
+
+All history in this repository is inside the window: the first commit is 2026-11-01, and the repository was created 2026-11-03. There is no pre-hackathon commit here, so the whole repository is hackathon work. Its baseline is the platform listed above. Submission tag: `hackathon-submission` (compare: https://github.com/MultiAgency/demo/commits/hackathon-submission).
+
+### Limits
+
+Payment in the demo is simulated. The hosted app has signed real terms on mainnet, but has not settled a hosted payment, and its funding stays paused. SDK-simulator rework is not shown as working. Verify relays the platform's read; it is not a cryptographic proof to the builder. See [What we claim, and what we don't](#what-we-claim-and-what-we-dont).
 
 ## Run it
 
@@ -204,7 +259,7 @@ Optional AI report assessment has a **30-second** deadline covering the request 
 
 ## Built with
 
-Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.6.0 (retained candidate-specific artifact, verified against the pinned gateway), Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
+Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.6.0 (npm), Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
 
 Written with AI assistance.
 
@@ -225,4 +280,4 @@ Run one owned stack at a time and stop it after its recipe. `demo:market` checks
 
 `bun --no-env-file run demo:market:browser` remains a separate fixture-based Market-settled job boundary. It verifies no platform payout, but does not qualify real Market settlement or earnings withdrawal. None of these recipes authorize hosted changes or use of retained funds.
 
-Replacement exact-pair local qualification: [readiness](docs/sdk060-local-readiness.json). Owner review, remote CI and hosted gates remain: [handoff](docs/sdk060-rollout.txt). The earlier frozen candidate remains preserved.
+Replacement exact-pair local qualification: [readiness](docs/sdk060-local-readiness.json). Merged as `9842ce9` and deployed to desk.multiagency.ai as `8baf1126` ([receipt](docs/deployment-update-8baf1126.json), [runbook](docs/sdk060-rollout.txt)); the signed-in worker poll read and Market activation remain separate gates. The earlier frozen candidate remains preserved.

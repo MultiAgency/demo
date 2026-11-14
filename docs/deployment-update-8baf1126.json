@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-11-14T16:45:00Z",
+  "as_of": "2026-11-14T16:56:00Z",
   "result": "ROLLOUT COMPLETE; read-only hosted acceptance passed except the signed-in worker read. Writes remain paused; no paid or Market activation readiness is claimed.",
   "authorization": "User-authorized single state-preserving update after confirming \"No active runs; writes can remain paused.\" Grants no standing redeploy, restart, credential, signature, hire, grant, funding or payment authority. A later request to roll out again from 9842ce9 was answered by the user with no redeploy; re-verify only.",
   "origin": "https://desk.multiagency.ai",
@@ -51,7 +51,7 @@
       "signed_out_by_real_id_on_host": "/api/contracts/:id, /verify, /submissions, /registration, /funding-recovery 401; /signing-request 400 without role, 401 with role=representative or contractor"
     },
     "scheduled_polls": {
-      "result": "Host trace PASS; signed-in last_poll read NOT RUN",
+      "result": "Host trace PASS (six distinct timestamps, recorded as the poll evidence); signed-in last_poll read NOT RUN",
       "host_trace": [
         { "observed_at": "2026-11-14T16:31:39.938Z", "newest_updated_at": "2026-11-14T16:30:53.653Z" },
         { "observed_at": "2026-11-14T16:32:44.966Z", "newest_updated_at": "2026-11-14T16:31:53.639Z" },
@@ -65,9 +65,10 @@
       "logs": "Bounded logs from container start (16:09:52Z) to 16:30:37Z: startup lines, one Better Auth client-IP rate-limit warning from the automation browser, SSH sessions; no worker poll failure lines"
     },
     "gateway_association": {
-      "result": "Railway metadata observed; not byte-audited by this session",
+      "result": "PASS (platform-session audit cited; not re-audited here)",
       "paperwork_config": "/api/config: platform remote, host api.dev.multiagency.ai, auth required, demo_controls false, market worker true",
       "gateway": "api.dev.multiagency.ai staging deployment c5c6e6bd-91c0-408b-9976-41e396e4f990 SUCCESS 2026-11-14T16:33:20.969Z, image sha256:6122c5a1bd5771561394f2db94eaaaebd780ad0b345a5da7f68af653876979ef, message 'SDK 0.6.0 c1a3ae61 platform package, staging'; previous 2fd7d108 (manifest revision 730e910) REMOVED. /health 200.",
+      "platform_audit": "MultiAgency/platform docs/platform-staging.md, '0.6.0 deployed by the owner, 2026-11-14 UTC' (sdk commit 0c8c097): c5c6e6bd x64, all 257 packaged runtime hashes equal candidate c1a3ae61's manifest (source f4729f4), no-Market operator config unchanged, state retained, platform smoke passed. Image sha256:6122c5a1bd5771561394f2db94eaaaebd780ad0b345a5da7f68af653876979ef (Railway meta.imageDigest, read by this session at 16:3xZ and by the platform session at ~17:05Z; the platform record's earlier different value was corrected).",
       "note": "Between 16:09Z and 16:33Z Paperwork's 0.6.0 client ran against the older 2fd7d108 gateway. Package identity and smoke on c5c6e6bd are platform-owned evidence."
     }
   },
