@@ -4,28 +4,24 @@
 
 Paperwork turns a signed job into a payment agent that can only pay what was agreed. Any agency, company, team or client paying a builder for scoped work can use it. MultiAgency uses it for its own builder jobs at desk.multiagency.ai. The payer and a builder agree a scope, budget, acceptance criteria, deadline and payment terms. Paperwork uses the [MultiAgency platform](https://github.com/MultiAgency/platform) through `@multiagency/sdk` 0.6.0 (npm, verified offline against the pinned gateway candidate): an agent for this job, a fixed payee, bounded payments and explicit agency approval.
 
-The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. The **Pay on merge** workflow remains available for v2 jobs; new v3 jobs explicitly sign the report/invoice and payment clauses.
-
-**desk.multiagency.ai** is Paperwork's single entry for private work, agency offers and approvals, public openings and connected [Agent Market](https://market.near.ai) work. Desk opens on **Assigned to me**: jobs where the signed-in account is the named builder or agency representative, grouped into **Needs your action**, **Waiting** and **Completed** from stored workflow evidence. **Agency** shows only jobs that account manages as the representative; **Openings** is public at `/#/openings`. No organization-wide membership access is inferred. See the [Desk walkthrough, source map and boundaries](docs/jobs-portal.md).
-
-> The judge decides how much. The company approves each payout. The signed terms decide the most it could ever be.
-
-Paperwork's server holds only its app credential. In production it never holds an owner or provider key; the keyless demo and the local stack use a demo signer.
-
-**Status:** current deployment, pins and open gates are in [PROGRESS.md](PROGRESS.md) and [release-status.json](docs/release-status.json); environments are in [deploy.md](docs/deploy.md#environments). Tracks: Real-World Money, AI Security & Defense, Agent Economy, Autonomous Business, Social Money.
-
 ## NEAR HACKATHON: for judges
+
+**Tracks:** Real-World Money, AI Security & Defense, Agent Economy, Autonomous Business, Social Money.
 
 **Problem.** Anyone who pays builders for scoped work (an agency, a company, a team or a client) wants software, including AI, to prepare those payments. It must never give that software open-ended spending power. The builder wants to know the money is really committed to the agreed terms.
 
 **What Paperwork does.** The agency and the builder sign one job's terms (scope, budget, payee, acceptance criteria, deadline, payment terms) with their NEAR wallets. Paperwork turns those signed terms into the spending policy of a dedicated payment agent: USDC only, the signed payee only, at most the signed per-payment cap, and every payout held until the agency approves it. The builder files a report and invoice. An agent proposes compensation within the signed limits. The agency approves or requests changes, and only the platform's settlement result counts as paid. Anyone with the link can see whether the live policy still matches the signed terms.
 
 **How NEAR fits.**
-- **NEP-413:** both parties sign the terms hash, and every owner step (agent setup, consents, grant, policy, payout approval) is signed the same way. Paperwork checks each signature against a full-access key on NEAR mainnet RPC.
-- **Sign in with NEAR** through Better-Auth and better-near-auth.
-- **USDC on NEAR** is paid out by a per-job NEAR Intents agent on the MultiAgency platform. The provider enforces the payee, asset, cap and owner-approval policy.
-- **NEAR AI Cloud** (optional) drives the report assessment and the Review assistant; without a key, a rule-based judge runs.
-- **NEAR AI Agent Market:** an agency's listed agent receives and delivers hires, and Sputnik DAO agencies vote on hire terms.
+
+| NEAR piece | What Paperwork uses it for | Status |
+| --- | --- | --- |
+| NEAR wallets, NEP-413 | Both parties sign the terms hash; every owner step (agent, consents, grant, policy, payout approval) is signed the same way and checked against a full-access key over mainnet RPC | Live: the hosted job is signed on mainnet by `multiagentic.near` and `buildr.near` |
+| Sign in with NEAR | Better-Auth with better-near-auth | Live on desk.multiagency.ai |
+| NEAR Intents | USDC payouts from a per-job agent on the MultiAgency platform; the provider enforces payee, asset, cap and owner approval | Simulated in the demo; hosted funding and payment paused |
+| Agent Market | MultiAgency's listed agent [multi](https://market.near.ai/a/multi) receives hires through Paperwork's worker, and the agency delivers them on Desk; agencies can also hire listed agents | Worker live on the hosted app; hiring runs on the local stack |
+| SputnikDAO | A DAO-owned agency votes on each hire's exact terms before it is paid | Local stack only |
+| NEAR AI | Optional report assessment and Review assistant (`NEARAI_API_KEY`) | Off on the hosted app, where a rule-based assessor runs |
 
 ### Try it (about 5 minutes, no keys, everything simulated)
 
@@ -33,17 +29,17 @@ Paperwork's server holds only its app credential. In production it never holds a
 
 | Do | See |
 | --- | --- |
-| Open `http://localhost:3000/#/new`, remove deliverables d2 and d3 to keep the $300 one, **Create draft** | A draft job with its terms hash and a live preview of the policy it will become |
+| Open `http://localhost:3000/#/new`, keep the three default deliverables ($300 + $200 + $500), **Create draft** | A draft job with its terms hash and a live preview of the policy it will become |
 | **Sign as acme.demo**, open **Builder invitation**, **Sign as maria.demo (demo wallet)**, then return to the job | Both NEP-413 signatures over the same terms hash |
-| **Sign remaining setup steps**, then **Fund $300.00 (demo)** | Checklist 8 of 8: Organization, agent, access, payout grant, policy in force; agent balance $300.00 |
-| In the builder view, write a report, add an HTTPS evidence link, **Submit report and invoice** | The agency sees the agent's assessment and $300.00 proposed compensation; nothing is paid yet |
+| **Sign remaining setup steps**, then **Fund $1,000.00 (demo)** | Checklist 8 of 8: Organization, agent, access, payout grant, policy in force; agent balance $1,000.00 |
+| In the builder view, write a report, add an HTTPS evidence link for each deliverable, invoice $1,000, **Submit report and invoice** | The agency sees the agent's assessment and $1,000.00 proposed compensation; nothing is paid yet |
 | Optional: **Request changes** as the agency, then submit a revision as the builder | Revision 1 is kept as *Changes requested*; revision 2 is a new immutable submission |
 | **Security test** → **Run all** | Redirect to `attacker.demo` *Refused by the platform* (`payee_not_agreed`); $1 over the cap refused (`per_transaction_exceeded`); the prompt-injection payout *Held for approval*: "NOT STOPPED by policy: the approval is the second layer". **Reject** it |
-| Back on **Submission & review**, **Approve $300.00** | Payout *Settling*: approval recorded, paid still $0.00 |
-| **Settle approved payouts** (demo bar) | *Payment complete*: *Confirmed settlement*, $300.00 to maria.demo, a `FAKE-…` transaction |
+| Back on **Submission & review**, **Approve $1,000.00** | Payout *Settling*: approval recorded, paid still $0.00 |
+| **Settle approved payouts** (demo bar) | *Payment complete*: *Confirmed settlement*, $1,000.00 to maria.demo, a `FAKE-…` transaction |
 | **Copy verify link** and open it | Public checks only: terms hash, both signatures, live policy against the signed terms |
 
-Rehearsed by hand on 2026-11-14 (one job, one confirmed simulated payment). The same journey with requested changes runs automated with `bun run demo:browser` (needs `agent-browser`); `bun run demo:e2e` runs the flow and the attacks headless in about 10 seconds. `bun test`: 1,688 pass.
+This route, without the optional step, is the one in the demo video, recorded on 2026-11-14 from the `hackathon-submission` source with a fresh server (one job, one confirmed simulated payment). The video then shows the hosted Verify page (read-only), the public [multi](https://market.near.ai/a/multi) listing, and an Agent Market hire simulated on the platform's local stack (no real funds; see [Hire and work on the agent market](#hire-and-work-on-the-agent-market)). The same journey with requested changes runs automated with `bun run demo:browser` (needs `agent-browser`); `bun run demo:e2e` runs the flow and the attacks headless in about a second. `bun test`: 1,688 pass.
 
 **Hosted (real NEAR, read-only for judges):** MultiAgency's own deployment. https://desk.multiagency.ai/#/c/c_a2002ec56bf1/verify shows public verification of a real job signed on mainnet by `multiagentic.near` and `buildr.near`. The checks are relayed live from the platform on `api.dev.multiagency.ai` running SDK 0.6.0. Funding and payment on the hosted app stay paused pending provider reconciliation, so the payment steps are shown with the simulated platform.
 
@@ -69,13 +65,23 @@ All history in this repository is inside the window: the first commit is 2026-11
 
 Payment in the demo is simulated. The hosted app has signed real terms on mainnet, but has not settled a hosted payment, and its funding stays paused. SDK-simulator rework is not shown as working. Verify relays the platform's read; it is not a cryptographic proof to the builder. See [What we claim, and what we don't](#what-we-claim-and-what-we-dont).
 
+## About Paperwork
+
+The **Report and invoice** workflow adds immutable submission revisions, evidence references, an invoice cap, an agent's compensation proposal, requested changes and linked settlement evidence. The **Pay on merge** workflow remains available for v2 jobs; new v3 jobs explicitly sign the report/invoice and payment clauses.
+
+**desk.multiagency.ai** is Paperwork's single entry for private work, agency offers and approvals, public openings and connected [Agent Market](https://market.near.ai) work. Desk opens on **Assigned to me**: jobs where the signed-in account is the named builder or agency representative, grouped into **Needs your action**, **Waiting** and **Completed** from stored workflow evidence. **Agency** shows only jobs that account manages as the representative; **Openings** is public at `/#/openings`. No organization-wide membership access is inferred. See the [Desk walkthrough, source map and boundaries](docs/jobs-portal.md).
+
+Paperwork's server holds only its app credential. In production it never holds an owner or provider key; the keyless demo and the local stack use a demo signer.
+
+**Status:** current deployment, pins and open gates are in [PROGRESS.md](PROGRESS.md) and [release-status.json](docs/release-status.json); environments are in [deploy.md](docs/deploy.md#environments).
+
 ## Run it
 
 Prerequisites: Bun 1.4+ (if `bun install` says "Unknown lockfile version", run `bun upgrade`). Everything below is simulated: signatures, provider, chain and funds.
 
 | Command | What it shows | Needs |
 | --- | --- | --- |
-| `bun run demo:e2e` | The whole flow headless in about 10 seconds on the in-process platform stand-in | nothing |
+| `bun run demo:e2e` | The whole flow headless in about a second on the in-process platform stand-in | nothing |
 | `bun run demo:job` | One report/invoice job to confirmed settlement; add `PAPERWORK_JOB_CHANGES=1 PAPERWORK_JOB_LOST_REPLY=1` for requested changes and a lost reply ([steps](docs/job-demo.md)) | nothing |
 | `bun run demo` | The app in the browser at `localhost:3000` on the stand-in (`PORT=3001` if taken). Public openings read live sources. | network for openings |
 | `bun run demo:desk` | Offline Desk fixture: openings, private-job discovery, onboarding; `demo:desk:check` runs it in a browser | nothing |
@@ -97,7 +103,7 @@ bun install
 bun run demo:e2e
 ```
 
-The whole flow runs in about 10 seconds with no keys and no network, against `FakePlatform`, an in-process stand-in that follows the platform's rules (requestIds, `held`, `refused` codes, approval votes). The output starts with a "platform stand-in" banner and ends with every step passing. It is a stand-in: it does not prove anything about the hosted platform.
+The whole flow runs in about a second with no keys and no network, against `FakePlatform`, an in-process stand-in that follows the platform's rules (requestIds, `held`, `refused` codes, approval votes). The output starts with a "platform stand-in" banner and ends with every step passing. It is a stand-in: it does not prove anything about the hosted platform.
 
 ```bash
 bun test          # money, hashing, NEP-413, clauses, payout state machine, onboarding, platform stand-in, auth
@@ -183,12 +189,13 @@ signed scope ──setup──▶ one platform Organization and agent per job
   end date         ──▶ Paperwork's payout consent expires at the end
   scope total      ──▶ the agent is funded with the total (information on Verify, not a cap)
 
-merged PR ──precheck──▶ judge ──▶ owed = value × completion − already committed
+report + invoice ──▶ assessor proposes ≤ invoice and signed cap ──▶ agency approves
+merged PR (Pay on merge) ──precheck──▶ judge ──▶ owed = value × completion − already committed
           ──▶ payouts/request (requestId saved first) ──▶ held ──▶ approval_vote ──▶ settled
 ```
 
-- **The company approves every payout.** Nothing is paid by default after a merge: the platform's payout policy holds every payout for the owner. The representative approves or rejects each one with an `approval_vote`; the platform checks the vote against the provider's request before the owner signs. A rejected payout's PRs stay out of later runs.
-- **Money stays bounded whatever the judge says.** The policy refuses any other payee and any payment above the signed per-payment cap (the largest deliverable, or the scope total where the terms sign that), and the company approves every payout. Paperwork requests only what is owed against the scope, counting every payout that may have moved. The agent is funded with the scope total and Verify shows paid + balance against it, but that is information, not a cap: the company could deposit more, and the daily and monthly limits reset.
+- **The company approves every payout.** Nothing is paid by default after a report or a merge: the platform's payout policy holds every payout for the owner. The representative approves or rejects each one with an `approval_vote`; the platform checks the vote against the provider's request before the owner signs. A rejected payout's PRs stay out of later runs.
+- **Money stays bounded whatever the assessor says.** The policy refuses any other payee and any payment above the signed per-payment cap (the largest deliverable, or the scope total where the terms sign that), and the company approves every payout. Paperwork requests only what is owed against the scope, counting every payout that may have moved. The agent is funded with the scope total and Verify shows paid + balance against it, but that is information, not a cap: the company could deposit more, and the daily and monthly limits reset.
 - **Only under the policy both parties signed.** Before every payout request Paperwork checks the whole live policy (actions, assets, owner approval, payee, per-payment, daily and monthly limits, USD budget) against what it signed. Any difference and nothing is requested, with an alert, and Verify turns red. A new revision that still matches (a freeze and unfreeze) is fine. It also checks the payout grant, which the platform issues for 30 days, and asks the representative to issue it again when it runs out.
 - **Never twice.** Each attempt is saved with its requestId before the call. A lost reply is followed with `payouts/status`, never resent under a new id. Only a `refused` answer (nothing sent) frees the amount for a new attempt. A `failed` payout stays committed until the representative says whether it arrived.
 - **One open judgment per job.** A run while a payout is open waits. A judgment closes approved, rejected, or dropped by the representative.
@@ -209,24 +216,15 @@ We claim:
 - the agent is funded with the scope total; Verify shows paid + balance against it, as information (the company could deposit more);
 - Paperwork's payout consent ends at the job end;
 - Paperwork holds no owner key in production (the keyless demo and the local stack use a demo signer);
-- a prompt-injected PR can fool the judge, but the payout still waits for the company, which sees the judge's flags and the proven terms.
+- a prompt-injected report or PR can mislead the assessor, but the payout still waits for the agency, which sees the assessment and the proven terms.
 
 We don't claim:
-- that anything judges the quality of the work but the judge;
+- that the assessor's view of the work is correct: the agency decides;
 - a cryptographic proof to the contractor: the Verify page relays the platform's read through Paperwork;
 - escrow: the company owns the agent, can reject a payout or freeze the agent on the platform's wallet stop page (nothing pays until it unfreezes);
 - guaranteed payment for the contractor;
 - that the stand-in proves the hosted platform's behaviour. The stack run is local integration evidence; current hosted approval requires a separate authenticated check;
-- a mainnet run: the recorded runs are on the platform's local stack, with a simulated chain.
-
-## What's NEAR here
-
-- **Two-party signing with NEP-413.** Both parties sign the terms hash with their NEAR wallet; Paperwork checks each signature against a full-access key of the account. The company also signs every platform owner step (setup, consents, grant, policy, approvals) with NEP-413.
-- **Sign in with NEAR** through Better-Auth and [better-near-auth](https://www.npmjs.com/package/better-near-auth).
-- **USDC on NEAR**, paid out through the MultiAgency platform's NEAR Intents agent: one agent per job, withdrawals only to the payee's NEAR account.
-- **NEAR AI Cloud** judges the merged work when `NEARAI_API_KEY` is set; otherwise a rule-based judge runs.
-
-The recorded runs are on the platform's local stack (simulated provider and chain), not mainnet.
+- a mainnet payment: the hosted job's terms are signed on NEAR mainnet, but every recorded payment ran on the stand-in or the platform's local stack, with a simulated chain.
 
 ## Sign in with NEAR
 
@@ -259,7 +257,7 @@ Optional AI report assessment has a **30-second** deadline covering the request 
 
 ## Built with
 
-Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.6.0 (npm), Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional judge).
+Bun, TypeScript, Hono, zod, React, `bun:sqlite`, `@multiagency/sdk` 0.6.0 (npm), Better-Auth, better-near-auth, `@noble/curves`, `@noble/hashes`, `@scure/base`, NEAR AI Cloud (optional assessment).
 
 Written with AI assistance.
 
@@ -273,10 +271,10 @@ The SDK pin is npm 0.6.0, byte-identical to candidate `c1a3ae61`'s archive. With
 
 ```bash
 PLATFORM_STACK_DIR=<fresh-stack-directory> bun --no-env-file run demo:market
-PLATFORM_STACK_DIR=<another-fresh-stack-directory> bun --no-env-file run demo:market:work
+PLATFORM_STACK_DIR=<another-fresh-stack-directory> bun --no-env-file scripts/demo-market.ts --worker
 ```
 
-Run one owned stack at a time and stop it after its recipe. `demo:market` checks hiring, authorization and settlement. `demo:market:work` also checks worker assignment, submission and acceptance through Paperwork. The replacement `c1a3ae61` simulator supports authenticated immutable history/raw reads. Both normal worker delivery and `--worker-drop-reply` recovery pass with one submission POST under the original fixture hire identity. Historical 404 attempts remain preserved; current checks and exact identities are in `docs/sdk060-local-readiness.json`.
+Run one owned stack at a time and stop it after its recipe. `demo:market` checks hiring, authorization and settlement. `--worker` also checks worker assignment, submission and acceptance through Paperwork. The replacement `c1a3ae61` simulator supports authenticated immutable history/raw reads. Both normal worker delivery and `--worker-drop-reply` recovery pass with one submission POST under the original fixture hire identity. Historical 404 attempts remain preserved; current checks and exact identities are in `docs/sdk060-local-readiness.json`.
 
 `bun --no-env-file run demo:market:browser` remains a separate fixture-based Market-settled job boundary. It verifies no platform payout, but does not qualify real Market settlement or earnings withdrawal. None of these recipes authorize hosted changes or use of retained funds.
 
