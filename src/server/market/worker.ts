@@ -3,6 +3,7 @@
 // hands a buyer's brief to a model or acts on what it says. An x402 job is accepted on delivery; the earnings land in
 // the market account, which the owner withdraws to the agency agent's deposit address.
 import type { Database } from "bun:sqlite";
+import { z } from "zod";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AssignmentView, WorkerView } from "../../shared/market";
 import { UserError } from "../engine";
@@ -44,6 +45,11 @@ export function verifySignature(secret: string, timestamp: string | null, signat
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+/** The version list saved before a submission attempt (`market_assignments.submit_baseline`). */
+const baselineSchema = z.array(z.object({
+  version: z.number().int().min(1).max(2147483647),
+  submittedAt: z.string().refine((at) => Number.isFinite(Date.parse(at))),
+}));
 const clip = (s: string) => (s.length > MAX_TEXT ? s.slice(0, MAX_TEXT) : s);
 
 export class Worker {
@@ -106,7 +112,7 @@ export class Worker {
     for (const [seen, until] of this.acceptedSignatures) if (until < nowMs) this.acceptedSignatures.delete(seen);
     if (this.acceptedSignatures.has(signature)) return { status: 200, duplicate: true };
     const accept = () => this.acceptedSignatures.set(signature, (Number(headers.get("x-market-timestamp")) + TIMESTAMP_SKEW_S) * 1000);
-    let payload: any = null;
+    let payload: unknown;
     try {
       payload = JSON.parse(new TextDecoder().decode(rawBody));
     } catch {
@@ -114,18 +120,21 @@ export class Worker {
       accept();
       return { status: 200 };
     }
-    if (event === "hire.created" && payload?.assignment_id) {
+    // The Market documents its payload fields as open-ended: any signed delivery is acknowledged, and only a
+    // hire.created that names an assignment records a job. Absent, null and unknown fields are tolerated.
+    const hire = event === "hire.created" && typeof payload === "object" && payload !== null && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
+    if (hire?.assignment_id) {
       // A colliding/unbound job must refuse the delivery without acknowledging and dropping that delivery identity.
       this.d.db.transaction(() => {
         this.upsert({
-          assignmentId: String(payload.assignment_id),
-          jobId: String(payload.job_id ?? ""),
+          assignmentId: String(hire.assignment_id),
+          jobId: String(hire.job_id ?? ""),
           status: "in_progress",
-          escrowAmount: payload.amount != null ? String(payload.amount) : null,
-          escrowToken: payload.token != null ? String(payload.token) : null,
-          slaDeadlineAt: payload.sla_deadline_at ?? null,
-          title: String(payload.title ?? ""),
-          description: String(payload.description ?? ""),
+          escrowAmount: hire.amount != null ? String(hire.amount) : null,
+          escrowToken: hire.token != null ? String(hire.token) : null,
+          slaDeadlineAt: typeof hire.sla_deadline_at === "string" ? hire.sla_deadline_at : null,
+          title: String(hire.title ?? ""),
+          description: String(hire.description ?? ""),
         }, false, cfg.agencyId);
         this.recordDelivery(delivery, event, cfg.agencyId);
       })();
@@ -195,12 +204,11 @@ export class Worker {
 
   private baseline(row: AssignmentRow): DeliverableVersion[] | null {
     if (!row.submit_attempt_id || !row.submit_started_at || !Number.isFinite(Date.parse(row.submit_started_at)) || !row.submit_baseline) return null;
-    try {
-      const versions = JSON.parse(row.submit_baseline);
-      if (!Array.isArray(versions) || !versions.every((v: any, i: number) => v && Number.isInteger(v.version) && v.version >= 1 && v.version <= 2147483647 &&
-        typeof v.submittedAt === "string" && Number.isFinite(Date.parse(v.submittedAt)) && (i === 0 || v.version > versions[i - 1].version))) return null;
-      return versions;
-    } catch { return null; }
+    let stored: unknown;
+    try { stored = JSON.parse(row.submit_baseline); } catch { return null; }
+    // An unreadable baseline proves nothing: null keeps the submission unknown rather than confirming or releasing it.
+    const versions = baselineSchema.safeParse(stored);
+    return versions.success && versions.data.every((v, i) => i === 0 || v.version > versions.data[i - 1]!.version) ? versions.data : null;
   }
 
   /** Version order is the server clock boundary. Local started_at is audit data, not a synchronized-clock claim. */

@@ -1,7 +1,6 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Database } from "bun:sqlite";
 import { contractPackage } from "@multiagency/sdk";
 import { StackControls } from "../src/server/platform/stack";
 /**
@@ -177,7 +176,7 @@ step("05", "Agency explicitly approves the proven payout terms");
 const approvalStep = await vote(payout.request_id, "approve");
 if (restart && database && restartArtifacts && stackDir) {
   await (await rt.auth.$context).checkSchema?.();
-  (c as unknown as { d: { db: Database } }).d.db.close(true);
+  rt.db.close(true);
   const child = Bun.spawn([process.execPath, "--no-env-file", new URL("./resume-dao-job.ts", import.meta.url).pathname,
     stackDir, database, id, payout.request_id, approvalStep, join(restartArtifacts, "receipt.json")],
     { env: { PATH: process.env.PATH ?? "" }, stdout: "inherit", stderr: "inherit" });

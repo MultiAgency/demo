@@ -6,7 +6,7 @@ import { activate, setup, type Ctx } from "./support/harness";
 import type { Deps } from "../src/server/engine";
 
 const transport = (ctx: Ctx): AgentTransport => async (path, init) => ctx.rt.app.request(`http://localhost${path}`, init);
-async function close(ctx: Ctx) { await (await ctx.rt.auth.$context).checkSchema?.(); (ctx.rt.engine as unknown as { d: Deps }).d.db.close(); }
+async function close(ctx: Ctx) { await ctx.rt.close(); }
 const report = { client_request_id: "agent-report-original", report: "CSV export and acceptance tests are complete.",
   evidence: [{ deliverable_id: "d1", label: "Tests", url: "https://example.invalid/tests" }], invoice: { number: "AGENT-001", amount_usd: "300" } };
 

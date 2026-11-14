@@ -1,5 +1,6 @@
 import { appClient, consentMessage, setupMessage } from "@multiagency/sdk";
-import { toFail } from "../platform/client";
+import { z } from "zod";
+import { map, toFail } from "../platform/client";
 import type { DaoHireInput, DaoRequest, DaoState, FiledDaoHire, HireAnswer, HireTerms, MarketAccount, MarketAgent, MarketOwnerAction, MarketPlatform, MemberTransaction, OwnerPrepared, Res, Signed413 } from "./port";
 
 /**
@@ -7,20 +8,20 @@ import type { DaoHireInput, DaoRequest, DaoState, FiledDaoHire, HireAnswer, Hire
  * DAO routes (`dao-setups`, `dao-consents`, `dao-hires`). Like `SdkPlatform`, it maps every answer to the port's shapes
  * and failure kinds and never retries: the callers decide. The credential stays inside the client.
  */
-type AnyResult = { ok: true; value: any } | ({ ok: false; kind: string; code?: string; status?: number } & Record<string, unknown>);
-type Call = (path: string, input?: unknown) => Promise<AnyResult>;
+type SdkResult<A> = Parameters<typeof map<A, unknown>>[0];
+type SdkAgentClient = ReturnType<ReturnType<typeof appClient>["agent"]>;
 
-const map = <B>(r: AnyResult, f: (v: any) => B): Res<B> => (r.ok ? { ok: true, value: f(r.value) } : toFail(r as never));
 /** A DAO request route: 410 means the vote didn't pass before `votingUntil` (or what it signed expired). */
-const daoState = <B>(r: AnyResult, done: (v: any) => B | null): Res<DaoState<B>> => {
+const daoState = <A, B>(r: SdkResult<A>, done: (v: A) => B | null): Res<DaoState<B>> => {
   if (!r.ok && r.kind === "refused" && r.status === 410) return { ok: true, value: { state: "expired" } };
   return map(r, (v) => {
     const d = done(v);
     return d === null ? { state: "pending" as const } : { state: "done" as const, ...d };
   });
 };
-const tx = (t: any): MemberTransaction | null => (t ? { receiverId: t.receiverId, actions: t.actions } : null);
-const daoRequest = (v: any): DaoRequest => ({
+const signedHash = z.object({ request: z.object({ payload_v2: z.object({ Eddsa: z.string() }) }) });
+const tx = (t: MemberTransaction | null | undefined): MemberTransaction | null => (t ? { receiverId: t.receiverId, actions: t.actions } : null);
+const daoRequest = (v: { request: Omit<DaoRequest, "proposal" | "proposalAndVote">; transactions?: { proposal?: MemberTransaction | null; proposalAndVote?: MemberTransaction | null } }): DaoRequest => ({
   id: v.request.id,
   hash: v.request.hash,
   description: v.request.description,
@@ -28,7 +29,7 @@ const daoRequest = (v: any): DaoRequest => ({
   proposal: tx(v.transactions?.proposal),
   proposalAndVote: tx(v.transactions?.proposalAndVote),
 });
-const hireAnswer = (v: any): HireAnswer => ({
+const hireAnswer = (v: Pick<HireAnswer, "requestId" | "state"> & { [K in "code" | "taskId" | "taskState" | "deliverable"]?: string | null }): HireAnswer => ({
   requestId: v.requestId,
   state: v.state,
   code: v.code ?? null,
@@ -68,28 +69,28 @@ export class SdkMarket implements MarketPlatform {
     return map(await this.app.identity(agent), (v) => ({ agentId: v.agentId, created: v.created, owner: v.owner, signer: v.signer === "dao" ? ("dao" as const) : ("wallet" as const) }));
   }
   async setup(s: Signed413) {
-    return map(await this.app.setup(s), (v) => ({ agent: v.agent as string }));
+    return map(await this.app.setup(s), (v) => ({ agent: v.agent }));
   }
   async reservations(organization: string, owner: string) {
     const r = await this.app.reservations({ organization, owner, area: "market" });
-    return map(r as AnyResult, (v) => (v.agents as any[]).filter((a) => a.area === "market").map((a) => ({ agent: a.agent, owner: a.owner, released: a.released === true })));
+    return map(r, (v) => v.agents.filter((a) => a.area === "market").map((a) => ({ agent: a.agent, owner: a.owner, released: a.released === true })));
   }
   async submitConsent(s: Signed413) {
-    return map(await this.app.consents.submit(s), (v) => ({ id: v.consent.id as string, expiresAt: new Date(v.consent.expiresAt).toISOString() }));
+    return map(await this.app.consents.submit(s), (v) => ({ id: v.consent.id, expiresAt: new Date(v.consent.expiresAt).toISOString() }));
   }
 
   readonly daoSetup = {
-    file: async (message: string) => map((await this.app.daoSetups.file(message)) as AnyResult, daoRequest),
-    state: async (id: string) => daoState((await this.app.daoSetups.state(id)) as AnyResult, (v) => (v.state === "reserved" ? { agent: v.agent as string } : null)),
+    file: async (message: string) => map((await this.app.daoSetups.file(message)), daoRequest),
+    state: async (id: string) => daoState((await this.app.daoSetups.state(id)), (v) => (v.state === "reserved" ? { agent: v.agent } : null)),
   };
   readonly daoConsent = {
-    file: async (message: string) => map((await this.app.daoConsents.file(message)) as AnyResult, daoRequest),
+    file: async (message: string) => map((await this.app.daoConsents.file(message)), daoRequest),
     state: async (id: string) =>
-      daoState((await this.app.daoConsents.state(id)) as AnyResult, (v) => (v.state === "signed" ? { consentId: v.consent.id as string, expiresAt: new Date(v.consent.expiresAt).toISOString() } : null)),
+      daoState((await this.app.daoConsents.state(id)), (v) => (v.state === "signed" ? { consentId: v.consent.id, expiresAt: new Date(v.consent.expiresAt).toISOString() } : null)),
   };
   readonly daoHire = {
     file: async (i: { organization: string; agent: string; requestId: string; brief: string; approved: HireTerms; validUntil: string }) =>
-      map((await this.app.daoHires.file(i)) as AnyResult, (v) => ({ ...daoRequest(v), validUntil: v.request.validUntil as string })),
+      map((await this.app.daoHires.file(i)), (v) => ({ ...daoRequest(v), validUntil: v.request.validUntil })),
     recover: async (i: DaoHireInput & { owner: string; agentId: string }): Promise<Res<FiledDaoHire>> => {
       const { organization, agent, requestId, brief, approved } = i;
       const result = await this.app.daoHires.file({ organization, agent, requestId, brief, approved, validUntil: RECOVERY_DEADLINE });
@@ -107,24 +108,35 @@ export class SdkMarket implements MarketPlatform {
         return { ok: false, kind: "unavailable", detail: "The retained DAO approval did not match the original job identity and terms." };
       return { ok: true, value: { ...daoRequest(result.value), validUntil: request.validUntil } };
     },
-    state: async (id: string) => daoState((await this.app.daoHires.state(id)) as AnyResult, (v) => (v.state === "relayed" ? { hireState: String(v.hireState) } : null)),
+    state: async (id: string) => daoState((await this.app.daoHires.state(id)), (v) => (v.state === "relayed" ? { hireState: String(v.hireState) } : null)),
   };
 
   agent(organization: string, agent: string): MarketAgent {
     const client = this.app.agent(organization, agent);
-    return new SdkMarketAgent(client.call.bind(client) as unknown as Call);
+    return new SdkMarketAgent(client.call.bind(client));
   }
 }
 
 class SdkMarketAgent implements MarketAgent {
-  constructor(private readonly call: Call) {}
+  constructor(private readonly call: SdkAgentClient["call"]) {}
+
+  /** The action as each signer's published input; null when a wallet-owned agent is asked for without its owner. */
+  private async prepare(a: MarketOwnerAction, signer: "wallet" | "dao") {
+    // DAO ownership comes from setup; member wallet keys never become the provider owner.
+    if (signer === "dao") return this.call("owner/prepare", { signer, action: a.type === "agent_create" ? { type: a.type, role: a.role } : a });
+    if (a.type !== "agent_create") return this.call("owner/prepare", { signer, action: a });
+    return a.owner ? this.call("owner/prepare", { signer, action: { ...a, owner: a.owner } }) : null;
+  }
 
   async ownerPrepare(action: MarketOwnerAction, signer: "wallet" | "dao"): Promise<Res<OwnerPrepared>> {
-    return map(await this.call("owner/prepare", { action, signer }), (v): OwnerPrepared => {
+    const r = await this.prepare(action, signer);
+    if (!r) return { ok: false, kind: "refused", code: "wallet_owner_required" };
+    return map(r, (v): OwnerPrepared => {
       const p: OwnerPrepared = { correlationId: v.correlationId, expiresAt: v.expiresAt, summary: v.preview?.summary ?? "" };
       if (v.dao) {
-        const hash = v.dao.transaction?.actions?.[0]?.params?.args?.request?.payload_v2?.Eddsa ?? null;
-        p.dao = { hash, proposal: tx(v.dao.proposal), proposalAndVote: tx(v.dao.proposalAndVote) };
+        // The hash the DAO's vote signs; absent, the caller refuses the step.
+        const signed = signedHash.safeParse(v.dao.transaction?.actions?.[0]?.params?.args);
+        p.dao = { hash: signed.success ? signed.data.request.payload_v2.Eddsa : "", proposal: tx(v.dao.proposal), proposalAndVote: tx(v.dao.proposalAndVote) };
       } else if (v.intent?.standard === "nep413") {
         const pl = v.intent.payload;
         p.intent = { standard: "nep413", payload: { message: pl.message, recipient: pl.recipient, nonce: pl.nonce } };
@@ -139,7 +151,7 @@ class SdkMarketAgent implements MarketAgent {
     return map(await this.call("owner/status", { correlationId }), (v) => ({ stage: String(v.stage), status: v.status ?? null, failureCode: v.failureCode ?? null }));
   }
   async ownerPending() {
-    return map(await this.call("owner/pending"), (v: any[]) =>
+    return map(await this.call("owner/pending"), (v) =>
       v.map((p) => ({
         correlationId: p.correlationId,
         type: p.type,
@@ -159,7 +171,7 @@ class SdkMarketAgent implements MarketAgent {
     return map(await this.call("overview"), (v) => v.policy?.policy?.frozen === true);
   }
   async quote(handle: string, brief: string): Promise<Res<HireTerms>> {
-    return map(await this.call("market/quote", { handle, brief }), (v) => ({ ...v }) as HireTerms);
+    return map(await this.call("market/quote", { handle, brief }), (v) => ({ ...v }));
   }
   async hire(requestId: string, brief: string, approved: HireTerms) {
     return map(await this.call("market/hire", { requestId, brief, approved }), hireAnswer);

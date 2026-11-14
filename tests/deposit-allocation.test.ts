@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { activate } from "./support/harness";
 const instructions = { address: "ab".repeat(32), memo: null, minAmount: "999", expiresAt: "2026-12-01T00:00:00Z" };
 function instrument(ctx: Awaited<ReturnType<typeof activate>>, result: () => Promise<any>) {
@@ -24,7 +23,7 @@ for (const failure of ["unknown", "throw", "invalid"] as const) test(`${failure}
   const ctx = await activate("0"); let calls = 0;
   instrument(ctx, async () => { calls++; if (failure === "throw") throw Error("lost reply"); return failure === "unknown" ? { ok: false, kind: "unknown" } : { ok: true, value: { ...instructions, address: "" } }; });
   await expect(ctx.rt.engine.deposit(ctx.id)).rejects.toThrow();
-  const db = (ctx.rt.engine as unknown as { d: { db: Database } }).d.db;
+  const db = ctx.rt.db;
   expect(db.query("SELECT kind FROM events WHERE contract_id=? AND kind='deposit_pending'").all(ctx.id)).toHaveLength(1);
   // Even a fresh caller with a working transport must not re-enter allocation.
   instrument(ctx, async () => { calls++; return { ok: true, value: instructions }; });

@@ -9,7 +9,7 @@ import { isCommitted, isOpen, isPaid } from "../src/server/payouts";
 import { scopeTotal } from "../src/shared/terms";
 import { START } from "./support/harness";
 import {
-  closeRestorationRuntime, RESTORATION_NOW, restorationDb, restorationEvidence, restorationLedger, restorationRows, type RestorationFixture,
+  closeRestorationRuntime, RESTORATION_NOW, restorationEvidence, restorationLedger, restorationRows, type RestorationFixture,
 } from "./support/restoration-ledger";
 
 // In-process stand-in rehearsal only. The provider kit is intentionally retained in memory across runtime replacement;
@@ -42,7 +42,7 @@ function identity(row: Record<string, unknown>) {
     .map(key => [key, row[key]]));
 }
 function rawAttempt(rt: Runtime, f: RestorationFixture) {
-  return restorationDb(rt).query("SELECT * FROM payout_attempts WHERE request_id = ?").get(f.requestId) as Record<string, unknown>;
+  return rt.db.query("SELECT * FROM payout_attempts WHERE request_id = ?").get(f.requestId) as Record<string, unknown>;
 }
 function putRow(db: Database, table: "contracts" | "judgments" | "payout_attempts", row: Record<string, unknown>) {
   const keys = Object.keys(row);
@@ -111,10 +111,10 @@ describe("exported recovery handoff — disposable stand-in runtimes only", () =
           invoice: { number: "HANDOFF-NO-REMAINDER", amount_usd: "150" } }, f.terms.contractor.near_account)).rejects.toThrow(/disputed/);
       }
       expect(f.ctx.stub.calls.requestPayout).toBe(1); expect(f.ctx.stub.transfers).toHaveLength(1);
-      expect(restorationDb(rt).query("SELECT request_id, seq, attempt FROM payout_attempts WHERE contract_id = ?").all(f.ctx.id))
+      expect(rt.db.query("SELECT request_id, seq, attempt FROM payout_attempts WHERE contract_id = ?").all(f.ctx.id))
         .toEqual([{ request_id: f.requestId, seq: 1, attempt: 1 }]);
-      expect(restorationDb(rt).query("SELECT * FROM recovery_corrections").all()).toHaveLength(1);
-      expect(restorationDb(rt).query("SELECT * FROM job_invoices ORDER BY rowid").all()).toEqual(original.job_invoices!);
+      expect(rt.db.query("SELECT * FROM recovery_corrections").all()).toHaveLength(1);
+      expect(rt.db.query("SELECT * FROM job_invoices ORDER BY rowid").all()).toEqual(original.job_invoices!);
       expect(preservedArtifacts(f, bundle)).toEqual(before);
       const reuse = exportRestorationBundle(f.path, f.input, bundle, { now: () => new Date(RESTORATION_NOW.getTime() + 3_600_000) });
       expect(reuse.result).toBe("already_exported"); expect(reuse.manifest_sha256).toBe(published.manifest_sha256);

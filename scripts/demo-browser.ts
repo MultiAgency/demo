@@ -1,5 +1,4 @@
 /** Actual browser UI walkthrough; all accounts, signatures and payments are fixtures. */
-import type { Database } from "bun:sqlite";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -255,7 +254,7 @@ try {
         const result = await rt.kit.platform.agent(contractId, a.agent!).ownerSubmit(pending.correlation_id,
           { standard: "nep413", payload: { message: sign.message, recipient: sign.recipient, nonce: sign.nonce } }, await rt.kit.devSigner!.sign413(sign));
         check(result.ok, "The isolated provider must accept the external fixture signature");
-        const db = (rt.engine as unknown as { d: { db: Database } }).d.db;
+        const db = rt.db;
         db.query("UPDATE owner_steps SET state = 'submitted' WHERE correlation_id = ?").run(pending.correlation_id);
       }
       if (pending.action === "agent_create") await command("agency", "reload");

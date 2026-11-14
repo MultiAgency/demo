@@ -16,10 +16,11 @@ import { judgeJob } from "./job-judge";
 import { jobAttention } from "./jobs/attention";
 import { BUILDER_ACCOUNT_SQL, REPRESENTATIVE_ACCOUNT_SQL } from "./jobs/read-queries";
 import { type EvidenceSource, injectedPullRequest } from "./evidence/github";
-import type { Judge, Judgment, Level } from "./judge";
+import type { Judgment, Level } from "../shared/judgment";
+import type { Judge } from "./judge";
 import { nonceFromString, nonceToString, randomNonce, verifyNep413 } from "./nep413";
 import { Ledger, usdText } from "./ledger";
-import { failError, Onboarding, stepView } from "./onboarding";
+import { Onboarding, stepView } from "./onboarding";
 import { liveGrant, PayoutFollower } from "./payout-follower";
 import {
   attackIdFor,
@@ -439,7 +440,7 @@ export class Engine {
       if (this.ledger.openJudgment(row.id) || this.ledger.attempts(row.id).some(isOpen)) throw new UserError("An earlier payment outcome is unresolved.", 409);
       const invoice = this.jobInvoice(s.id);
       // The assessment recorded at filing is the one the agency reviewed; judge here only when none was recorded.
-      const judgment = s.assessment ? JSON.parse(s.assessment) as Judgment : await this.judgeSubmission(terms, s, invoice);
+      const judgment = s.assessment ? this.ledger.assessment(s.assessment) : await this.judgeSubmission(terms, s, invoice);
       const proposed = this.proposedFor(row.id, terms, judgment, invoice);
       const plan = planPayout(terms, completionOf(judgment), this.ledger.committedBy(row.id), proposed);
       const runId = `r_${sha256Hex(s.id).slice(0, 24)}`;
@@ -597,7 +598,7 @@ export class Engine {
 
   private assessmentView(s: JobRow, invoice: JobInvoiceRow): JobSubmissionView["assessment"] {
     if (!s.assessment || s.judgment_id || s.state !== "submitted") return null;
-    const judgment = JSON.parse(s.assessment) as Judgment;
+    const judgment = this.ledger.assessment(s.assessment);
     const terms = this.ledger.terms(this.ledger.row(s.contract_id));
     const proposed = this.proposedFor(s.contract_id, terms, judgment, invoice);
     return {
@@ -1102,7 +1103,7 @@ export class Engine {
   private async newAttempt(j: JudgmentRow, seq: number, attempt: number, auto: boolean): Promise<boolean> {
     const row = this.ledger.row(j.contract_id);
     const terms = this.ledger.platformTerms(row);
-    const plan = planPayout(terms, completionOf(JSON.parse(j.json) as Judgment), this.ledger.committedBy(j.contract_id), this.jobBudgetRemaining(j));
+    const plan = planPayout(terms, completionOf(this.ledger.assessment(j.json)), this.ledger.committedBy(j.contract_id), this.jobBudgetRemaining(j));
     if (!plan) {
       const mine = this.ledger.attempts(j.contract_id).filter((a) => a.run_id === j.id);
       this.closeJudgment(j, mine.some(isPaid) ? "approved" : "nothing");
@@ -1136,7 +1137,7 @@ export class Engine {
       this.ledger.event(j.contract_id, "submission", `Submission ${job.id}: ${state}. ${cancelled ? "No live payout remains; the builder can submit a new immutable revision." : "Approval and payment evidence remain linked through the judgment and request IDs."}`);
       return;
     }
-    const judgment = JSON.parse(j.json) as Judgment;
+    const judgment = this.ledger.assessment(j.json);
     const eligible = judgment.prs.filter((p) => p.eligible);
     if (outcome === "approved") {
       for (const p of eligible)
@@ -1365,7 +1366,7 @@ export class Engine {
       committed_usd: usdOf(committed),
       owed_usd: open?.owed_usd ?? "0",
       scope: this.scopeView(id, terms, attempts),
-      judgment: latest ? { ...(JSON.parse(latest.json) as Judgment), id: latest.id, at: latest.at, outcome: latest.outcome } : null,
+      judgment: latest ? { ...this.ledger.assessment(latest.json), id: latest.id, at: latest.at, outcome: latest.outcome } : null,
       open_judgment: open,
       payouts: attempts.map((x) => this.payoutView(x)),
       submissions: this.jobSubmissions(id),
@@ -1444,7 +1445,7 @@ export class Engine {
     const committed = sumLines(attempts, lines, isCommitted);
     const accepted = this.acceptedCompletion(id);
     const latest = this.d.db.query("SELECT json FROM judgments WHERE contract_id = ? ORDER BY rowid DESC LIMIT 1").get(id) as { json: string } | null;
-    const prs = latest ? (JSON.parse(latest.json) as Judgment).prs : [];
+    const prs = latest ? this.ledger.assessment(latest.json).prs : [];
     return terms.scope.map((d) => ({
       ...d,
       completion: accepted[d.id] ?? 0,
@@ -1507,7 +1508,7 @@ export class Engine {
   }
 
   private owedTotal(id: string, terms: Terms, j: JudgmentRow): bigint {
-    const owed = owedFor(terms, completionOf(JSON.parse(j.json) as Judgment), this.ledger.committedBy(id)).reduce((n, l) => n + l.amount, 0n);
+    const owed = owedFor(terms, completionOf(this.ledger.assessment(j.json)), this.ledger.committedBy(id)).reduce((n, l) => n + l.amount, 0n);
     const remaining = this.jobBudgetRemaining(j);
     return remaining !== undefined && remaining < owed ? remaining : owed;
   }
@@ -1522,14 +1523,14 @@ export class Engine {
 
   private judgmentOf(runId: string): Judgment | null {
     const r = this.ledger.judgmentRow(runId);
-    return r ? (JSON.parse(r.json) as Judgment) : null;
+    return r ? this.ledger.assessment(r.json) : null;
   }
 
   /** Completion carried into the next run: only from judgments whose payouts were approved and paid. */
   private acceptedCompletion(id: string): Record<string, Level> {
     const rows = this.d.db.query("SELECT json FROM judgments WHERE contract_id = ? AND outcome = 'approved' ORDER BY rowid ASC").all(id) as { json: string }[];
     const out: Record<string, Level> = {};
-    for (const r of rows) for (const x of (JSON.parse(r.json) as Judgment).deliverables) if (x.completion > (out[x.id] ?? 0)) out[x.id] = x.completion;
+    for (const r of rows) for (const x of this.ledger.assessment(r.json).deliverables) if (x.completion > (out[x.id] ?? 0)) out[x.id] = x.completion;
     return out;
   }
 

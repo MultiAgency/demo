@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/server/db";
 import { DEMO_TERMS, JOB_DEMO_TERMS } from "../src/shared/demo";
-import type { Judgment } from "../src/server/judge";
+import type { Judgment } from "../src/shared/judgment";
 import { type FCtx, fakeActivate, fakeApproveAndSettle, fakeVote } from "./support/fake-harness";
 import { type Ctx, activate, agentId, approveAndSettle, attemptOf, castVote, evidence, livePayout, setup, signTerms } from "./support/harness";
 
@@ -60,7 +60,7 @@ describe("term signatures", () => {
     test(`legacy v${terms.v} jobs retain their pinned domain for verification and the remaining party`, async () => {
       const ctx = await setup(terms);
       const c = ctx.rt.engine;
-      const db = (c as unknown as { d: { db: Database } }).d.db;
+      const db = ctx.rt.db;
       // Model a pre-rename record. Production migration pins this column without changing signed terms.
       db.query("UPDATE contracts SET signing_recipient = 'covenant' WHERE id = ?").run(ctx.id);
       const offered = await c.viewContract(ctx.id);
@@ -143,7 +143,7 @@ describe("judged payouts, held for approval", () => {
     c = await approveAndSettle(ctx, next.request_id);
     expect(c.paid_usd).toBe("650");
     expect(c.open_judgment).toBeNull();
-    expect((c.judgment as { outcome: string }).outcome).toBe("approved");
+    expect(c.judgment?.outcome).toBe("approved");
     expect(c.scope.find((d) => d.id === "d1")!.completion).toBe(1);
     expect((await run(ctx)).outcome).toBe("nothing");
   });
@@ -171,7 +171,7 @@ describe("judged payouts, held for approval", () => {
     expect(p.prs.some((x) => x.flags.includes("possible_prompt_injection"))).toBe(true);
     const c = await castVote(ctx, p.request_id, "reject");
     expect(c.payouts.find((x) => x.request_id === p.request_id)!.state).toBe("rejected");
-    expect((c.judgment as { outcome: string }).outcome).toBe("rejected");
+    expect(c.judgment?.outcome).toBe("rejected");
     expect(c.committed_usd).toBe("750");
     const after = await run(ctx);
     expect(after.outcome).toBe("nothing");
@@ -257,7 +257,7 @@ describe("state machine rows, end to end", () => {
     await ctx.rt.engine.drop(ctx.id);
     const c = await view(ctx);
     expect(c.open_judgment).toBeNull();
-    expect((c.judgment as { outcome: string }).outcome).toBe("dropped");
+    expect(c.judgment?.outcome).toBe("dropped");
     await ctx.rt.kit.controls!.fund(agentId(ctx), M(900));
     expect((await run(ctx)).payouts[0]!.state).toBe("held");
   });
@@ -603,7 +603,7 @@ describe("secrets and storage", () => {
   test("one open payout per contract is enforced by the database", async () => {
     const ctx = await activate();
     await run(ctx);
-    const db = (ctx.rt.engine as unknown as { d: { db: Database } }).d.db;
+    const db = ctx.rt.db;
     expect(() =>
       db
         .query("INSERT INTO payout_attempts (request_id, kind, contract_id, seq, attempt, recipient, amount_atomic, state, created_at, updated_at) VALUES ('x', 'payout', ?, 9, 1, 'maria.demo', '1', 'held', 'now', 'now')")
@@ -632,7 +632,7 @@ describe("on the FakePlatform", () => {
     const seq2 = (await live(ctx))!;
     expect([seq2.seq, seq2.amount_usd, seq2.state]).toEqual([2, "150", "held"]);
     c = await fakeApproveAndSettle(ctx, seq2.request_id);
-    expect([c.paid_usd, c.open_judgment, (c.judgment as { outcome: string }).outcome]).toEqual(["650", null, "approved"]);
+    expect([c.paid_usd, c.open_judgment, c.judgment?.outcome]).toEqual(["650", null, "approved"]);
     expect(c.scope.find((d) => d.id === "d1")!.completion).toBe(1);
     const reqs = ctx.controls.requests();
     expect(reqs.every((b) => !("memo" in b))).toBe(true);

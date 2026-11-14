@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import type { AttestationVerificationResult, VerifiedCompletionResult, VerifiedModelAttestation } from "@nearai/inference-sdk/node";
 import { buildApp, type Runtime } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
@@ -121,7 +120,7 @@ async function events(response: Response, seen: ReviewEvent[] = []) {
   return seen;
 }
 function databaseSnapshot(rt: Runtime) {
-  const db = (rt.engine as unknown as { d: { db: Database } }).d.db;
+  const db = rt.db;
   return Object.fromEntries(TABLES.map(table => [table, db.query(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
 }
 

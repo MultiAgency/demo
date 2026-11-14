@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { Hono } from "hono";
 import { AGENT_EXECUTION_CONTRACT } from "../shared/agent-contracts";
 import { z } from "zod";
@@ -9,7 +10,7 @@ import { type Auth, createAuth, type SessionInfo, sessionFrom } from "./auth";
 import type { Config } from "./config";
 import { bindAppDeployment, openDb } from "./db";
 import { Engine, type Role, type Scenario, SCENARIOS, toUserError, UserError } from "./engine";
-import { errorCode, jsonBody } from "./errors";
+import { errorCode, jsonBody, objectBody } from "./errors";
 import { AGENT_CAPABILITIES, JOB_ACTION_SCHEMA_VERSION, jobActionPlan } from "../shared/job-actions";
 import { type EvidenceSource, FakeEvidence, GitHubEvidence } from "./evidence/github";
 import { NearAiJudge, RulesJudge } from "./judge";
@@ -46,6 +47,10 @@ export class Clock {
 
 export interface Runtime {
   app: Hono<{ Variables: { session: SessionInfo | null } }>;
+  /** The one database every record shares: jobs, auth and Market. */
+  db: Database;
+  /** Closes the database once sign-in's own schema check has settled. Nothing else is stopped. */
+  close(): Promise<void>;
   engine: Engine;
   auth: Auth;
   kit: PlatformKit;
@@ -135,7 +140,11 @@ export async function createRuntime(config: Config, opts: RuntimeOptions = {}): 
       })
     : null;
   const openings = opts.openings ?? new MultiAgencyOpenings();
-  const rt = { engine, auth, kit, clock, config, evidence, market, boardApi, openings, reviewFetch: opts.reviewFetch, reviewNearClient: opts.reviewNearClient };
+  const close = async () => {
+    await (await auth.$context).checkSchema?.();
+    db.close();
+  };
+  const rt = { db, close, engine, auth, kit, clock, config, evidence, market, boardApi, openings, reviewFetch: opts.reviewFetch, reviewNearClient: opts.reviewNearClient };
   return { ...rt, app: buildApp(rt) };
 }
 
@@ -176,7 +185,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
       if (origin && origin !== config.auth.publicUrl)
         return c.json({ error: "This origin is not configured for Paperwork." }, 403);
     }
-    await next();
+    return next();
   });
   app.on(["GET", "POST"], "/auth/*", (c) => auth.handler(c.req.raw));
   app.use("*", async (c, next) => {
@@ -184,7 +193,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     await next();
   });
 
-  const requireAccount = (session: SessionInfo | null, account: string, role: string) => {
+  const requireAccount = (session: SessionInfo | null, account: string) => {
     if (!config.auth.required) return;
     if (!session) throw new UserError("Sign in with NEAR to access this action.", 401);
     if (session.accountId !== account) throw new UserError("This action is not available to this account.", 403, "account_mismatch");
@@ -196,7 +205,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     ...view, next_step: null, platform: { ...view.platform, deposit: null, consents: null },
     submissions: view.submissions.map(forBuilder), ...(isMarketSettled(view.terms) && { judgment: null }),
   });
-  const asRepresentative = (session: SessionInfo | null, contractId: string) => requireAccount(session, engine.parties(contractId).representative, "representative");
+  const asRepresentative = (session: SessionInfo | null, contractId: string) => requireAccount(session, engine.parties(contractId).representative);
   const isRepresentative = (session: SessionInfo | null, contractId: string) => {
     try { asRepresentative(session, contractId); return true; } catch { return false; }
   };
@@ -303,7 +312,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
 
   app.post("/contracts", async (c) => {
     const body = await jsonBody(c);
-    requireAccount(c.get("session"), String(body?.representative?.near_account ?? "").toLowerCase(), "representative");
+    const named = z.object({ representative: z.object({ near_account: z.string() }) }).safeParse(body);
+    requireAccount(c.get("session"), named.success ? named.data.representative.near_account.toLowerCase() : "");
     // A Market source that cannot be read now could never pass the setup check; refuse before anyone signs it.
     // Invalid terms fall through to createContract's own validation message.
     const parsed = termsSchema.safeParse(body);
@@ -350,18 +360,18 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     const role = c.req.query("role") as Role;
     if (role !== "representative" && role !== "contractor") throw new UserError("role must be representative or contractor");
     const id = c.req.param("id");
-    requireAccount(c.get("session"), engine.parties(id)[role], role);
+    requireAccount(c.get("session"), engine.parties(id)[role]);
     return c.json(engine.signingRequest(id, role));
   });
 
   app.post("/contracts/:id/signatures", async (c) => {
     const id = c.req.param("id");
-    const body = await jsonBody(c);
-    const role = body.role as Role;
+    const body = await objectBody(c);
+    const role = body.role;
     if (role !== "representative" && role !== "contractor") throw new UserError("role must be representative or contractor");
-    requireAccount(c.get("session"), engine.parties(id)[role], role);
+    requireAccount(c.get("session"), engine.parties(id)[role]);
     // A session for the named builder replaces the private invitation; the keyless demo has no sessions and keeps it.
-    const view = await engine.addSignature(id, role, signedBody.parse(body.signed), body.contractor_token, !config.auth.required);
+    const view = await engine.addSignature(id, role, signedBody.parse(body.signed), typeof body.contractor_token === "string" ? body.contractor_token : undefined, !config.auth.required);
     return c.json(config.auth.required && role === "contractor" && c.get("session")?.accountId !== engine.parties(id).representative ? builderView(view) : view);
   });
 
@@ -432,8 +442,8 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
   app.post("/contracts/:id/submissions", async (c) => {
     const id = c.req.param("id");
     const builder = engine.parties(id).contractor;
-    requireAccount(c.get("session"), builder, "builder");
-    const { contractor_token, ...body } = await jsonBody(c);
+    requireAccount(c.get("session"), builder);
+    const { contractor_token, ...body } = await objectBody(c);
     // The keyless demo has no sessions; use the existing private builder link as its filing capability.
     if (!config.auth.required) {
       engine.requireContractorToken(id, contractor_token);
@@ -518,7 +528,7 @@ export function buildApp(rt: Omit<Runtime, "app">): Hono<{ Variables: { session:
     };
     app.post("/sim/sign", async (c) => {
       const body = z.object({ account_id: z.string(), message: z.string(), nonce: z.string(), recipient: z.string() }).parse(await jsonBody(c));
-      requireAccount(c.get("session"), body.account_id, "signer");
+      requireAccount(c.get("session"), body.account_id);
       if (!kit.devSigner) throw new UserError("No demo signer.");
       const s = await kit.devSigner.sign413({ message: body.message, recipient: body.recipient, nonce: body.nonce });
       return c.json({ account_id: body.account_id, publicKey: s.publicKey, public_key: s.publicKey, signature: s.signature, nonce: body.nonce, simulated: true });

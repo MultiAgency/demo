@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import type { NextStep } from "../src/shared/views";
 import { activate, play, setup, signTerms } from "./support/harness";
@@ -11,7 +10,7 @@ async function outsideConfirmation(ctx: Awaited<ReturnType<typeof setup>>, step:
   const result = await ctx.stub.agent(row.organization, ctx.rt.engine.onboarding.agentRow(row.organization)!.agent!)
     .ownerSubmit(step.correlation_id, { standard: "nep413", payload: { message: step.sign.message, recipient: step.sign.recipient, nonce: step.sign.nonce } }, signed);
   expect(result.ok).toBe(true);
-  (ctx.rt.engine as unknown as { d: { db: Database } }).d.db.query("UPDATE owner_steps SET confirm_url = ? WHERE correlation_id = ?").run("https://platform.invalid/confirm/fixture", step.correlation_id);
+  ctx.rt.db.query("UPDATE owner_steps SET confirm_url = ? WHERE correlation_id = ?").run("https://platform.invalid/confirm/fixture", step.correlation_id);
 }
 
 test("normal refresh reconciles external creation, grant and policy without preparing another action", async () => {
@@ -62,7 +61,7 @@ test("an unsigned external confirmation stays pending on refresh; unavailable st
   const c = ctx.rt.engine;
   const step = await play(ctx, await c.next(ctx.id));
   if (step.kind !== "owner_step") throw new Error("Expected creation");
-  (ctx.rt.engine as unknown as { d: { db: Database } }).d.db.query("UPDATE owner_steps SET confirm_url = ? WHERE correlation_id = ?").run("https://platform.invalid/confirm/fixture", step.correlation_id);
+  ctx.rt.db.query("UPDATE owner_steps SET confirm_url = ? WHERE correlation_id = ?").run("https://platform.invalid/confirm/fixture", step.correlation_id);
   const original = ctx.stub.agent.bind(ctx.stub);
   ctx.stub.agent = (org, agent) => ({ ...original(org, agent), ownerStatus: async () => ({ ok: false, kind: "unavailable" }) });
   const view = await c.getContract(ctx.id);

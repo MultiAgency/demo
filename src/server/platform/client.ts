@@ -64,7 +64,8 @@ export function toFail(r: AnyFailure): Fail {
   }
 }
 
-const map = <A, B>(r: { ok: true; value: A } | AnyFailure, f: (a: A) => B): Res<B> => (r.ok ? { ok: true, value: f(r.value) } : toFail(r));
+/** An SDK result as the port's: its value mapped, its failure as `toFail` reads it. */
+export const map = <A, B>(r: { ok: true; value: A } | AnyFailure, f: (a: A) => B): Res<B> => (r.ok ? { ok: true, value: f(r.value) } : toFail(r));
 
 interface SdkConsent {
   id: string;
@@ -159,8 +160,6 @@ export class SdkPlatform implements Platform {
 }
 
 type SdkAgentClient = ReturnType<ReturnType<typeof appClient>["agent"]>;
-// The SDK's call() is typed per procedure; its inputs here are built to the published schemas (owner-inputs, inputs).
-type Call = (path: string, input?: unknown) => Promise<{ ok: true; value: any } | AnyFailure>;
 
 /**
  * The policy's NEAR withdrawal payees: `destinations.list` entries action=withdraw, chain=near, memo=null.
@@ -173,20 +172,26 @@ export function withdrawalsOf(policy: { destinations: { mode?: string; list: { a
 }
 
 class SdkAgent implements AgentHandle {
-  private readonly call: Call;
+  private readonly call: SdkAgentClient["call"];
   constructor(
     agent: SdkAgentClient,
     private readonly grantLabel: "payout" | "invoices",
   ) {
-    this.call = agent.call.bind(agent) as unknown as Call;
+    this.call = agent.call.bind(agent);
+  }
+
+  /** The action as each signer's published input; null when a wallet-owned agent is asked for without its owner. */
+  private async prepare(a: OwnerAction, signer: "wallet" | "dao") {
+    // DAO ownership comes from setup; member wallet keys never become the provider owner.
+    if (signer === "dao") return this.call("owner/prepare", { signer, action: a.type === "agent_create" ? { type: a.type, role: a.role } : a });
+    if (a.type === "grant_issue") return this.call("owner/prepare", { signer, action: { ...a, label: this.grantLabel } });
+    if (a.type !== "agent_create") return this.call("owner/prepare", { signer, action: a });
+    return a.owner ? this.call("owner/prepare", { signer, action: { ...a, owner: a.owner } }) : null;
   }
 
   async ownerPrepare(a: OwnerAction, signer: "wallet" | "dao" = "wallet"): Promise<Res<OwnerPrepared>> {
-    if (signer === "wallet" && a.type === "agent_create" && !a.owner) return { ok: false, kind: "refused", code: "wallet_owner_required" };
-    // DAO ownership comes from setup; member wallet keys never become the provider owner.
-    const action = signer === "dao" && a.type === "agent_create" ? { type: a.type, role: "payout" }
-      : a.type === "grant_issue" ? { ...a, label: signer === "dao" ? "payout" : this.grantLabel } : a;
-    const r = await this.call("owner/prepare", { action, signer });
+    const r = await this.prepare(a, signer);
+    if (!r) return { ok: false, kind: "refused", code: "wallet_owner_required" };
     if (!r.ok) return toFail(r);
     const v = r.value;
     const prepared: OwnerPrepared = {
@@ -199,7 +204,7 @@ class SdkAgent implements AgentHandle {
       prepared.dao = v.dao;
     } else if (v.dao) return { ok: false, kind: "refused", code: "unreadable_intent" };
     else if (v.intent?.standard === "nep413") {
-      const p = v.intent.payload as { message: string; recipient: string; nonce: string };
+      const p = v.intent.payload;
       prepared.intent = { standard: "nep413", payload: { message: p.message, recipient: p.recipient, nonce: p.nonce } };
     } else if (v.confirm) prepared.confirm = { url: v.confirm.url, expiresAt: v.confirm.expiresAt };
     else return { ok: false, kind: "refused", code: "unreadable_intent" };
@@ -216,20 +221,20 @@ class SdkAgent implements AgentHandle {
 
   async ownerSubmit(correlationId: string, intent: Intent413, s: { publicKey: string; signature: string }) {
     const r = await this.call("owner/submit", { correlationId, signedData: { ...intent, public_key: s.publicKey, signature: s.signature } });
-    return map(r, (v: { status: string; failureCode?: string | null }) => ({ status: v.status, failureCode: v.failureCode ?? null }));
+    return map(r, (v) => ({ status: v.status, failureCode: v.failureCode ?? null }));
   }
 
   async ownerStatus(correlationId: string): Promise<Res<OwnerStatus>> {
     const r = await this.call("owner/status", { correlationId });
-    return map(r, (v: { stage: string; phase?: OwnerStatus["phase"]; status?: string | null; failureCode?: string | null }) => ({ stage: v.stage, ...(v.phase && { phase: v.phase }), status: v.status ?? null, failureCode: v.failureCode ?? null }));
+    return map(r, (v) => ({ stage: v.stage, ...(v.phase && { phase: v.phase }), status: v.status ?? null, failureCode: v.failureCode ?? null }));
   }
 
   async overview(): Promise<Res<Overview>> {
     const r = await this.call("overview");
-    return map(r, (v: any): Overview => {
+    return map(r, (v): Overview => {
       const view = v.policy;
       const p = view.policy;
-      const usdc = (v.book as { asset: string; confidential: bigint }[]).find((b) => b.asset === USDC)?.confidential ?? 0n;
+      const usdc = v.book.find((b) => b.asset === USDC)?.confidential ?? 0n;
       const limits = p?.limits ?? {};
       return {
         agentId: v.agentId,
@@ -250,14 +255,14 @@ class SdkAgent implements AgentHandle {
               withdrawals: withdrawalsOf(p),
             }
           : null,
-        grants: (v.grants as { label: string; revoked_at: string | null; expires_at: string }[]).map((g) => ({ label: g.label, revoked: g.revoked_at !== null, expiresAt: g.expires_at })),
+        grants: v.grants.map((g) => ({ label: g.label, revoked: g.revoked_at !== null, expiresAt: g.expires_at })),
       };
     });
   }
 
   async deposit(): Promise<Res<Deposit>> {
     const r = await this.call("deposit", { asset: USDC });
-    return map(r, (v: any) => ({ address: v.address, memo: v.memo ?? null, minAmount: v.minAmount ?? null, expiresAt: v.expiresAt ?? null }));
+    return map(r, (v) => ({ address: v.address, memo: v.memo ?? null, minAmount: v.minAmount ?? null, expiresAt: v.expiresAt ?? null }));
   }
 
   async requestPayout(i: { requestId: string; recipient: string; amount: string; expectedPolicy: Reviewed }): Promise<Res<PayoutAnswer>> {
@@ -271,11 +276,11 @@ class SdkAgent implements AgentHandle {
   }
 
   async held(): Promise<Res<Held[]>> {
-    return map(await this.call("held"), (v: any[]) => v.map((h) => ({ correlationId: h.correlationId, approvalId: h.approvalId, request: { ...h.request }, at: h.at })));
+    return map(await this.call("held"), (v) => v.map((h) => ({ correlationId: h.correlationId, approvalId: h.approvalId, request: { ...h.request }, at: h.at })));
   }
 
   async paymentStatus(correlationId: string): Promise<Res<PaymentStatus>> {
-    return map(await this.call("paymentStatus", { correlationId }), (v: any): PaymentStatus => ({
+    return map(await this.call("paymentStatus", { correlationId }), (v): PaymentStatus => ({
       status: v.status,
       failureCode: v.failureCode ?? null,
       approvalId: v.approvalId ?? null,
@@ -291,7 +296,7 @@ class SdkAgent implements AgentHandle {
   }
 }
 
-const toAnswer = (v: any): PayoutAnswer => ({
+const toAnswer = (v: { requestId: string; state: PayoutAnswer["state"]; status?: string | null; correlationId?: string | null; code?: string | null; failureCode?: string | null; neverExecuted?: boolean }): PayoutAnswer => ({
   requestId: v.requestId,
   state: v.state,
   status: v.status ?? null,

@@ -53,6 +53,38 @@ const marketJobFields = {
 const boardJobSchema = z.object(marketJobFields).refine((job) => job.currentMaxSlots <= job.maxSlots);
 /** A single job read by id: the same public record, at any lifecycle status. */
 const marketJobSchema = z.object({ ...marketJobFields, status: z.enum(["open", "filling", "in_progress", "completed", "closed"]) });
+/** Any JSON object, before its own fields are trusted. */
+const recordSchema = z.record(z.string(), z.unknown());
+// The fields Paperwork keeps from `AgentPublic`, `PricingPlan`, `ReputationResponse` and `MyAssignmentItem`
+// (OpenAPI 2.0.0, read 2026-11-14). Identity, price and status must be present as published; nothing is coerced.
+const directorySchema = z.object({ agents: z.array(z.object({
+  agent_id: z.string().min(1), handle: z.string().min(1), name: z.string(), description: z.string().nullish(),
+  sla_seconds: z.number().int(), delivered_jobs: z.number().int(), success_rate: z.number().nullish(),
+})) });
+const plansSchema = z.array(z.object({
+  display_name: z.string().nullish(), model: z.string().min(1), price_amount: z.string().min(1),
+  is_default: z.boolean().optional(), sla_seconds: z.number().int().nullish(),
+}));
+const reputationSchema = z.object({ overall: z.number().nullish(), jobs_counted: z.number().int() });
+const assignmentsSchema = z.object({ assignments: z.array(z.object({
+  assignment: z.object({
+    assignmentId: z.string().min(1), jobId: z.string().min(1), status: z.string().min(1),
+    escrowAmount: z.string().nullish(), escrowToken: z.string().nullish(), slaDeadlineAt: z.string().nullish(),
+  }),
+  job: z.object({ title: z.string().optional(), description: z.string().optional() }).nullish(),
+})) });
+const versionsSchema = z.object({ versions: z.array(z.object({
+  version: z.number().int().min(1).max(2147483647), files: z.array(z.unknown()),
+  submittedAt: z.string().regex(/T.*(?:Z|[+-]\d\d:\d\d)$/).refine((at) => Number.isFinite(Date.parse(at))),
+})) });
+const submittedSchema = z.object({ status: z.enum(["submitted", "accepted"]), assignmentId: z.string().optional() });
+
+/** A 2xx answer that does not match what the Market publishes is a failed read. */
+function read<T>(schema: z.ZodType<T>, body: unknown, message: string): T {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) throw new MarketHttpError(200, message);
+  return parsed.data;
+}
 
 function publicBoardJob(value: unknown): BoardJob | null {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -83,7 +115,7 @@ export class MarketApi {
     private readonly send: typeof fetch = fetch,
   ) {}
 
-  private async request(method: "GET" | "POST", path: string, body?: unknown, auth = false, format: "json" | "markdown" = "json"): Promise<any> {
+  private async answer(method: "GET" | "POST", path: string, body?: unknown, auth = false, format: "json" | "markdown" = "json"): Promise<{ status: number; text: string }> {
     if (auth && !this.token) throw new MarketHttpError(0, "No market agent token is configured (MARKET_AGENT_TOKEN).");
     let res: Response;
     try {
@@ -98,11 +130,16 @@ export class MarketApi {
     }
     const text = await res.text();
     if (!res.ok) throw new MarketHttpError(res.status, `The market answered ${res.status} to ${method} ${path.split("?")[0]}.`);
-    if (format === "markdown") return text;
+    return { status: res.status, text };
+  }
+
+  /** The parsed answer, untrusted until its caller reads it through a schema. */
+  private async request(method: "GET" | "POST", path: string, body?: unknown, auth = false): Promise<unknown> {
+    const { status, text } = await this.answer(method, path, body, auth);
     try {
       return JSON.parse(text);
     } catch {
-      throw new MarketHttpError(res.status, `The market's answer to ${path.split("?")[0]} is not JSON.`);
+      throw new MarketHttpError(status, `The market's answer to ${path.split("?")[0]} is not JSON.`);
     }
   }
 
@@ -117,10 +154,9 @@ export class MarketApi {
     const params = new URLSearchParams({ sort: query.sort ?? "recent", limit: String(BOARD_PAGE_SIZE + 1), offset: String(offset) });
     if (query.q !== undefined) params.set("q", query.q);
     if (query.kind !== undefined) params.set("kind", query.kind);
-    const body = await this.request("GET", `/v1/jobs/board?${params}`, undefined, true);
-    if (!body || typeof body !== "object" || !Array.isArray(body.jobs) || body.jobs.length > BOARD_PAGE_SIZE + 1)
-      throw new MarketHttpError(200, "The market returned an invalid public job board page.");
-    const rows = (body.jobs as unknown[]).map(publicBoardJob);
+    const body = read(z.object({ jobs: z.array(z.unknown()).max(BOARD_PAGE_SIZE + 1) }), await this.request("GET", `/v1/jobs/board?${params}`, undefined, true),
+      "The market returned an invalid public job board page.");
+    const rows = body.jobs.map(publicBoardJob);
     return {
       jobs: rows.slice(0, BOARD_PAGE_SIZE).filter((job): job is BoardJob => job !== null),
       offset, next_offset: rows.length > BOARD_PAGE_SIZE ? offset + BOARD_PAGE_SIZE : null,
@@ -134,8 +170,7 @@ export class MarketApi {
    */
   async job(jobId: string): Promise<MarketJobSource> {
     if (!z.uuid().safeParse(jobId).success) throw new MarketHttpError(400, "A Market job id is a UUID.");
-    const row = await this.request("GET", `/v1/jobs/${encodeURIComponent(jobId)}`, undefined, true);
-    if (!row || typeof row !== "object" || Array.isArray(row)) throw new MarketHttpError(200, "The market returned an invalid job record.");
+    const row = read(recordSchema, await this.request("GET", `/v1/jobs/${encodeURIComponent(jobId)}`, undefined, true), "The market returned an invalid job record.");
     if (row.isPrivate !== false || row.isTestRun !== false) throw new MarketHttpError(404, "Only public Market jobs can be imported.");
     const parsed = marketJobSchema.safeParse(row);
     if (!parsed.success || parsed.data.jobId !== jobId) throw new MarketHttpError(200, "The market returned an invalid job record.");
@@ -149,14 +184,14 @@ export class MarketApi {
 
   /** Listed agents matching `q` (public). */
   async browse(q: string): Promise<DirectoryAgent[]> {
-    const body = await this.request("GET", `/v1/agents?q=${encodeURIComponent(q)}&limit=20`);
-    return (body.agents as any[]).map((a) => ({
-      agent_id: String(a.agent_id),
-      handle: String(a.handle),
-      name: String(a.name),
+    const body = read(directorySchema, await this.request("GET", `/v1/agents?q=${encodeURIComponent(q)}&limit=20`), "The market returned an invalid agent directory.");
+    return body.agents.map((a) => ({
+      agent_id: a.agent_id,
+      handle: a.handle,
+      name: a.name,
       description: a.description ?? null,
-      sla_seconds: Number(a.sla_seconds),
-      delivered_jobs: Number(a.delivered_jobs),
+      sla_seconds: a.sla_seconds,
+      delivered_jobs: a.delivered_jobs,
       success_rate: a.success_rate ?? null,
     }));
   }
@@ -171,24 +206,27 @@ export class MarketApi {
         throw err;
       }),
     ]);
+    const rep = reputation === null ? null : read(reputationSchema, reputation, "The market returned an invalid agent reputation.");
     return {
-      plans: (plans as any[]).map((p) => ({ name: p.display_name ?? null, model: String(p.model), price_amount: String(p.price_amount), is_default: p.is_default === true, sla_seconds: p.sla_seconds ?? null })),
-      reputation: reputation ? { overall: reputation.overall ?? null, jobs_counted: Number(reputation.jobs_counted) } : null,
+      plans: read(plansSchema, plans, "The market returned invalid pricing plans for this agent.")
+        .map((p) => ({ name: p.display_name ?? null, model: p.model, price_amount: p.price_amount, is_default: p.is_default === true, sla_seconds: p.sla_seconds ?? null })),
+      reputation: rep ? { overall: rep.overall ?? null, jobs_counted: rep.jobs_counted } : null,
     };
   }
 
   /** Every assignment of the token's agent, newest first. */
   async assignments(): Promise<MarketAssignment[]> {
-    const body = await this.request("GET", "/v1/agents/me/assignments?status=all&limit=100", undefined, true);
-    return (body.assignments as any[]).map(({ assignment: a, job: j }) => ({
-      assignmentId: String(a.assignmentId),
-      jobId: String(a.jobId),
-      status: String(a.status),
+    const body = read(assignmentsSchema, await this.request("GET", "/v1/agents/me/assignments?status=all&limit=100", undefined, true),
+      "The market returned an invalid assignment list for this agent.");
+    return body.assignments.map(({ assignment: a, job: j }) => ({
+      assignmentId: a.assignmentId,
+      jobId: a.jobId,
+      status: a.status,
       escrowAmount: a.escrowAmount ?? null,
       escrowToken: a.escrowToken ?? null,
       slaDeadlineAt: a.slaDeadlineAt ?? null,
-      title: String(j?.title ?? ""),
-      description: String(j?.description ?? ""),
+      title: j?.title ?? "",
+      description: j?.description ?? "",
     }));
   }
 
@@ -198,30 +236,27 @@ export class MarketApi {
    * https://market.near.ai/skill/reference/agent-api.md. No shared client/server clock is promised.
    */
   async deliverableVersions(assignmentId: string): Promise<DeliverableVersion[]> {
-    const body = await this.request("GET", `/v1/assignments/${encodeURIComponent(assignmentId)}/deliverable/versions`, undefined, true);
     // An absent or malformed list is a failed read, never evidence that the submission did not arrive.
-    if (!body || !Array.isArray(body.versions) || !body.versions.every((v: any) =>
-      v && typeof v === "object" && Number.isInteger(v.version) && v.version >= 1 && v.version <= 2147483647 && Array.isArray(v.files) &&
-      typeof v.submittedAt === "string" && /T.*(?:Z|[+-]\d\d:\d\d)$/.test(v.submittedAt) && Number.isFinite(Date.parse(v.submittedAt))))
-      throw new MarketHttpError(200, "The market returned no valid deliverable version list for this job.");
-    const versions: DeliverableVersion[] = body.versions.map((v: any) => ({ version: v.version as number, submittedAt: v.submittedAt as string }));
-    if (versions.some((v: DeliverableVersion, i: number) => i > 0 && v.version <= versions[i - 1]!.version))
+    const body = read(versionsSchema, await this.request("GET", `/v1/assignments/${encodeURIComponent(assignmentId)}/deliverable/versions`, undefined, true),
+      "The market returned no valid deliverable version list for this job.");
+    const versions: DeliverableVersion[] = body.versions.map((v) => ({ version: v.version, submittedAt: v.submittedAt }));
+    if (versions.some((v, i) => i > 0 && v.version <= versions[i - 1]!.version))
       throw new MarketHttpError(200, "The market returned a conflicting deliverable version history for this job.");
     return versions;
   }
 
   /** Exact managed Markdown from the OpenAPI version/raw route above; never follow an external deliverable URL. */
   async deliverableMarkdown(assignmentId: string, version: number): Promise<string> {
-    return this.request("GET", `/v1/assignments/${encodeURIComponent(assignmentId)}/deliverable/versions/${version}/raw`, undefined, true, "markdown");
+    return (await this.answer("GET", `/v1/assignments/${encodeURIComponent(assignmentId)}/deliverable/versions/${version}/raw`, undefined, true, "markdown")).text;
   }
 
   /** Submits the deliverable as the agent. Answers the assignment's new status. */
   async submit(assignmentId: string, deliverableMarkdown: string): Promise<{ status: string }> {
-    const a = await this.request("POST", `/v1/assignments/${encodeURIComponent(assignmentId)}/submit`, { deliverableMarkdown }, true);
+    const unconfirmed = "The market returned no confirmed submission state for this job; check its assignments before submitting again.";
     // A successful HTTP status can follow an executed submission even when its body is unusable. It does not prove
     // refusal or allow another POST. Accept only a confirmed submission state for the original assignment.
-    if (!a || typeof a !== "object" || (a.status !== "submitted" && a.status !== "accepted") || (a.assignmentId !== undefined && a.assignmentId !== assignmentId))
-      throw new MarketHttpError(200, "The market returned no confirmed submission state for this job; check its assignments before submitting again.");
+    const a = read(submittedSchema, await this.request("POST", `/v1/assignments/${encodeURIComponent(assignmentId)}/submit`, { deliverableMarkdown }, true), unconfirmed);
+    if (a.assignmentId !== undefined && a.assignmentId !== assignmentId) throw new MarketHttpError(200, unconfirmed);
     return { status: a.status };
   }
 }

@@ -11,7 +11,7 @@ import { activate, setup } from "./support/harness";
 
 test("account discovery parses only matching jobs and one snapshot does not enumerate the account", async () => {
   const ctx = await setup(JOB_DEMO_TERMS);
-  const { ledger, d } = ctx.rt.engine as unknown as { ledger: Ledger; d: Deps };
+  const { ledger } = ctx.rt.engine as unknown as { ledger: Ledger };
   try {
     for (let i = 0; i < 100; i++) ctx.rt.engine.createContract({ ...JOB_DEMO_TERMS, company: `Unrelated ${i}`,
       representative: { near_account: "unrelated-agency.demo" }, contractor: { ...JOB_DEMO_TERMS.contractor, near_account: "unrelated-builder.demo" } });
@@ -32,11 +32,11 @@ test("account discovery parses only matching jobs and one snapshot does not enum
         expect(() => ctx.rt.engine.recordedJobSnapshot(ctx.id, "outsider.demo")).toThrow("named party");
       } finally { list.mockRestore(); }
     } finally { parse.mockRestore(); }
-    const plan = JSON.stringify(d.db.query(`EXPLAIN QUERY PLAN SELECT * FROM contracts WHERE ${REPRESENTATIVE_ACCOUNT_SQL} = ? OR ${BUILDER_ACCOUNT_SQL} = ?`).all("maria.demo", "maria.demo"));
+    const plan = JSON.stringify(ctx.rt.db.query(`EXPLAIN QUERY PLAN SELECT * FROM contracts WHERE ${REPRESENTATIVE_ACCOUNT_SQL} = ? OR ${BUILDER_ACCOUNT_SQL} = ?`).all("maria.demo", "maria.demo"));
     expect(plan).toContain("contracts_representative_account");
     expect(plan).toContain("contracts_builder_account");
     expect(ctx.stub.calls.requestPayout).toBe(0);
-  } finally { await (await ctx.rt.auth.$context).checkSchema?.(); d.db.close(); }
+  } finally { await ctx.rt.close(); }
 });
 
 test("additive account indexes preserve original terms, signatures and malformed retained rows", () => {
@@ -80,13 +80,13 @@ test("history lookups use scoped indexes and ordered histories avoid temporary s
 
 test("one stored snapshot loads original payout history once", async () => {
   const ctx = await setup(JOB_DEMO_TERMS);
-  const { ledger, d } = ctx.rt.engine as unknown as { ledger: Ledger; d: Deps };
+  const { ledger } = ctx.rt.engine as unknown as { ledger: Ledger };
   const attempts = spyOn(ledger, "attempts");
   try {
     expect(ctx.rt.engine.recordedJobSnapshot(ctx.id, "maria.demo").payments).toEqual([]);
     expect(attempts).toHaveBeenCalledTimes(1);
     expect(attempts).toHaveBeenCalledWith(ctx.id);
-  } finally { attempts.mockRestore(); await (await ctx.rt.auth.$context).checkSchema?.(); d.db.close(); }
+  } finally { attempts.mockRestore(); await ctx.rt.close(); }
 });
 
 test("batched discovery stays at six queries and matches individual stored snapshots", async () => {
@@ -120,5 +120,5 @@ test("batched discovery stays at six queries and matches individual stored snaps
     queries = 0;
     expect(engine.jobsFor("nobody.demo")).toEqual([]);
     expect(queries).toBe(1);
-  } finally { d.db.exec("PRAGMA query_only = OFF"); await (await ctx.rt.auth.$context).checkSchema?.(); d.db.close(); }
+  } finally { d.db.exec("PRAGMA query_only = OFF"); await ctx.rt.close(); }
 });

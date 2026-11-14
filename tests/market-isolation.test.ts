@@ -21,7 +21,6 @@ const item = (id: string, status = "in_progress") => ({
   assignment: { assignmentId: id, jobId: `job-${id}`, status, escrowAmount: "500000", escrowToken: "X402", slaDeadlineAt: null },
   job: { title: `Title ${id}`, description: `Private brief ${id}` },
 });
-const versions = [{ version: 1, files: [], submittedAt: new Date(NOW).toISOString() }];
 const isVersions = (url: string | URL | Request) => new URL(typeof url === "string" || url instanceof URL ? url : url.url).pathname.endsWith("/deliverable/versions");
 function deferred<T>() {
   let resolve!: (value: T) => void;

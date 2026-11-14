@@ -1,7 +1,7 @@
 import { JobFunding } from "../components/JobFunding";
 import { FundingRecovery } from "../components/FundingRecovery";
 import { DaoProposal } from "../components/DaoProposal";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api, completeStep, links, signMessage } from "../api";
 import { SignInGate } from "../components/Account";
 import { PayeeCheck } from "../components/PayeeRegistration";
@@ -13,7 +13,7 @@ import { ConfirmLink, SignBox } from "../components/SignBox";
 import { Alert, Avatar, Badge, Button, Card, CardHeader, dateText, Mono, PageLoading, Progress, short, Spinner, Stat, Tabs, timeText, type Tone, usd } from "../components/ui";
 import { PHASES, SETUP, STAGE_ORDER, type StepId } from "../guide";
 import { AccountReadGate, useAccountResource } from "../useAccountResource";
-import type { AppConfig, ContractView, Judgment, NextStep, TermsSigningRequest, VerifyView } from "../types";
+import type { AppConfig, ContractView, NextStep, TermsSigningRequest, VerifyView } from "../types";
 import { STAGES } from "./Home";
 import { capsAtScope, endInstant, isMarketSettled, type MarketTerms, payoutEndInstant, titleOf } from "../../shared/terms";
 import { useSession } from "../session";
@@ -444,7 +444,7 @@ function Dashboard({ c, config, verify, act }: { c: ContractView; config: AppCon
 
 /** The scoreboard: each deliverable, what it's worth, how done it is, what's been paid. */
 function ScopeTab({ c, config, act, onPayouts }: { c: ContractView; config: AppConfig; act: Act; onPayouts: () => void }) {
-  const j = (c.judgment ?? null) as Judgment | null;
+  const j = c.judgment;
   const outOfScope = (j?.prs ?? []).filter((p) => !p.eligible || !p.deliverable);
   return (
     <Card pad={false}>

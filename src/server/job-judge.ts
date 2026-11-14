@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { JobSubmission } from "../shared/jobs";
 import type { Terms } from "../shared/terms";
 import type { Config } from "./config";
-import { injectionFlags, type JobFetch, type Judgment, LEVELS, type Level, readAssessment } from "./judge";
+import { type Judgment, LEVELS, type Level } from "../shared/judgment";
+import { injectionFlags, type JobFetch, readAssessment } from "./judge";
 
 /** Report evidence is untrusted data. References are displayed for review, never fetched or executed. */
 export async function judgeJob(config: Config["judge"], terms: Terms, submission: JobSubmission, previous: Record<string, Level>, send: JobFetch = fetch): Promise<Judgment> {

@@ -3,40 +3,7 @@ import type { MergeTerms } from "../shared/terms";
 import { endInstant, startInstant } from "../shared/terms";
 import type { Config } from "./config";
 import type { PullRequest } from "./evidence/github";
-
-/** Completion levels a judge may give a deliverable. Coarse on purpose: easy to audit, hard to game. */
-export const LEVELS = [0, 0.25, 0.5, 0.75, 1] as const;
-export type Level = (typeof LEVELS)[number];
-
-export interface PrReview {
-  key: string; // repo#number
-  repo: string;
-  number: number;
-  title: string;
-  url: string;
-  merged_at: string;
-  eligible: boolean;
-  deliverable: string | null;
-  reason: string;
-  flags: string[];
-}
-
-export interface DeliverableJudgment {
-  id: string;
-  completion: Level;
-  prs: string[];
-  reason: string;
-}
-
-export interface Judgment {
-  judge: "rules" | "near-ai";
-  model?: string;
-  completion_id?: string;
-  decision: "pay" | "escalate";
-  summary: string;
-  prs: PrReview[];
-  deliverables: DeliverableJudgment[];
-}
+import { type DeliverableJudgment, type Judgment, LEVELS, type Level, type PrReview } from "../shared/judgment";
 
 /**
  * The agent's judgement step: how complete is each deliverable, given the merged PRs?

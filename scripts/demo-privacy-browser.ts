@@ -3,7 +3,6 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Database } from "bun:sqlite";
 import { buildApp } from "../src/server/app";
 import type { Auth } from "../src/server/auth";
 import { startServer } from "../src/server/index";
@@ -19,7 +18,7 @@ const pins = () => ({ sdk_sha256: digest(new URL(`../${sdkArtifact}`, import.met
 const initialPins = pins();
 if (initialPins.sdk_sha256 !== initialPins.gateway.sdkTarballSha256) throw Error("SDK/gateway pin mismatch");
 const ctx = await setup();
-const db = (ctx.rt.engine as unknown as { d: { db: Database } }).d.db;
+const db = ctx.rt.db;
 const jobs: { id: string; version: number; existing: boolean; token: string }[] = [];
 for (const version of [2, 3]) for (const existing of [false, true]) {
   const created = version === 2 && !existing ? { id: ctx.id, contractorToken: ctx.token } : ctx.rt.engine.createContract({ ...(version === 3 ? JOB_DEMO_TERMS : (await ctx.rt.engine.viewContract(ctx.id)).terms), company: `Privacy fixture v${version} ${existing ? "existing" : "new"}` });

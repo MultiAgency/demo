@@ -14,7 +14,7 @@ function appAs(ctx: Ctx, account: string | null, engine = ctx.rt.engine) {
     auth: { ...ctx.rt.config.auth, required: true, publicUrl: origin, enforcePublicHost: true } } });
 }
 const depsOf = (ctx: Ctx) => (ctx.rt.engine as unknown as { d: Deps }).d;
-async function close(ctx: Ctx) { await (await ctx.rt.auth.$context).checkSchema?.(); depsOf(ctx).db.close(); }
+async function close(ctx: Ctx) { await ctx.rt.close(); }
 
 test("agent discovery enforces account/host scope and exposes inspect-only actions without invitations", async () => {
   const ctx = await setup(JOB_DEMO_TERMS);

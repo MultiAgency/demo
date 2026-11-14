@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import type { Database } from "bun:sqlite";
 import { createRuntime } from "../src/server/app";
 import { loadConfig } from "../src/server/config";
 import { MarketApi, MarketHttpError } from "../src/server/market/api";
@@ -37,7 +36,7 @@ afterEach(async () => { for (const close of closers.splice(0)) await close(); })
 async function runtime(boardApi: MarketApi | null, terms: Record<string, unknown> = sourced) {
   const stub = new StubPlatform(() => new Date(START));
   const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", JUDGE: "rules" }), { clockStart: START, kit: stub.kit(), boardApi });
-  closers.push(async () => (rt.engine as unknown as { d: { db: Database } }).d.db.close());
+  closers.push(() => rt.close());
   const { id, contractorToken } = rt.engine.createContract(terms);
   const ctx: Ctx = { rt, stub, id, token: contractorToken, logs: [] };
   await signTerms(ctx);

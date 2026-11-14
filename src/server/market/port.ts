@@ -20,7 +20,11 @@ export interface HireTerms {
 
 export interface HireAnswer {
   requestId: string;
-  state: "paid" | "not_charged" | "refused" | "unknown" | "not_found";
+  /**
+   * `funding` and `funding_review` (SDK 0.5.9): the hire is bound and its top-up is in progress or needs review, with
+   * no payment yet. Neither is an outcome, so the stored hire keeps its state and the same request is followed.
+   */
+  state: "paid" | "not_charged" | "refused" | "unknown" | "not_found" | "funding" | "funding_review";
   code: string | null;
   taskId: string | null;
   taskState: string | null;

@@ -35,16 +35,6 @@ export interface ContractRow {
   stage: string;
 }
 
-/** ContractView.judgment (typed `unknown` in views.ts): the last run of the judge. Read defensively. */
-export interface Judgment {
-  judge: "rules" | "near-ai";
-  model?: string;
-  decision: "pay" | "escalate";
-  summary: string;
-  prs: { key: string; title: string; url: string; merged_at: string; eligible: boolean; deliverable: string | null; reason: string; flags: string[] }[];
-  at: string;
-}
-
 /** POST /api/payouts/:rid/vote. `terms` are the payment terms the platform proved for this approval. */
 export interface VoteAnswer {
   dao?: import("../server/platform/port").OwnerPrepared["dao"];

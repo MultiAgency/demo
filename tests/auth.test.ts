@@ -56,6 +56,17 @@ describe("access rules when sign-in is required", () => {
 });
 
 describe("API errors are machine-readable", () => {
+  test("a JSON body that is not an object is the caller's mistake on every route that reads its fields", async () => {
+    const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake" }));
+    const { id } = await (await rt.app.request("/api/contracts", json(DEMO_TERMS))).json();
+    for (const path of [`/api/contracts/${id}/signatures`, `/api/contracts/${id}/submissions`, "/api/contracts"])
+      for (const body of [null, [], "text", 7]) {
+        const res = await rt.app.request(path, json(body));
+        expect([path, body, res.status]).toEqual([path, body, 400]);
+        expect((await res.json()).code).toBe("invalid_request");
+      }
+  });
+
   test("malformed bodies are 400, unknown routes are JSON 404s, and each error carries a code", async () => {
     const rt = await createRuntime(loadConfig({ PLATFORM: "fake", GITHUB: "fake", REQUIRE_AUTH: "true" }));
     for (const body of ["not json", ""]) {
