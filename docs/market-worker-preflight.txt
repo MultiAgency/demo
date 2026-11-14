@@ -1,0 +1,40 @@
+Market worker preflight investigation — 2026-11-14; INTEGRATION REMAINS UNPROMOTED
+
+Reproduced request (fresh, isolated fixture; original retained attempt not replayed):
+  GET /v1/assignments/:assignment_id/deliverable/versions
+  Accept: application/json
+  Authentication: bearer present; credential omitted from evidence
+  Response: HTTP 404, Content-Type application/json
+  Response body: {"error":"not found"}
+
+Origin:
+  src/server/market/routes.ts:159 -> Worker.submit(), worker.ts:311
+  -> MarketApi.deliverableVersions(), api.ts:240
+  -> authenticated GET transport, api.ts:122
+No request body, provider setup, consent, grant, funding, start declaration or submission fallback was added.
+
+Contract evidence:
+  Provider OpenAPI 2.0.0, captured 2026-11-11, SHA-256
+  2c7b2496e05f56aece8b13f8a825845a54b8cae9689efd4f3acf79ea28e32cd3.
+  The pinned contract defines this exact GET path, UUID assignment id and worker bearer admission; 200 returns DeliverableVersionsResponse and 404 means unknown assignment. The versions array has no minimum item count. A known owned assignment with no submitted versions can therefore return an empty array; 404 is never treated as evidence of that empty history.
+  A fresh anonymous documentation fetch differs in overall document bytes but has identical relevant route and DeliverableVersionView/DeliverableVersionsResponse definitions. It does not replace the pin. The tested excerpt and source hash are in tests/fixtures/market-deliverable-contract.json.
+  Sources: https://market.near.ai/openapi.json and https://market.near.ai/skill/reference/agent-api.md.
+
+Finding: simulator coverage defect.
+  Exact source ff4a17ffa6a0f6055692f9147e147ab01b03a58d / candidate 78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea has assignment listing and POST start/submit handlers in test/e2e/market.mjs, but no deliverable-version history or version/raw GET handler. The observed body is its generic fallback at line 345. The fixture assignment already appears in the worker's authenticated assignment list. A separate GET-only regression seeds a known owned assignment and reproduces the same fallback, independently of Paperwork. Neither a malformed Paperwork path nor a changed pinned contract explains this failure.
+
+Regressions:
+  bun --no-env-file test tests/market-worker-preflight-contract.test.ts
+  Tests derive the method/path from the pinned excerpt and verify auth/Accept, 404 refusal, zero POSTs and retained attempt/report after reconstruction. A 404 cannot become a successful baseline.
+  node scripts/check-market-worker-contract.mjs <exact-frozen-platform-source>
+  This separate diagnostic currently FAILS 404 != 200 for a known owned fixture assignment. It only performs GETs: no hire, start, submit, chain relay or live credentials. It also checks 403 cross-worker isolation, 401 unauthenticated admission and 404 unknown assignments once the missing route is implemented. It is intentionally not part of app-only CI and is not reported as a passing simulator check.
+
+Platform handoff:
+  https://github.com/MultiAgency/platform/issues/94#issuecomment-6878959025
+  Platform owner must implement missing routes and meaningful immutable history/raw/isolation/recovery regressions in its own isolated source, then produce and qualify a DISTINCT candidate and SDK/platform pair. No platform source was modified by Paperwork. Preserve existing ff4a17f/78902f13 evidence. Rerun worker and affected consumer checks against the resulting pair; current receipts cannot substitute. No claimed fix or full acceptance until that owner handoff completes.
+
+The integrated runtime source remains 916ee27a1fb4bb4e54e874e007d381f608a09ba0d421849d7f1adac7a2420846; these additions are tests/diagnostics/documentation only. The current amd64 packaging receipt remains scoped to those unchanged runtime bytes. Fresh integrated workflow/browser receipt results are recorded separately in ignored .release-candidates/worker-preflight-investigation-20261114/.
+
+Original retained receipt and submitted attempt/report remain preserved. No paid request or live Market call was made. #81 remains separately deferred; no replacement or replay, no budget release and no conflation with #74. Hosted rollout and Desk readiness gates remain open.
+
+Fresh results: 1,688 offline tests and typecheck pass. Combined integrated real-SDK/browser, fixture revision/keyboard, privacy matrix and Market-settled browser all pass. Worker traced workflow and standalone simulator contract check still fail on the missing route; neither is counted as a pass. New receipt SHA-256: 50015cb40dea810f82edce27e46b5e1f21cee5d73ad94121fd94a879a801c368.
