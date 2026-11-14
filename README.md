@@ -70,7 +70,7 @@ It reads the stack's `state.json` (gateway URL, app credential file, TLS certifi
 
 ### Platform version
 
-Approving a held withdrawal needs platform 0.5.5 or later (MultiAgency/platform#42). Paperwork pins `@multiagency/sdk` 0.6.0 from platform commit `ff4a17ffa6a0f6055692f9147e147ab01b03a58d`, with gateway candidate `78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea`; pins and the offline handoff are in `vendor/multiagency-sdk`. A pin does not establish a deployed gateway; hosted observations are in [market-boundary.md](docs/market-boundary.md#release-and-hosted-checks--2026-11-11).
+Approving a held withdrawal needs platform 0.5.5 or later (MultiAgency/platform#42). Paperwork pins `@multiagency/sdk` 0.6.0 from platform commit `f4729f4a7244a4e415d03678535328960b695d71`, with gateway candidate `c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509`; pins and the offline handoff are in `vendor/multiagency-sdk`. A pin does not establish a deployed gateway; hosted observations are in [market-boundary.md](docs/market-boundary.md#release-and-hosted-checks--2026-11-11).
 
 ## Hire and work on the agent market
 
@@ -214,15 +214,15 @@ MIT. See [LICENSE](LICENSE).
 
 ### Local Market integration acceptance (2026-11-14)
 
-The current local SDK pin is 0.6.0 candidate `78902f13`, not a hosted deployment claim. With a fresh simulated platform stack started with `--app multiagency-paperwork --market`, run:
+The current local SDK pin is 0.6.0 candidate `c1a3ae61`, not a hosted deployment claim. With a fresh simulated platform stack started with `--app multiagency-paperwork --market`, run:
 
 ```bash
 PLATFORM_STACK_DIR=<fresh-stack-directory> bun --no-env-file run demo:market
 PLATFORM_STACK_DIR=<another-fresh-stack-directory> bun --no-env-file run demo:market:work
 ```
 
-Run one owned stack at a time and stop it after its recipe. `demo:market` checks hiring, authorization and settlement. `demo:market:work` also checks worker assignment, submission and acceptance through Paperwork. The exact-pair simulator still returns 404 for deliverable-version history: the worker recipe fails preflight with zero submission POSTs and preserves its attempt. Earlier `abf514ef` evidence is archived; fresh exact-pair results are in `docs/sdk060-local-readiness.json`. This blocker must be resolved by the platform owner without removing baseline checks.
+Run one owned stack at a time and stop it after its recipe. `demo:market` checks hiring, authorization and settlement. `demo:market:work` also checks worker assignment, submission and acceptance through Paperwork. The replacement `c1a3ae61` simulator supports authenticated immutable history/raw reads. Both normal worker delivery and `--worker-drop-reply` recovery pass with one submission POST under the original fixture hire identity. Historical 404 attempts remain preserved; current checks and exact identities are in `docs/sdk060-local-readiness.json`.
 
 `bun --no-env-file run demo:market:browser` remains a separate fixture-based Market-settled job boundary. It verifies no platform payout, but does not qualify real Market settlement or earnings withdrawal. None of these recipes authorize hosted changes or use of retained funds.
 
-Integrated source qualification and its remaining worker simulator blocker: [readiness](docs/sdk060-local-readiness.json). Owner-run rollout remains blocked: [handoff](docs/sdk060-rollout.txt). The earlier frozen candidate remains preserved.
+Replacement exact-pair local qualification: [readiness](docs/sdk060-local-readiness.json). Owner review, remote CI and hosted gates remain: [handoff](docs/sdk060-rollout.txt). The earlier frozen candidate remains preserved.

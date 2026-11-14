@@ -21,4 +21,9 @@ if (release.pins.sdk_version !== JSON.parse(read("node_modules/@multiagency/sdk/
   throw new Error("Release status SDK version differs from installed SDK");
 if (release.pins.sdk_sha256 !== pin.sdkTarballSha256 || release.pins.platform_source !== pin.sourceHead || release.pins.gateway_candidate !== pin.runDigest)
   throw new Error("Release status differs from active SDK/gateway pins");
+for (const [name, actual] of [["PAPERWORK_PLATFORM_SOURCE", pin.sourceHead],
+  ["PAPERWORK_PLATFORM_CANDIDATE", pin.runDigest], ["PAPERWORK_SDK_SHA256", pin.sdkTarballSha256]] as const) {
+  const expected = process.env[name];
+  if (expected && expected !== actual) throw new Error(`${name} differs from the retained SDK/platform pair`);
+}
 console.log(JSON.stringify({ sdk_sha256: pin.sdkTarballSha256, source: pin.sourceHead, gateway: pin.runDigest, provenance_sha256: sha(installed) }, null, 2));

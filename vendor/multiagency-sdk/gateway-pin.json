@@ -1,16 +1,16 @@
 {
-  "runDigest": "78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea",
-  "sourceHead": "ff4a17ffa6a0f6055692f9147e147ab01b03a58d",
+  "runDigest": "c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509",
+  "sourceHead": "f4729f4a7244a4e415d03678535328960b695d71",
   "overlayDiffSha256": null,
   "dependencyTree": "9519b0c0d6220d5ee235a1d360e788c9740e66d4f8d4fd1ebedd55dc96793e43",
   "frontend": {
     "source": "2d23602dc4ceec4c4ab03db072dde665cefdbded9a624edf7e4f3f388378818e",
-    "build": "7985437cd73e7ca1ee66f228b46c4e9fb7083fff631d9572c3f031b4c9e6911b"
+    "build": "c360403149f835e2e0d5b43aa9734efd692a86fdd9593ccfe443b35be0e3cfd7"
   },
   "node": "v24.22.3",
-  "frozenAt": "2026-11-14T13:16:47.270Z",
-  "sdkTarball": "multiagency-sdk-0.6.0-78902f13.tgz",
-  "sdkTarballSha256": "b7c45afaa4a3605eae9bcd9c174e3d1b0fbfb55b8285b2405828a9024f6a9f0c",
-  "snapshot": "/private/tmp/sdk060-consolidated-20261114/platform",
-  "gatewayPackageManifestSha256": "05580d0356c7fef1b6c4e73ed5c3d665a53883261cb6d008b52cb0a0f1572837"
+  "frozenAt": "2026-11-14T14:57:51.225Z",
+  "sdkTarball": "multiagency-sdk-0.6.0-c1a3ae61.tgz",
+  "sdkTarballSha256": "aa3d4325bde4f74604280c577fac99b50acea805d27214a89899a77e1132af9a",
+  "snapshot": "/private/tmp/sdk060-market-history-20261114/source/.test-artifacts/stack-snapshots/c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509",
+  "gatewayPackageManifestSha256": "0e9e6e437c8e38dbda478540f4204e4a35391939e92eec6f0d164c77977509b6"
 }

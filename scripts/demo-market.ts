@@ -219,10 +219,18 @@ if (process.argv.includes("--worker")) {
   if (!assignmentId) throw new Error("The simulator returned no worker assignment identity.");
   check(workerHire.state !== "paid", "buyer remains unpaid while the worker has not submitted");
   let submissionPosts = 0;
+  const dropReply = process.argv.includes("--worker-drop-reply");
+  let replyDropped = false;
   const observeFetch: typeof fetch = Object.assign((async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (init?.method === "POST" && url.pathname.endsWith("/submit")) submissionPosts++;
-    return fetch(input, init);
+    const response = await fetch(input, init);
+    if (dropReply && !replyDropped && init?.method === "POST" && url.pathname.endsWith("/submit")) {
+      replyDropped = true;
+      await response.arrayBuffer();
+      throw new TypeError("Fixture: worker submission response lost after provider receipt");
+    }
+    return response;
   }) as typeof fetch, { preconnect: fetch.preconnect });
   rt.market = new Market({ ...rt.market.d, api: new MarketApi(state.market.url, credentials.token, observeFetch),
     worker: { agencyId: workerAgency, token: credentials.token, secret: credentials.webhookSecret } });
@@ -233,7 +241,18 @@ if (process.argv.includes("--worker")) {
     "Paperwork imports the token-scoped assignment under the distinct worker agency");
   const markdown = "# Integration report\nDelivered through Paperwork's worker API.";
   await ok("POST", `/market/worker/jobs/${encodeURIComponent(assignmentId)}/submit`, { markdown });
-  const saved = rt.market.worker.row(assignmentId);
+  let saved = rt.market.worker.row(assignmentId);
+  if (dropReply) {
+    check(saved.submit_state === "unknown" && submissionPosts === 1 && replyDropped,
+      "lost acknowledgement retains the original uncertain submission with one POST");
+    const originalAttempt = saved.submit_attempt_id;
+    rt.market = new Market(rt.market.d);
+    rt.app = buildApp(rt);
+    await ok("POST", "/market/worker/poll");
+    saved = rt.market.worker.row(assignmentId);
+    check(saved.submit_attempt_id === originalAttempt && saved.submit_state === "submitted" && submissionPosts === 1,
+      "reconstructed worker confirms the original attempt from version/raw reads without another POST");
+  }
   if (saved.submit_state !== "submitted") {
     const blocked = { simulated: true, result: "BLOCKED", request_id: requestId, assignment_id: assignmentId,
       submit_attempt_id: saved.submit_attempt_id, submit_state: saved.submit_state, error: saved.submit_error,
@@ -247,7 +266,13 @@ if (process.argv.includes("--worker")) {
   }
   check(saved.submit_state === "submitted" && saved.deliverable === markdown && !!saved.submit_attempt_id,
     "the original worker submission body and attempt are durably recorded");
+  const history = await rt.market.d.api.deliverableVersions(assignmentId);
+  check(history.length === 1 && history[0]!.version === 1, "one immutable submitted version is retained");
+  check(await rt.market.d.api.deliverableMarkdown(assignmentId, 1) === markdown, "version raw bytes match the original report");
   await ok("POST", "/market/worker/poll");
+  check(JSON.stringify(await rt.market.d.api.deliverableVersions(assignmentId)) === JSON.stringify(history) &&
+    await rt.market.d.api.deliverableMarkdown(assignmentId, 1) === markdown && submissionPosts === 1,
+    "observation preserves immutable history/raw bytes and causes no resubmission");
   check(rt.market.worker.row(assignmentId).status === "accepted", "Market acceptance is observed from the actual simulator API");
   const paid = await followUntil(requestId, h => h.state === "paid");
   check(paid.request_id === requestId && paid.state === "paid" && paid.deliverable === markdown,
@@ -259,7 +284,7 @@ if (process.argv.includes("--worker")) {
     "worker completion requests no platform payout; the buyer's x402 Market payment is separate");
   console.log(`    worker receipt: ${JSON.stringify({ buyer_agency: wallet, worker_agency: workerAgency,
     request_id: requestId, assignment_id: assignmentId, submission_attempt_id: saved.submit_attempt_id,
-    assignment_status: rt.market.worker.row(assignmentId).status, hire_state: paid.state, platform_payouts_added: 0 })}`);
+    assignment_status: rt.market.worker.row(assignmentId).status, hire_state: paid.state, submission_posts: submissionPosts, reply_dropped: replyDropped, version: history[0]!.version, raw_matches: true, platform_payouts_added: 0 })}`);
 }
 
 console.log(failures.length ? `\n✗ ${failures.length} check(s) failed:\n  - ${failures.join("\n  - ")}` : "\n✓ every check passed");

@@ -9,7 +9,7 @@
 !scripts/build-web.ts
 !vendor/
 !vendor/multiagency-sdk/
-!vendor/multiagency-sdk/multiagency-sdk-0.6.0-78902f13.tgz
+!vendor/multiagency-sdk/multiagency-sdk-0.6.0-c1a3ae61.tgz
 **/.env
 **/.env.*
 **/*.sqlite

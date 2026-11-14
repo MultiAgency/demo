@@ -1,52 +1,68 @@
 {
-  "as_of": "2026-11-14",
-  "status": "INTEGRATION_PREPARED_NOT_PROMOTED",
-  "fullAcceptance": false,
-  "allRequiredChecksPassed": false,
-  "baseCommit": "f54ada0df84054a78a449d74cd89240cfddacfc6",
-  "sourceManifestSha256": "916ee27a1fb4bb4e54e874e007d381f608a09ba0d421849d7f1adac7a2420846",
-  "image": "sha256:5e5c2dd37caece019810e07ae8ff56b2dc704e77e8f977da6197a99ba4b31c4e",
-  "architecture": "linux/amd64",
-  "platformSource": "ff4a17ffa6a0f6055692f9147e147ab01b03a58d",
-  "candidate": "78902f135e5f23018bfc3a03ebfa105eb6ebb72ce03fade5720aebeef183b9ea",
-  "sdkSha256": "b7c45afaa4a3605eae9bcd9c174e3d1b0fbfb55b8285b2405828a9024f6a9f0c",
-  "installedSdkFilesByteVerified": 101,
-  "rerun": {
-    "offlineTests": 1686,
-    "offlineFailures": 0,
-    "typecheck": "pass",
-    "sdkPin": "pass",
-    "buyerMarket": "pass",
-    "workerMarket": "blocked: version-history HTTP 404; zero submission POST; attempt retained",
-    "amd64Container": "pass"
+  "decision": "LOCAL_ROLLOUT_CANDIDATE; owner commit/merge/CI and hosted gates remain open",
+  "localQualificationAccepted": true,
+  "allRequestedLocalChecksPassed": true,
+  "rolloutCandidate": true,
+  "deploymentAuthorized": false,
+  "full060Acceptance": false,
+  "baseCommit": "6151b3564d4da6b9b88a78b0a88c121693c77695",
+  "sourceManifestSha256": "05455f2ab87fe6859532bac2b00cc85a7fe959bb716559c8144337de91103a38",
+  "image": "sha256:066d0c4e037a9838db07ea98302b4eac2daba0a08893de019c9f08f1e81162fc",
+  "architecture": "linux/amd64; locally exercised through emulation on arm64",
+  "platformSource": "f4729f4a7244a4e415d03678535328960b695d71",
+  "candidate": "c1a3ae617f7c2ff64dc4a976e1493b96bceec56cf6c98d675d1c863cbd817509",
+  "sdkSha256": "aa3d4325bde4f74604280c577fac99b50acea805d27214a89899a77e1132af9a",
+  "sdkProvenanceSha256": "b54a4a7a7e0d1ebdcf3ef9447f3356ec37fad211d6c3fac650a1e41f18bca699",
+  "installedSdkByteAudit": {
+    "files": 101,
+    "allMatch": true
   },
-  "earlierEvidence": {
-    "exactSdkArchiveAndProvenance": "Still applicable: identical bytes, rechecked in final installed image",
-    "previousFrozenRuntimeChecks": "Historical only for earlier source; no transfer to integrated app",
-    "previousHostedEac99283": "Historical deployment association only; integrated source not deployed",
-    "fullBrowserRealSdkReworkRestart": "Combined integrated real-SDK/browser, fixture rework, privacy and Market-settled browser were rerun and passed during preflight investigation; separate real-SDK process-restart qualification remains a gate for a replacement pair."
+  "offlineTests": {
+    "pass": 1688,
+    "fail": 0
   },
-  "rolloutGate": "Do not replace previous frozen candidate: worker integration must pass first; then review outstanding workflow/hosted checks",
-  "previousFrozenSourceUnchanged": "7de75db767837b37a7dadf134078e10fce406f3c06131f94d001d0793f3ea463",
-  "noPaidHire": true,
-  "issue81": "separately deferred",
-  "evidenceDirectory": ".release-candidates/sdk060-integration-916ee27a/ (ignored; private receipts and logs)",
-  "receiptSha256": "43332dc241e2141374057062975127ee81126286669844fb05391d03a94b8b9f",
+  "priorRefusedRun": {
+    "receiptSha256": "83a4c59b6fbdebc0b383e13a6fbcaad83d03d6f98dd67598642afe48df54731d",
+    "reason": "Read-only dependency reuse symlink left isolated installed tree. Contained dependency copy, frozen install and identical app source rerun passed; guard unchanged."
+  },
+  "historicalPreserved": [
+    "ff4a17f/78902f13 failed worker attempts and receipts",
+    "abf514ef artifacts and readiness",
+    "frozen source 7de75db7 and image95af547d",
+    "integrated source916ee27a and image5e5c2dd3"
+  ],
+  "earlierChecks": "Historical only; every listed applicable local consumer check rerun against this new pair. No old image/receipt relabeled.",
+  "rolloutRisk": "Merged app includes a funding-recovery table rebuild/outcome migration absent from eac99283; row-copy preservation/refusal tests pass, but fresh protected snapshot and rollback compatibility review remain mandatory. No rollback by restoring stale state.",
+  "remainingGates": [
+    "Owner commit/review and required remote CI on final merge head",
+    "Treasury replacement source fe91bbf locally qualified on the same pair; owner publication/remote CI and exact merge-tree review pending",
+    "Fresh protected-state snapshot, rollback queries and worker binding before separately authorized rollout",
+    "Deployed source/image/SDK and gateway association; three scheduled successful polls; current correct-agency Desk readiness"
+  ],
+  "issue81": "Separately deferred; original unknown submission, committed budget and replay block unchanged",
+  "noDeploymentOrPaidHire": true,
+  "receiptSha256": "ed13faf987ae83a79c3b8fd6f24a9f401f74466be8638c6370a99457b675a75b",
+  "evidenceDirectory": ".release-candidates/sdk060-c1a3ae61-05455f2a/ (ignored)",
+  "workerProof": {
+    "preflight": "passed",
+    "submissionPosts": 1,
+    "lostResponseRecovery": "same attempt confirmed by version/raw reads after reconstruction",
+    "immutableVersion": 1,
+    "rawMatches": true,
+    "originalFixtureHireSettled": true,
+    "platformPayoutAttemptsAdded": 0
+  },
   "runbook": "docs/sdk060-rollout.txt",
-  "historicalAbf514ef": "docs/archive/sdk060-abf514ef-local-readiness.json; payloads preserved in ignored working-edits archive; never active inputs",
-  "preflightInvestigation": {
-    "finding": "UNRESOLVED_PLATFORM_SIMULATOR_COVERAGE",
-    "report": "docs/market-worker-preflight.txt",
-    "receiptSha256": "50015cb40dea810f82edce27e46b5e1f21cee5d73ad94121fd94a879a801c368",
-    "runtimeSourceUnchanged": true,
-    "offlineTests": 1688,
-    "browserChecks": [
-      "combined real-SDK builder/Market",
-      "fixture revision/keyboard",
-      "privacy matrix",
-      "Market-settled jobs"
-    ],
-    "platformHandoff": "https://github.com/MultiAgency/platform/issues/94#issuecomment-6878959025",
-    "simulatorContractCheck": "fails expected 200, observed 404; no runtime correction or new pair yet"
+  "imageArchivePreservation": {
+    "status": "COMPLETE",
+    "archiveSha256": "d832713022ea2ebabb7878be1cae0f809850330fc54df16c2a45124e9fccd7a0",
+    "archiveBytes": 610292224,
+    "qualifiedImageIdentityVerified": true,
+    "allLayerDiffIdsVerified": true,
+    "dockerLoadAndInspectPassed": true,
+    "preservationReceiptSha256": "d7ba86500ba53faea021f3d9b4bddc3f3c4c568441bde9872b0cb474a841da34",
+    "evidenceDirectory": ".release-candidates/preservation-review-20261114/",
+    "historicalArchivesUnchanged": true,
+    "onlyExplicitlyApprovedBuildCacheRemoved": true
   }
 }
